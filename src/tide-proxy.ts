@@ -1,0 +1,591 @@
+
+import * as dgram from 'dgram';
+import { TibboDevice, PCODE_STATE, TaikoMessage, TIBBO_PROXY_MESSAGE, TaikoReply, PCODEMachineState, PCODE_COMMANDS } from './types';
+import * as socketIOClient from 'socket.io-client';
+const winston = require('winston');
+const url = require('url');
+const io = require("socket.io")({ serveClient: false });
+const os = require('os');
+const ifaces = os.networkInterfaces();
+const { Subject } = require('await-notify');
+
+const RETRY_TIMEOUT = 1000;
+const PORT = 65535;
+
+
+const REPLY_OK = "A";
+const NOTIFICATION_OK = "J";
+
+const BLOCK_SIZE = 128;
+
+interface UDPMessage {
+    message: string,
+    nonce: string,
+    tries: number,
+    timestamp: number
+}
+
+interface TBNetworkInterface {
+    socket: dgram.Socket,
+    netInterface: any
+}
+
+const logger = winston.createLogger({
+    level: 'info',
+    format: winston.format.simple(),
+    transports: [
+        //
+        // - Write all logs with level `error` and below to `error.log`
+        // - Write all logs with level `info` and below to `combined.log`
+        //
+
+    ],
+});
+
+if (process.env.NODE_ENV != 'production') {
+    logger.add(new winston.transports.Console({format: winston.format.simple(),}));
+}
+
+export class TIDEProxy {
+    devices: Array<TibboDevice> = [];
+    pendingMessages: Array<UDPMessage> = [];
+    timer: NodeJS.Timeout;
+    interfaces: Array<TBNetworkInterface> = [];
+    currentInterface: TBNetworkInterface | undefined = undefined;
+    socket: any;
+    memoryCalls: Array<any> = [];
+    pdbMac: string;
+
+    constructor(serverAddress = '', proxyName: string, port = 3535) {
+        for (const key in ifaces) {
+            // broadcasts[i] = networks[i] | ~subnets[i] + 256;
+            const iface = ifaces[key];
+            for (let i = 0; i < iface.length; i++) {
+                const tmp = iface[i];
+                if (tmp.family == 'IPv4' && !tmp.internal) {
+                    // const broadcastAddress = this.getBroadcastAddress(tmp.address, tmp.netmask);
+                    const socket = dgram.createSocket('udp4');
+                    // if (broadcastAddress == NaN) {
+                    //     continue;
+                    // }
+                    socket.on('close', () => {
+                        logger.info('client disconnected');
+                    });
+
+                    socket.bind(PORT, tmp.address, () => {
+                        socket.setBroadcast(true);
+                    });
+                    const int = {
+                        socket: socket,
+                        netInterface: tmp
+                    };
+
+                    socket.on('message', (msg: Buffer, info) => {
+                        this.handleMessage(msg, info, int);
+                    });
+                    this.interfaces.push(int);
+                }
+            }
+        }
+
+        if (serverAddress != '') {
+            const socketURL = url.parse(serverAddress);
+            let socketioPath = '/socket.io';
+            if (socketURL.path != '/') {
+                socketioPath = socketURL.path + socketioPath;
+            }
+            this.socket = socketIOClient(socketURL.protocol + '//' + socketURL.host + '/devices', {
+                path: socketioPath
+            });
+            this.socket.on('connect', () => {
+                this.socket.emit(TIBBO_PROXY_MESSAGE.REGISTER, proxyName);
+                logger.error('connected');
+            });
+            this.socket.on('disconnect', () => {
+                logger.error('disconnected');
+            });
+            this.socket.on('connect_error', (error) => {
+                logger.error('connection error');
+            });
+
+            this.socket.on(TIBBO_PROXY_MESSAGE.REFRESH, (message) => {
+                const msg = Buffer.from(PCODE_COMMANDS.DISCOVER);
+                // this.devices = [];
+                this.send(msg);
+            });
+
+            this.socket.on(TIBBO_PROXY_MESSAGE.BUZZ, (message: TaikoMessage) => {
+                this.sendToDevice(message.mac, PCODE_COMMANDS.BUZZ, '');
+            });
+            this.socket.on(TIBBO_PROXY_MESSAGE.REBOOT, (message: TaikoMessage) => {
+                const device = this.getDevice(message.mac);
+                device.file = undefined;
+                device.fileBlocksTotal = 0;
+                device.messageQueue = [];
+                this.sendToDevice(message.mac, PCODE_COMMANDS.REBOOT, '', false);
+            });
+            this.socket.on(TIBBO_PROXY_MESSAGE.APPLICATION_UPLOAD, (message: TaikoMessage) => {
+                this.startApplicationUpload(message.mac, message.data);
+            });
+            this.socket.on(TIBBO_PROXY_MESSAGE.COMMAND, (message: TaikoMessage) => {
+                this.sendToDevice(message.mac, message.command, message.data, true, message.nonce);
+            });
+            this.socket.on(TIBBO_PROXY_MESSAGE.SET_PDB_STORAGE_ADDRESS, this.setPDBAddress.bind(this));
+        }
+        else {
+            this.socket = io.of('/tide');
+            this.socket.on('connection', conClient => {
+                console.log('client connected on socket');
+                conClient.on(TIBBO_PROXY_MESSAGE.REFRESH, (message) => {
+                    const msg = Buffer.from(PCODE_COMMANDS.DISCOVER);
+                    this.send(msg);
+                });
+
+                conClient.on(TIBBO_PROXY_MESSAGE.BUZZ, (message: TaikoMessage) => {
+                    this.sendToDevice(message.mac, PCODE_COMMANDS.BUZZ, '');
+                });
+                conClient.on(TIBBO_PROXY_MESSAGE.REBOOT, (message: TaikoMessage) => {
+                    this.sendToDevice(message.mac, PCODE_COMMANDS.REBOOT, '', false);
+                });
+                conClient.on(TIBBO_PROXY_MESSAGE.APPLICATION_UPLOAD, (message: TaikoMessage) => {
+                    this.startApplicationUpload(message.mac, message.data);
+                });
+                conClient.on(TIBBO_PROXY_MESSAGE.COMMAND, (message: TaikoMessage) => {
+                    this.sendToDevice(message.mac, message.command, message.data, true, message.nonce);
+                });
+                conClient.on(TIBBO_PROXY_MESSAGE.SET_PDB_STORAGE_ADDRESS, this.setPDBAddress.bind(this));
+            });
+            io.listen(port);
+        }
+    }
+
+    setPDBAddress(message: TaikoMessage): void {
+        const device = this.getDevice(message.mac);
+        device.pdbStorageAddress = Number(message.data);
+    }
+
+    async handleMessage(msg: Buffer, info: any, socket: TBNetworkInterface): Promise<void> {
+        const message = msg.toString();
+        const parts = message.substring(message.indexOf('[') + 1, message.indexOf(']')).split('.');
+        if (message.substr(0, 1) == '_') {
+            return;
+        }
+        logger.info(`${new Date().toLocaleTimeString()} recv: ${message}`);
+        this.currentInterface = socket;
+        for (let i = 0; i < parts.length; i++) {
+            parts[i] = Number(parts[i]).toString();
+        }
+
+        const mac = parts.join('.');
+        const ip = info.address.toString();
+        const device = this.getDevice(mac);
+        if (device.ip == '') {
+            device.ip = ip;
+        }
+
+        const secondPart = message.substring(message.indexOf(']') + 2);
+        const messagePart = secondPart.split('|')[0];
+        let replyFor: TaikoMessage | undefined = undefined;
+
+        const identifier = secondPart.split('|')[1];
+        for (let i = 0; i < device.messageQueue.length; i++) {
+            if (device.messageQueue[i].nonce == identifier) {
+                replyFor = device.messageQueue.splice(i, 1)[0];
+                break;
+            }
+        }
+        for (let i = 0; i < this.pendingMessages.length; i++) {
+            if (this.pendingMessages[i].nonce == identifier) {
+                this.pendingMessages.splice(i, 1)[0];
+                break;
+            }
+        }
+        const reply = message.substring(message.indexOf(']') + 1, message.indexOf(']') + 2);
+        let fileBlock;
+
+        if (device.messageQueue.length == 0 && replyFor == undefined && reply != NOTIFICATION_OK) {
+            if (device.fileBlocksTotal == 0) {
+                device.ip = ip;
+                device.mac = mac;
+                this.sendToDevice(mac, PCODE_COMMANDS.INFO, '');
+            }
+        }
+        if (device.fileBlocksTotal != 0 && replyFor == undefined && reply != NOTIFICATION_OK) {
+            device.fileIndex++;
+            if (reply != REPLY_OK) {
+                device.fileIndex--;
+            }
+            else {
+                for (let i = 0; i < device.messageQueue.length; i++) {
+                    if (device.messageQueue[i].command == PCODE_COMMANDS.UPLOAD) {
+                        for (let j = 0; j < this.pendingMessages.length; j++) {
+                            if (this.pendingMessages[j].nonce == device.messageQueue[i].nonce) {
+                                this.pendingMessages.splice(j, 1);
+                                break;
+                            }
+                        }
+                        device.messageQueue.splice(i, 1);
+                        break;
+                    }
+                }
+
+            }
+            if (device.file != null && device.fileIndex * BLOCK_SIZE < device.file.length) {
+                fileBlock = device.file.slice(device.fileIndex * BLOCK_SIZE, device.fileIndex * BLOCK_SIZE + BLOCK_SIZE);
+                this.sendBlock(mac, fileBlock, device.fileIndex);
+                if (device.fileIndex % 10 == 0 || device.fileIndex == device.fileBlocksTotal) {
+                    this.socket.emit(TIBBO_PROXY_MESSAGE.UPLOAD, {
+                        'data': device.fileIndex / device.fileBlocksTotal,
+                        'mac': mac
+                    });
+                }
+            }
+            else {
+                device.fileIndex = 0;
+                device.file = undefined;
+                device.fileBlocksTotal = 0;
+                this.sendToDevice(mac, PCODE_COMMANDS.APPUPLOADFINISH, '');
+                this.socket.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
+                    'nonce': identifier,
+                    'mac': mac
+                });
+            }
+        }
+
+        if (reply != undefined) {
+            const tmpReply: TaikoReply = {
+                mac: mac,
+                data: messagePart,
+                reply: message.substr(message.indexOf(']') + 1, 1),
+                nonce: identifier
+            }
+            let replyForCommand = '';
+            if (replyFor != undefined) {
+                replyForCommand = replyFor.command;
+            }
+            else {
+                if (device.fileBlocksTotal > 0) {
+                    replyForCommand = PCODE_COMMANDS.UPLOAD;
+                }
+            }
+            tmpReply.replyFor = replyForCommand;
+            this.socket.emit(TIBBO_PROXY_MESSAGE.REPLY, tmpReply);
+            let stateString = '';
+
+            if (replyForCommand == PCODE_COMMANDS.GET_MEMORY) {
+                if (device.pdbStorageAddress != undefined) {
+                    const address = tmpReply.data.substring(13, 17).toLowerCase();
+                    const value = tmpReply.data.split(' ')[1];
+                    if (this.memoryCalls[address] != undefined) {
+                        if (value != undefined) {
+                            this.memoryCalls[address].message = value.split(',');
+                            this.memoryCalls[address].notify();
+                        }
+                    }
+                }
+            }
+
+            switch (replyForCommand) {
+                case PCODE_COMMANDS.INFO:
+                    {
+                        const parts = messagePart.split('/');
+                        device.tios = parts[0];
+                        device.app = parts[2];
+                        this.sendToDevice(mac, PCODE_COMMANDS.STATE, '');
+                        // let newMessage = Buffer.from(`_[${mac}]${P_PCODESTATE}|a`);
+                    }
+                    break;
+                case PCODE_COMMANDS.PAUSE:
+                    device.lastRunCommand = undefined;
+                    break;
+                case PCODE_COMMANDS.RUN:
+                case PCODE_COMMANDS.STEP:
+                case PCODE_COMMANDS.SET_POINTER:
+                    stateString = messagePart;
+                    if (replyForCommand == PCODE_COMMANDS.RUN || replyForCommand == PCODE_COMMANDS.STEP) {
+                        device.lastRunCommand = replyFor;
+                    }
+                    break;
+                case PCODE_COMMANDS.STATE:
+                    {
+                        const replyParts = messagePart.split('/');
+                        const pc = replyParts[0]
+                        let pcode_state = PCODE_STATE.STOPPED
+                        if (pc[1] == 'R') {
+                            pcode_state = PCODE_STATE.RUNNING
+                        }
+                        else if (pc[2] == 'B') {
+                            pcode_state = PCODE_STATE.PAUSED
+                        }
+
+                        device.pcode = pcode_state;
+                        this.socket.emit(TIBBO_PROXY_MESSAGE.DEVICE, {
+                            ip: device.ip,
+                            mac: device.mac,
+                            tios: device.tios,
+                            app: device.app,
+                            pcode: device.pcode
+                        });
+
+                        stateString = messagePart;
+                    }
+                    break;
+                case PCODE_COMMANDS.RESET_PROGRAMMING:
+                    if (device.file != null) {
+                        const remainder = device.file.length % BLOCK_SIZE;
+                        if (remainder == 0) {
+                            device.fileBlocksTotal = device.file.length / BLOCK_SIZE
+                        }
+                        else {
+                            device.fileBlocksTotal = (device.file.length - remainder) / BLOCK_SIZE + 1;
+                        }
+                        fileBlock = device.file.slice(device.fileIndex * BLOCK_SIZE, device.fileIndex * BLOCK_SIZE + BLOCK_SIZE);
+                        this.sendBlock(mac, fileBlock, 0);
+                    }
+                    break;
+                default:
+
+                    break;
+            }
+
+            if (reply == NOTIFICATION_OK) {
+                stateString = messagePart;
+            }
+            if (stateString != '') {
+                const deviceState: PCODEMachineState = <PCODEMachineState>stateString.substring(0, 3);
+                this.socket.emit(TIBBO_PROXY_MESSAGE.STATE, {
+                    'mac': mac,
+                    'data': messagePart
+                });
+                switch (deviceState) {
+                    case PCODEMachineState.DEBUG_PRINT_AND_CONTINUE:
+                        await this.handleDebugPrint(device, deviceState);
+                        break;
+                    case PCODEMachineState.DEBUG_PRINT_AND_STOP:
+                        if (device.state != PCODEMachineState.DEBUG_PRINT_AND_STOP) {
+                            await this.handleDebugPrint(device, deviceState);
+                        }
+                        break;
+                }
+
+                device.state = deviceState;
+            }
+        }
+    }
+
+    async handleDebugPrint(device: TibboDevice, deviceState: PCODEMachineState): Promise<void> {
+        const address = device.pdbStorageAddress;
+        if (address != undefined && device.lastRunCommand != undefined) {
+            const val = await this.getVariable(address, device.mac);
+            this.socket.emit(TIBBO_PROXY_MESSAGE.DEBUG_PRINT, {
+                data: JSON.stringify({
+                    data: val,
+                    state: deviceState
+                }),
+                mac: device.mac
+            });
+            if (deviceState == PCODEMachineState.DEBUG_PRINT_AND_CONTINUE) {
+                if (device.lastRunCommand != undefined) {
+                    this.sendToDevice(device.lastRunCommand.mac, device.lastRunCommand.command, device.lastRunCommand.data);
+                }
+            }
+
+        }
+    }
+
+    startApplicationUpload(mac: string, fileString: string): void {
+        let device: TibboDevice = this.getDevice(mac);
+        device.fileIndex = 0;
+        const bytes = Buffer.from(fileString, 'binary');
+        device.file = bytes;
+        device.messageQueue = [];
+        this.sendToDevice(mac, PCODE_COMMANDS.RESET_PROGRAMMING, '');
+    }
+
+    sendBlock(mac: string, fileBlock: Buffer, blockIndex: number): void {
+        const buf = Buffer.from([(0xff00 & blockIndex) >> 8, (0x00ff & blockIndex)]);
+        // const buf = new Buffer([(0xff00 & blockIndex) >> 8, (0x00ff & blockIndex)]);
+        fileBlock = Buffer.concat([buf, fileBlock]);
+        if (fileBlock.length < BLOCK_SIZE) {
+            const filler = Buffer.alloc(BLOCK_SIZE - fileBlock.length);
+            // const filler = new Buffer(BLOCK_SIZE - fileBlock.length);
+            fileBlock = Buffer.concat([fileBlock, filler]);
+        }
+
+        this.sendToDevice(mac, PCODE_COMMANDS.UPLOAD, Buffer.concat([fileBlock]).toString('binary'), true);
+    }
+
+    sendToDevice(mac: string, command: string, data: string, reply = true, nonce: string | undefined = undefined): void {
+        let pnum = nonce;
+        try {
+            if (pnum == undefined) {
+                pnum = this.makeid(8);
+            }
+            const device = this.getDevice(mac);
+            const parts = mac.split('.');
+            for (let i = 0; i < parts.length; i++) {
+                parts[i] = parts[i].padStart(3, '0');
+            }
+            mac = parts.join('.');
+            const message = `_[${mac}]${command}${data}`;
+            if (reply) {
+                this.pendingMessages.push({
+                    message: message,
+                    nonce: pnum,
+                    tries: 0,
+                    timestamp: new Date().getTime()
+                });
+                device.messageQueue.push({
+                    mac: mac,
+                    command: <PCODE_COMMANDS>command,
+                    data: data,
+                    nonce: pnum
+                });
+            }
+            const newMessage = Buffer.concat([Buffer.from(`${message}|${pnum}`, 'binary')]);
+            this.send(newMessage);
+
+            if (this.timer == undefined) {
+                this.timer = setInterval(this.checkMessageQueue.bind(this), 300);
+            }
+        }
+        catch (ex) {
+            logger.error(ex);
+        }
+
+    }
+
+    checkMessageQueue(): void {
+        const currentDate = new Date().getTime();
+        for (let i = 0; i < this.pendingMessages.length; i++) {
+            if (currentDate - this.pendingMessages[i].timestamp > RETRY_TIMEOUT) {
+                if (this.pendingMessages[i].tries > 4) {
+                    logger.info('discarding ' + this.pendingMessages[i].message);
+                    this.pendingMessages.splice(i, 1);
+                    i--;
+                    continue;
+                }
+                this.pendingMessages[i].tries++;
+                this.pendingMessages[i].timestamp = currentDate;
+                const message = this.pendingMessages[i].message;
+                const pnum = this.pendingMessages[i].nonce;
+                const newMessage = Buffer.concat([Buffer.from(`${message}|${pnum}`, 'binary')]);
+                logger.info('timeout ' + this.pendingMessages[i].message);
+                this.send(newMessage);
+            }
+        }
+    }
+
+    makeid(length: number): string {
+        let result = '';
+        const characters = '0123456789abcde';
+        const charactersLength = characters.length;
+        for (let i = 0; i < length; i++) {
+            result += characters.charAt(Math.floor(Math.random() * charactersLength));
+        }
+        return result;
+    }
+
+    send(message: Buffer): void {
+        logger.info(`${new Date().toLocaleTimeString()} sent: ${message}`);
+        if (this.currentInterface != undefined) {
+            const broadcastAddress = this.getBroadcastAddress(this.currentInterface.netInterface.address, this.currentInterface.netInterface.netmask);
+            this.currentInterface.socket.send(message, 0, message.length, PORT, broadcastAddress, (err, bytes) => {
+                if (err) {
+                    logger.error('error sending ' + err.toString());
+                }
+            });
+        }
+        else {
+            for (let i = 0; i < this.interfaces.length; i++) {
+                const tmp = this.interfaces[i];
+                const broadcastAddress = this.getBroadcastAddress(tmp.netInterface.address, tmp.netInterface.netmask);
+                tmp.socket.send(message, 0, message.length, PORT, broadcastAddress, (err, bytes) => {
+                    if (err) {
+                        logger.error('error sending ' + err.toString());
+                    }
+                });
+            }
+        }
+    }
+
+    getBroadcastAddress(address: string, netmask: string): string {
+        const addressBytes = address.split(".").map(Number);
+        const netmaskBytes = netmask.split(".").map(Number);
+        const subnetBytes = netmaskBytes.map(
+            (_, index) => addressBytes[index] & netmaskBytes[index]
+        );
+        const broadcastBytes = netmaskBytes.map(
+            (_, index) => subnetBytes[index] | (~netmaskBytes[index] + 256)
+        );
+        return broadcastBytes.map(String).join(".")
+    }
+
+    private async getVariable(address: number, mac: string): Promise<string> {
+        let outputString = "";
+        let tmpAddress = address.toString(16).padStart(4, '0');
+        this.memoryCalls[tmpAddress] = new Subject();
+        const COMMAND_WAIT_TIME = 1000;
+        const READ_BLOCK_SIZE = 16;
+        try {
+            this.sendToDevice(mac, PCODE_COMMANDS.GET_MEMORY, tmpAddress + ',02', true);
+            await this.memoryCalls[tmpAddress].wait(COMMAND_WAIT_TIME);
+            const stringSize = parseInt(this.memoryCalls[tmpAddress].message[0], 16);
+            let index = 0;
+            address += 2;
+            let blocks = Math.floor(stringSize / READ_BLOCK_SIZE);
+            if (stringSize % READ_BLOCK_SIZE != 0) {
+                blocks++;
+            }
+            for (let i = 0; i < blocks; i++) {
+                let count = READ_BLOCK_SIZE;
+                if (index + count > stringSize) {
+                    count = stringSize - index;
+                }
+                tmpAddress = address.toString(16).padStart(4, '0')
+                this.sendToDevice(mac, PCODE_COMMANDS.GET_MEMORY, tmpAddress + ',' + count.toString(16).padStart(2, '0'), true);
+                this.memoryCalls[tmpAddress] = new Subject();
+                await this.memoryCalls[tmpAddress].wait(COMMAND_WAIT_TIME);
+                for (let i = 0; i < this.memoryCalls[tmpAddress].message.length; i++) {
+                    const charCode = parseInt(this.memoryCalls[tmpAddress].message[i], 16);
+                    outputString += String.fromCharCode(charCode);
+                }
+                this.memoryCalls[tmpAddress] = undefined;
+                index += count;
+                address += count;
+            }
+        }
+        catch (ex) {
+            logger.error(ex);
+        }
+        return outputString;
+    }
+
+    getDevice(mac: string): TibboDevice {
+        const parts = mac.split('.');
+        for (let i = 0; i < parts.length; i++) {
+            parts[i] = Number(parts[i]).toString();
+        }
+        mac = parts.join('.');
+        for (let i = 0; i < this.devices.length; i++) {
+            if (this.devices[i].mac == mac) {
+                return this.devices[i];
+            }
+        }
+
+        const device = {
+            ip: '',
+            mac: mac,
+            messageQueue: [],
+            tios: '',
+            app: '',
+            fileIndex: 0,
+            fileBlocksTotal: 0,
+            pcode: -1,
+            state: PCODEMachineState.STOPPED
+        };
+
+        this.devices.push(device);
+        return device;
+    }
+}
