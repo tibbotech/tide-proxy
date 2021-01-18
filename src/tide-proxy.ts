@@ -1,6 +1,5 @@
-
 import * as dgram from 'dgram';
-import { TibboDevice, PCODE_STATE, TaikoMessage, TIBBO_PROXY_MESSAGE, TaikoReply, PCODEMachineState, PCODE_COMMANDS } from './types';
+// import { TibboDevice, PCODE_STATE, TaikoMessage, TIBBO_PROXY_MESSAGE, TaikoReply, PCODEMachineState, PCODE_COMMANDS } from './types';
 import * as socketIOClient from 'socket.io-client';
 const winston = require('winston');
 const url = require('url');
@@ -588,4 +587,84 @@ export class TIDEProxy {
         this.devices.push(device);
         return device;
     }
+}
+
+export interface TibboDevice {
+    ip: string;
+    mac: string;
+    messageQueue: Array<TaikoMessage>;
+    tios: string;
+    app: string;
+    file?: Buffer;
+    fileIndex: number;
+    fileBlocksTotal: number;
+    pcode: PCODE_STATE;
+    lastRunCommand?: TaikoMessage;
+    state: PCODEMachineState;
+    pdbStorageAddress?: number;
+}
+
+export enum PCODEMachineState {
+    STOPPED = '***',
+    RUN = '*R*',
+    PAUSED = '**B',
+    DEBUG_PRINT_AND_STOP = '**P',
+    DEBUG_PRINT_AND_CONTINUE = '*P*'
+}
+
+export enum PCODE_STATE {
+    STOPPED = 0,
+    PAUSED = 1,
+    RUNNING = 2
+}
+
+export interface TaikoMessage {
+    mac: string;
+    command: PCODE_COMMANDS;
+    data: string;
+    nonce?: string;
+}
+
+export interface TaikoReply {
+    mac: string;
+    data: string;
+    replyFor?: string;
+    reply?: string;
+    nonce?: string;
+}
+
+export enum PCODE_COMMANDS {
+    STATE = "PC",
+    RUN = "PR",
+    PAUSE = "PB",
+    BREAKPOINT = "CB",
+    GET_MEMORY = "GM",
+    GET_PROPERTY = "GP",
+    SET_PROPERTY = "SR",
+    SET_MEMORY = "SM",
+    STEP = "PO",
+    SET_POINTER = "SP",
+    DISCOVER = '_?',
+    INFO = 'X',
+    RESET_PROGRAMMING = 'Q',
+    UPLOAD = 'D',
+    APPUPLOADFINISH = "T",
+    BUZZ = 'B',
+    REBOOT = 'E'
+}
+
+export enum TIBBO_PROXY_MESSAGE {
+    REFRESH = 'refresh',
+    DEVICE = 'device',
+    BUZZ = 'buzz',
+    REBOOT = 'reboot',
+    UPLOAD = 'upload',
+    REGISTER = 'register',
+    APPLICATION_UPLOAD = 'application',
+    UPLOAD_COMPLETE = 'upload_complete',
+    STATE = 'state',
+    COMMAND = 'command',
+    REPLY = 'reply',
+    SET_PDB_STORAGE_ADDRESS = 'set_pdb_storage_address',
+    DEBUG_PRINT = 'debug_print'
 }

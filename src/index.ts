@@ -1,6 +1,1 @@
-import { TIDEProxy } from './tide-proxy';
-
-
-export {
-    TIDEProxy
-}
+export * from './tide-proxy';
