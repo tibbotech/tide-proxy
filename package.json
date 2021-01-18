@@ -9,7 +9,7 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "build": "tsc",
     "watch": "npm run build --watch",
-    "install": "npm run build"
+    "prepare": "npm run build"
   },
   "author": {
     "name": "Jimmy Hu",
