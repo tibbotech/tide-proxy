@@ -2,16 +2,23 @@
   "name": "@tibbo/tide-proxy",
   "version": "1.0.0",
   "description": "",
-  "main": "dist/index.js",
+  "main": "lib/index.js",
+  "typings": "lib/index.d.ts",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "build": "tsc -p ./src",
-    "watch": "tsc -w -p ./src"
+    "build": "tsc",
+    "watch": "npm run build -- --watch"
   },
   "author": {
     "name": "Jimmy Hu",
     "email": "jimmy.hu@tibbo.com"
   },
+  "keywords": [
+    "typescript"
+  ],
+  "files": [
+    "lib"
+  ],
   "dependencies": {
     "await-notify": "1.0.1",
     "socket.io": "2.3.0",

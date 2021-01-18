@@ -42,18 +42,17 @@ const logger = winston.createLogger({
 });
 
 if (process.env.NODE_ENV != 'production') {
-    logger.add(new winston.transports.Console({format: winston.format.simple(),}));
+    logger.add(new winston.transports.Console({ format: winston.format.simple(), }));
 }
 
 export class TIDEProxy {
     devices: Array<TibboDevice> = [];
     pendingMessages: Array<UDPMessage> = [];
-    timer: NodeJS.Timeout;
+    timer?: NodeJS.Timeout;
     interfaces: Array<TBNetworkInterface> = [];
     currentInterface: TBNetworkInterface | undefined = undefined;
     socket: any;
-    memoryCalls: Array<any> = [];
-    pdbMac: string;
+    memoryCalls: { [key: string]: any } = {};
 
     constructor(serverAddress = '', proxyName: string, port = 3535) {
         for (const key in ifaces) {
@@ -103,11 +102,11 @@ export class TIDEProxy {
             this.socket.on('disconnect', () => {
                 logger.error('disconnected');
             });
-            this.socket.on('connect_error', (error) => {
+            this.socket.on('connect_error', (error: any) => {
                 logger.error('connection error');
             });
 
-            this.socket.on(TIBBO_PROXY_MESSAGE.REFRESH, (message) => {
+            this.socket.on(TIBBO_PROXY_MESSAGE.REFRESH, (message: TaikoMessage) => {
                 const msg = Buffer.from(PCODE_COMMANDS.DISCOVER);
                 // this.devices = [];
                 this.send(msg);
@@ -133,9 +132,9 @@ export class TIDEProxy {
         }
         else {
             this.socket = io.of('/tide');
-            this.socket.on('connection', conClient => {
+            this.socket.on('connection', (conClient: any) => {
                 console.log('client connected on socket');
-                conClient.on(TIBBO_PROXY_MESSAGE.REFRESH, (message) => {
+                conClient.on(TIBBO_PROXY_MESSAGE.REFRESH, (message: TaikoMessage) => {
                     const msg = Buffer.from(PCODE_COMMANDS.DISCOVER);
                     this.send(msg);
                 });
