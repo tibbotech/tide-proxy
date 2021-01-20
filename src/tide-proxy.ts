@@ -37,7 +37,6 @@ const logger = winston.createLogger({
         // - Write all logs with level `error` and below to `error.log`
         // - Write all logs with level `info` and below to `combined.log`
         //
-
     ],
 });
 
@@ -54,7 +53,7 @@ export class TIDEProxy {
     socket: any;
     memoryCalls: { [key: string]: any } = {};
 
-    constructor(serverAddress = '', proxyName: string, port = 3535) {
+    constructor(serverAddress = '', proxyName: string, port = 3535, targetInterface: TBNetworkInterface) {
         for (const key in ifaces) {
             // broadcasts[i] = networks[i] | ~subnets[i] + 256;
             const iface = ifaces[key];
@@ -155,6 +154,9 @@ export class TIDEProxy {
             });
             io.listen(port);
         }
+        if (targetInterface != undefined) {
+            this.currentInterface = targetInterface;
+        }
     }
 
     setPDBAddress(message: TaikoMessage): void {
@@ -169,7 +171,6 @@ export class TIDEProxy {
             return;
         }
         logger.info(`${new Date().toLocaleTimeString()} recv: ${message}`);
-        this.currentInterface = socket;
         for (let i = 0; i < parts.length; i++) {
             parts[i] = Number(parts[i]).toString();
         }
@@ -585,6 +586,13 @@ export class TIDEProxy {
 
         this.devices.push(device);
         return device;
+    }
+
+    close() {
+        for (let i = 0; i < this.interfaces.length; i++) {
+            this.interfaces[i].socket.close();
+        }
+        this.socket.disconnect();
     }
 }
 
