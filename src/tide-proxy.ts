@@ -53,7 +53,7 @@ export class TIDEProxy {
     socket: any;
     memoryCalls: { [key: string]: any } = {};
 
-    constructor(serverAddress = '', proxyName: string, port = 3535, targetInterface: TBNetworkInterface) {
+    constructor(serverAddress = '', proxyName: string, port = 3535, targetInterface?: TBNetworkInterface) {
         for (const key in ifaces) {
             // broadcasts[i] = networks[i] | ~subnets[i] + 256;
             const iface = ifaces[key];
