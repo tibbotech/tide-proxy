@@ -17,10 +17,11 @@ export declare class TIDEProxy {
     interfaces: Array<TBNetworkInterface>;
     currentInterface: TBNetworkInterface | undefined;
     socket: any;
+    server: any;
     memoryCalls: {
         [key: string]: any;
     };
-    constructor(serverAddress: string | undefined, proxyName: string, port?: number);
+    constructor(serverAddress: string | undefined, proxyName: string, port?: number, targetInterface?: string);
     setPDBAddress(message: TaikoMessage): void;
     handleMessage(msg: Buffer, info: any, socket: TBNetworkInterface): Promise<void>;
     handleDebugPrint(device: TibboDevice, deviceState: PCODEMachineState): Promise<void>;
@@ -33,6 +34,8 @@ export declare class TIDEProxy {
     getBroadcastAddress(address: string, netmask: string): string;
     private getVariable;
     getDevice(mac: string): TibboDevice;
+    emit(channel: string, content: any): void;
+    close(): Promise<void>;
 }
 export interface TibboDevice {
     ip: string;
