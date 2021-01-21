@@ -70,17 +70,29 @@ export class TIDEProxy {
                         logger.info('client disconnected');
                     });
 
+                    socket.on('error', (err) => {
+                        console.log(`udp server error:\n${err.stack}`);
+                        socket.close();
+                    });
+                    socket.on('message', (msg: Buffer, info) => {
+                        this.handleMessage(msg, info, int);
+                    });
+
+                    socket.on('listening', () => {
+                        console.log('listening on ' + tmp.address);
+                    });
+
                     socket.bind(PORT, tmp.address, () => {
+                        console.log('socket bound for ' + tmp.address);
                         socket.setBroadcast(true);
                     });
+                    
                     const int = {
                         socket: socket,
                         netInterface: tmp
                     };
 
-                    socket.on('message', (msg: Buffer, info) => {
-                        this.handleMessage(msg, info, int);
-                    });
+                    
                     this.interfaces.push(int);
 
                     if (targetInterface && key == targetInterface) {
@@ -600,12 +612,19 @@ export class TIDEProxy {
 
     async close() {
         for (let i = 0; i < this.interfaces.length; i++) {
+            const address = this.interfaces[i].socket.address().address;
             try {
-                this.interfaces[i].socket.close();
                 this.interfaces[i].socket.removeAllListeners();
+                await new Promise<void>((resolve, reject) => {
+                    this.interfaces[i].socket.close(() => {
+                        console.log('socket closed for ' + address);
+                        resolve();
+                    });
+                });
             }
             catch (ex) {
-
+                console.log('error closing ' + address);
+                console.log(ex);
             }
         }
         this.socket.disconnect();
