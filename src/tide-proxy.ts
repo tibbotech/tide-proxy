@@ -632,6 +632,9 @@ export class TIDEProxy {
                 console.log(ex);
             }
         }
+        if (this.timer !== undefined) {
+            clearInterval(this.timer);
+        }
         this.socket.disconnect();
         this.server.server.close();
 
