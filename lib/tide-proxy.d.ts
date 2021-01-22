@@ -30,7 +30,7 @@ export declare class TIDEProxy {
     sendToDevice(mac: string, command: string, data: string, reply?: boolean, nonce?: string | undefined): void;
     checkMessageQueue(): void;
     makeid(length: number): string;
-    send(message: Buffer): void;
+    send(message: Buffer, netInterface?: any): void;
     getBroadcastAddress(address: string, netmask: string): string;
     private getVariable;
     getDevice(mac: string): TibboDevice;
@@ -50,6 +50,7 @@ export interface TibboDevice {
     lastRunCommand?: TaikoMessage;
     state: PCODEMachineState;
     pdbStorageAddress?: number;
+    deviceInterface?: any;
 }
 export declare enum PCODEMachineState {
     STOPPED = "***",

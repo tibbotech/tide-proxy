@@ -193,6 +193,7 @@ export class TIDEProxy {
         if (device.ip == '') {
             device.ip = ip;
         }
+        device.deviceInterface = socket.netInterface;
 
         const secondPart = message.substring(message.indexOf(']') + 2);
         const messagePart = secondPart.split('|')[0];
@@ -454,7 +455,7 @@ export class TIDEProxy {
                 });
             }
             const newMessage = Buffer.concat([Buffer.from(`${message}|${pnum}`, 'binary')]);
-            this.send(newMessage);
+            this.send(newMessage, device.deviceInterface);
 
             if (this.timer == undefined) {
                 this.timer = setInterval(this.checkMessageQueue.bind(this), 300);
@@ -497,11 +498,15 @@ export class TIDEProxy {
         return result;
     }
 
-    send(message: Buffer): void {
+    send(message: Buffer, netInterface?: any): void {
         logger.info(`${new Date().toLocaleTimeString()} sent: ${message}`);
-        if (this.currentInterface != undefined) {
-            const broadcastAddress = this.getBroadcastAddress(this.currentInterface.netInterface.address, this.currentInterface.netInterface.netmask);
-            this.currentInterface.socket.send(message, 0, message.length, PORT, broadcastAddress, (err, bytes) => {
+        let targetInterface = this.currentInterface;
+        if (netInterface != undefined) {
+            targetInterface = netInterface;
+        }
+        if (targetInterface != undefined) {
+            const broadcastAddress = this.getBroadcastAddress(targetInterface.netInterface.address, targetInterface.netInterface.netmask);
+            targetInterface.socket.send(message, 0, message.length, PORT, broadcastAddress, (err, bytes) => {
                 if (err) {
                     logger.error('error sending ' + err.toString());
                 }
@@ -646,6 +651,7 @@ export interface TibboDevice {
     lastRunCommand?: TaikoMessage;
     state: PCODEMachineState;
     pdbStorageAddress?: number;
+    deviceInterface?: any;
 }
 
 export enum PCODEMachineState {
