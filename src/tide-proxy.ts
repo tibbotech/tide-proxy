@@ -193,7 +193,7 @@ export class TIDEProxy {
         if (device.ip == '') {
             device.ip = ip;
         }
-        device.deviceInterface = socket.netInterface;
+        device.deviceInterface = socket;
 
         const secondPart = message.substring(message.indexOf(']') + 2);
         const messagePart = secondPart.split('|')[0];
