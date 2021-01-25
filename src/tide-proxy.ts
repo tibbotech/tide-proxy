@@ -18,6 +18,7 @@ const NOTIFICATION_OK = "J";
 const BLOCK_SIZE = 128;
 
 interface UDPMessage {
+    deviceInterface: any,
     message: string,
     nonce: string,
     tries: number,
@@ -86,13 +87,13 @@ export class TIDEProxy {
                         console.log('socket bound for ' + tmp.address);
                         socket.setBroadcast(true);
                     });
-                    
+
                     const int = {
                         socket: socket,
                         netInterface: tmp
                     };
 
-                    
+
                     this.interfaces.push(int);
 
                     if (targetInterface && key == targetInterface) {
@@ -410,6 +411,16 @@ export class TIDEProxy {
         device.fileIndex = 0;
         const bytes = Buffer.from(fileString, 'binary');
         device.file = bytes;
+        
+        for (let i = 0; i < this.pendingMessages.length; i++) {
+            for (let j = 0; j < device.messageQueue.length; j++) {
+                if (this.pendingMessages[i].nonce == device.messageQueue[j].nonce) {
+                    this.pendingMessages.splice(i);
+                    i--;
+                    break;
+                }
+            }
+        }
         device.messageQueue = [];
         this.sendToDevice(mac, PCODE_COMMANDS.RESET_PROGRAMMING, '');
     }
@@ -442,6 +453,7 @@ export class TIDEProxy {
             const message = `_[${mac}]${command}${data}`;
             if (reply) {
                 this.pendingMessages.push({
+                    deviceInterface: device.deviceInterface,
                     message: message,
                     nonce: pnum,
                     tries: 0,
@@ -483,7 +495,7 @@ export class TIDEProxy {
                 const pnum = this.pendingMessages[i].nonce;
                 const newMessage = Buffer.concat([Buffer.from(`${message}|${pnum}`, 'binary')]);
                 logger.info('timeout ' + this.pendingMessages[i].message);
-                this.send(newMessage);
+                this.send(newMessage, this.pendingMessages[i].deviceInterface);
             }
         }
     }
