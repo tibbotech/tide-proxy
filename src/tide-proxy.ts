@@ -65,7 +65,7 @@ export class TIDEProxy {
                 const tmp = iface[i];
                 if (tmp.family == 'IPv4' && !tmp.internal) {
                     // const broadcastAddress = this.getBroadcastAddress(tmp.address, tmp.netmask);
-                    const socket = dgram.createSocket('udp4');
+                    const socket = dgram.createSocket({ type: 'udp4', reuseAddr: true });
                     // if (broadcastAddress == NaN) {
                     //     continue;
                     // }
