@@ -14,6 +14,7 @@ const PORT = 65535;
 
 const REPLY_OK = "A";
 const NOTIFICATION_OK = "J";
+const ERROR_SEQUENCE = 'S';
 
 const BLOCK_SIZE = 128;
 
@@ -121,7 +122,7 @@ export class TIDEProxy {
                 logger.error('disconnected');
             });
             this.socket.on('connect_error', (error: any) => {
-                logger.error('connection error');
+                logger.error('connection error' + error);
             });
 
             this.socket.on(TIBBO_PROXY_MESSAGE.REFRESH, (message: TaikoMessage) => {
@@ -223,47 +224,6 @@ export class TIDEProxy {
             device.mac = mac;
             this.sendToDevice(mac, PCODE_COMMANDS.INFO, '');
         }
-        if (device.fileBlocksTotal != 0 && replyFor == undefined && reply != NOTIFICATION_OK) {
-            device.fileIndex++;
-            if (reply != REPLY_OK) {
-                device.fileIndex--;
-            }
-            else {
-                for (let i = 0; i < device.messageQueue.length; i++) {
-                    if (device.messageQueue[i].command == PCODE_COMMANDS.UPLOAD) {
-                        for (let j = 0; j < this.pendingMessages.length; j++) {
-                            if (this.pendingMessages[j].nonce == device.messageQueue[i].nonce) {
-                                this.pendingMessages.splice(j, 1);
-                                break;
-                            }
-                        }
-                        device.messageQueue.splice(i, 1);
-                        break;
-                    }
-                }
-
-            }
-            if (device.file != null && device.fileIndex * BLOCK_SIZE < device.file.length) {
-                fileBlock = device.file.slice(device.fileIndex * BLOCK_SIZE, device.fileIndex * BLOCK_SIZE + BLOCK_SIZE);
-                this.sendBlock(mac, fileBlock, device.fileIndex);
-                if (device.fileIndex % 10 == 0 || device.fileIndex == device.fileBlocksTotal) {
-                    this.emit(TIBBO_PROXY_MESSAGE.UPLOAD, {
-                        'data': device.fileIndex / device.fileBlocksTotal,
-                        'mac': mac
-                    });
-                }
-            }
-            else {
-                device.fileIndex = 0;
-                device.file = undefined;
-                device.fileBlocksTotal = 0;
-                this.sendToDevice(mac, PCODE_COMMANDS.APPUPLOADFINISH, '');
-                this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
-                    'nonce': identifier,
-                    'mac': mac
-                });
-            }
-        }
 
         if (reply != undefined) {
             const tmpReply: TaikoReply = {
@@ -343,9 +303,62 @@ export class TIDEProxy {
                         stateString = messagePart;
                     }
                     break;
+                case PCODE_COMMANDS.UPLOAD:
+                    if (reply == REPLY_OK) {
+                        device.fileIndex += device.blockSize;
+                        if (device.file != null && device.fileIndex * BLOCK_SIZE < device.file.length) {
+                            this.sendBlock(mac, device.fileIndex);
+                            if (device.fileIndex % 10 == 0 || device.fileIndex == device.fileBlocksTotal) {
+                                this.emit(TIBBO_PROXY_MESSAGE.UPLOAD, {
+                                    'data': device.fileIndex / device.fileBlocksTotal,
+                                    'mac': mac
+                                });
+                            }
+                        }
+                        else {
+                            device.fileIndex = 0;
+                            device.file = undefined;
+                            device.fileBlocksTotal = 0;
+                            this.sendToDevice(mac, PCODE_COMMANDS.APPUPLOADFINISH, '');
+                            this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
+                                'nonce': identifier,
+                                'mac': mac
+                            });
+                        }
+                    }
+                    else {
+                        if (device.blockSize == 1) {
+                            this.sendToDevice(mac, PCODE_COMMANDS.RESET_PROGRAMMING, '');
+                        }
+                        else {
+                            this.sendBlock(mac, device.fileIndex);
+                        }
+                    }
+                    break;
+                case PCODE_COMMANDS.RESET_PROGRAMMING:
+                    // if (messagePart) {
+                    //     device.blockSize = Number(messagePart);
+                    // }
+                    if (device.file != null) {
+                        this.sendBlock(mac, 0);
+                    }
+                    break;
                 default:
 
                     break;
+            }
+
+            for (let i = 0; i < device.messageQueue.length; i++) {
+                if (device.messageQueue[i].command == PCODE_COMMANDS.UPLOAD) {
+                    for (let j = 0; j < this.pendingMessages.length; j++) {
+                        if (this.pendingMessages[j].nonce == device.messageQueue[i].nonce) {
+                            this.pendingMessages.splice(j, 1);
+                            break;
+                        }
+                    }
+                    device.messageQueue.splice(i, 1);
+                    break;
+                }
             }
 
             if (reply == NOTIFICATION_OK) {
@@ -398,7 +411,7 @@ export class TIDEProxy {
         device.fileIndex = 0;
         const bytes = Buffer.from(fileString, 'binary');
         device.file = bytes;
-        
+
         for (let i = 0; i < this.pendingMessages.length; i++) {
             for (let j = 0; j < device.messageQueue.length; j++) {
                 if (this.pendingMessages[i].nonce == device.messageQueue[j].nonce) {
@@ -409,6 +422,14 @@ export class TIDEProxy {
             }
         }
         device.messageQueue = [];
+        this.sendBlock(mac, 0);
+    }
+
+    sendBlock(mac: string, blockIndex: number): void {
+        const device = this.getDevice(mac);
+        if (!device.file) {
+            return;
+        }
         const remainder = device.file.length % BLOCK_SIZE;
         if (remainder == 0) {
             device.fileBlocksTotal = device.file.length / BLOCK_SIZE
@@ -416,21 +437,23 @@ export class TIDEProxy {
         else {
             device.fileBlocksTotal = (device.file.length - remainder) / BLOCK_SIZE + 1;
         }
-        const fileBlock = device.file.slice(device.fileIndex * BLOCK_SIZE, device.fileIndex * BLOCK_SIZE + BLOCK_SIZE);
-        this.sendBlock(mac, fileBlock, 0);
-    }
+        device.fileIndex = blockIndex;
+        for (let i = 0; i < device.blockSize; i++) {
+            let currentBlock = blockIndex + i;
+            let fileBlock = device.file.slice((device.fileIndex + i) * BLOCK_SIZE, (device.fileIndex + i) * BLOCK_SIZE + BLOCK_SIZE);
 
-    sendBlock(mac: string, fileBlock: Buffer, blockIndex: number): void {
-        const buf = Buffer.from([(0xff00 & blockIndex) >> 8, (0x00ff & blockIndex)]);
-        // const buf = new Buffer([(0xff00 & blockIndex) >> 8, (0x00ff & blockIndex)]);
-        fileBlock = Buffer.concat([buf, fileBlock]);
-        if (fileBlock.length < BLOCK_SIZE) {
-            const filler = Buffer.alloc(BLOCK_SIZE - fileBlock.length);
-            // const filler = new Buffer(BLOCK_SIZE - fileBlock.length);
-            fileBlock = Buffer.concat([fileBlock, filler]);
+            const buf = Buffer.from([(0xff00 & currentBlock) >> 8, (0x00ff & currentBlock)]);
+            // const buf = new Buffer([(0xff00 & blockIndex) >> 8, (0x00ff & blockIndex)]);
+            fileBlock = Buffer.concat([buf, fileBlock]);
+            if (fileBlock.length < BLOCK_SIZE) {
+                const filler = Buffer.alloc(BLOCK_SIZE - fileBlock.length);
+                // const filler = new Buffer(BLOCK_SIZE - fileBlock.length);
+                fileBlock = Buffer.concat([fileBlock, filler]);
+            }
+
+            this.sendToDevice(mac, PCODE_COMMANDS.UPLOAD, Buffer.concat([fileBlock]).toString('binary'), true);
         }
 
-        this.sendToDevice(mac, PCODE_COMMANDS.UPLOAD, Buffer.concat([fileBlock]).toString('binary'), true);
     }
 
     sendToDevice(mac: string, command: string, data: string, reply = true, nonce: string | undefined = undefined): void {
@@ -610,6 +633,7 @@ export class TIDEProxy {
             fileIndex: 0,
             fileBlocksTotal: 0,
             pcode: -1,
+            blockSize: 1,
             state: PCODEMachineState.STOPPED
         };
 
@@ -618,7 +642,9 @@ export class TIDEProxy {
     }
 
     emit(channel: string, content: any) {
-        this.socket.emit(channel, content);
+        if (this.socket !== undefined) {
+            this.socket.emit(channel, content);
+        }
         this.server.emit(channel, content);
     }
 
@@ -656,6 +682,7 @@ export interface TibboDevice {
     app: string;
     file?: Buffer;
     fileIndex: number;
+    blockSize: number;
     fileBlocksTotal: number;
     pcode: PCODE_STATE;
     lastRunCommand?: TaikoMessage;
