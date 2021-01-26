@@ -126,19 +126,13 @@ export class TIDEProxy {
             });
 
             this.socket.on(TIBBO_PROXY_MESSAGE.REFRESH, (message: TaikoMessage) => {
-                const msg = Buffer.from(PCODE_COMMANDS.DISCOVER);
-                this.discoveredDevices = {};
-                this.send(msg);
+                this.handleRefresh();
             });
 
             this.socket.on(TIBBO_PROXY_MESSAGE.BUZZ, (message: TaikoMessage) => {
                 this.sendToDevice(message.mac, PCODE_COMMANDS.BUZZ, '');
             });
             this.socket.on(TIBBO_PROXY_MESSAGE.REBOOT, (message: TaikoMessage) => {
-                const device = this.getDevice(message.mac);
-                device.file = undefined;
-                device.fileBlocksTotal = 0;
-                device.messageQueue = [];
                 this.sendToDevice(message.mac, PCODE_COMMANDS.REBOOT, '', false);
             });
             this.socket.on(TIBBO_PROXY_MESSAGE.APPLICATION_UPLOAD, (message: TaikoMessage) => {
@@ -153,8 +147,7 @@ export class TIDEProxy {
         this.server.on('connection', (conClient: any) => {
             console.log('client connected on socket');
             conClient.on(TIBBO_PROXY_MESSAGE.REFRESH, (message: TaikoMessage) => {
-                const msg = Buffer.from(PCODE_COMMANDS.DISCOVER);
-                this.send(msg);
+                this.handleRefresh();
             });
 
             conClient.on(TIBBO_PROXY_MESSAGE.BUZZ, (message: TaikoMessage) => {
@@ -172,6 +165,12 @@ export class TIDEProxy {
             conClient.on(TIBBO_PROXY_MESSAGE.SET_PDB_STORAGE_ADDRESS, this.setPDBAddress.bind(this));
         });
         io.listen(port);
+    }
+
+    handleRefresh() {
+        const msg = Buffer.from(PCODE_COMMANDS.DISCOVER);
+        this.discoveredDevices = {};
+        this.send(msg);
     }
 
     setPDBAddress(message: TaikoMessage): void {

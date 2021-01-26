@@ -26,6 +26,7 @@ export declare class TIDEProxy {
         [key: string]: string;
     };
     constructor(serverAddress: string | undefined, proxyName: string, port?: number, targetInterface?: string);
+    handleRefresh(): void;
     setPDBAddress(message: TaikoMessage): void;
     handleMessage(msg: Buffer, info: any, socket: TBNetworkInterface): Promise<void>;
     handleDebugPrint(device: TibboDevice, deviceState: PCODEMachineState): Promise<void>;
