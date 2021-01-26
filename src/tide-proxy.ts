@@ -85,7 +85,10 @@ export class TIDEProxy {
                         console.log('listening on ' + tmp.address);
                     });
 
-                    socket.bind(PORT, tmp.address, () => {
+                    socket.bind({
+                        // port: PORT,
+                        address: tmp.address
+                    }, () => {
                         console.log('socket bound for ' + tmp.address);
                         socket.setBroadcast(true);
                     });
