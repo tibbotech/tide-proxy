@@ -56,8 +56,11 @@ export class TIDEProxy {
     server: any;
     memoryCalls: { [key: string]: any } = {};
     discoveredDevices: { [key: string]: string } = {};
+    id: string;
+    clients: any[];
 
     constructor(serverAddress = '', proxyName: string, port = 3535, targetInterface?: string) {
+        this.id = new Date().getTime().toString();
         for (const key in ifaces) {
             // broadcasts[i] = networks[i] | ~subnets[i] + 256;
             const iface = ifaces[key];
@@ -109,45 +112,12 @@ export class TIDEProxy {
         }
 
         if (serverAddress != '') {
-            const socketURL = url.parse(serverAddress);
-            let socketioPath = '/socket.io';
-            if (socketURL.path != '/') {
-                socketioPath = socketURL.path + socketioPath;
-            }
-            this.socket = socketIOClient(socketURL.protocol + '//' + socketURL.host + '/devices', {
-                path: socketioPath
-            });
-            this.socket.on('connect', () => {
-                this.emit(TIBBO_PROXY_MESSAGE.REGISTER, proxyName);
-                logger.error('connected');
-            });
-            this.socket.on('disconnect', () => {
-                logger.error('disconnected');
-            });
-            this.socket.on('connect_error', (error: any) => {
-                logger.error('connection error' + error);
-            });
-
-            this.socket.on(TIBBO_PROXY_MESSAGE.REFRESH, (message: TaikoMessage) => {
-                this.handleRefresh();
-            });
-
-            this.socket.on(TIBBO_PROXY_MESSAGE.BUZZ, (message: TaikoMessage) => {
-                this.sendToDevice(message.mac, PCODE_COMMANDS.BUZZ, '');
-            });
-            this.socket.on(TIBBO_PROXY_MESSAGE.REBOOT, (message: TaikoMessage) => {
-                this.sendToDevice(message.mac, PCODE_COMMANDS.REBOOT, '', false);
-            });
-            this.socket.on(TIBBO_PROXY_MESSAGE.APPLICATION_UPLOAD, (message: TaikoMessage) => {
-                this.startApplicationUpload(message.mac, message.data);
-            });
-            this.socket.on(TIBBO_PROXY_MESSAGE.COMMAND, (message: TaikoMessage) => {
-                this.sendToDevice(message.mac, message.command, message.data, true, message.nonce);
-            });
-            this.socket.on(TIBBO_PROXY_MESSAGE.SET_PDB_STORAGE_ADDRESS, this.setPDBAddress.bind(this));
+            this.setServer(serverAddress, proxyName);
         }
         this.server = io.of('/tide');
+        this.clients = [];
         this.server.on('connection', (conClient: any) => {
+            this.clients.push(conClient);
             console.log('client connected on socket');
             conClient.on(TIBBO_PROXY_MESSAGE.REFRESH, (message: TaikoMessage) => {
                 this.handleRefresh();
@@ -166,8 +136,65 @@ export class TIDEProxy {
                 this.sendToDevice(message.mac, message.command, message.data, true, message.nonce);
             });
             conClient.on(TIBBO_PROXY_MESSAGE.SET_PDB_STORAGE_ADDRESS, this.setPDBAddress.bind(this));
+            conClient.on('close', () => {
+                console.log('socket closed');
+                this.clients.splice(this.clients.indexOf(this.clients), 1);
+            });
         });
+
         io.listen(port);
+    }
+
+    setInterface(targetInterface: string) {
+        for (let i = 0; i < this.interfaces.length; i++) {
+            if (targetInterface == this.interfaces[i].netInterface) {
+                this.currentInterface = this.interfaces[i];
+                break;
+            }
+        }
+    }
+
+    setServer(serverAddress: string, proxyName: string) {
+        if (this.socket) {
+            this.socket.removeAllListeners();
+            this.socket.close();
+        }
+        const socketURL = url.parse(serverAddress);
+        let socketioPath = '/socket.io';
+        if (socketURL.path != '/') {
+            socketioPath = socketURL.path + socketioPath;
+        }
+        this.socket = socketIOClient(socketURL.protocol + '//' + socketURL.host + '/devices', {
+            path: socketioPath
+        });
+        this.socket.on('connect', () => {
+            this.emit(TIBBO_PROXY_MESSAGE.REGISTER, proxyName);
+            logger.error('connected');
+        });
+        this.socket.on('disconnect', () => {
+            logger.error('disconnected');
+        });
+        this.socket.on('connect_error', (error: any) => {
+            logger.error('connection error' + error);
+        });
+
+        this.socket.on(TIBBO_PROXY_MESSAGE.REFRESH, (message: TaikoMessage) => {
+            this.handleRefresh();
+        });
+
+        this.socket.on(TIBBO_PROXY_MESSAGE.BUZZ, (message: TaikoMessage) => {
+            this.sendToDevice(message.mac, PCODE_COMMANDS.BUZZ, '');
+        });
+        this.socket.on(TIBBO_PROXY_MESSAGE.REBOOT, (message: TaikoMessage) => {
+            this.sendToDevice(message.mac, PCODE_COMMANDS.REBOOT, '', false);
+        });
+        this.socket.on(TIBBO_PROXY_MESSAGE.APPLICATION_UPLOAD, (message: TaikoMessage) => {
+            this.startApplicationUpload(message.mac, message.data);
+        });
+        this.socket.on(TIBBO_PROXY_MESSAGE.COMMAND, (message: TaikoMessage) => {
+            this.sendToDevice(message.mac, message.command, message.data, true, message.nonce);
+        });
+        this.socket.on(TIBBO_PROXY_MESSAGE.SET_PDB_STORAGE_ADDRESS, this.setPDBAddress.bind(this));
     }
 
     handleRefresh() {
@@ -651,28 +678,8 @@ export class TIDEProxy {
     }
 
     async close() {
-        for (let i = 0; i < this.interfaces.length; i++) {
-            const address = this.interfaces[i].socket.address().address;
-            try {
-                this.interfaces[i].socket.removeAllListeners();
-                await new Promise<void>((resolve, reject) => {
-                    this.interfaces[i].socket.close(() => {
-                        console.log('socket closed for ' + address);
-                        resolve();
-                    });
-                });
-            }
-            catch (ex) {
-                console.log('error closing ' + address);
-                console.log(ex);
-            }
-        }
-        if (this.timer !== undefined) {
-            clearInterval(this.timer);
-        }
-        this.socket.disconnect();
-        this.server.server.close();
-
+        this.socket.close();
+        this.socket.removeAllListeners();
     }
 }
 

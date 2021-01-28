@@ -25,7 +25,11 @@ export declare class TIDEProxy {
     discoveredDevices: {
         [key: string]: string;
     };
+    id: string;
+    clients: any[];
     constructor(serverAddress: string | undefined, proxyName: string, port?: number, targetInterface?: string);
+    setInterface(targetInterface: string): void;
+    setServer(serverAddress: string, proxyName: string): void;
     handleRefresh(): void;
     setPDBAddress(message: TaikoMessage): void;
     handleMessage(msg: Buffer, info: any, socket: TBNetworkInterface): Promise<void>;
