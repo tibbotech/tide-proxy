@@ -146,10 +146,15 @@ export class TIDEProxy {
     }
 
     setInterface(targetInterface: string) {
-        for (let i = 0; i < this.interfaces.length; i++) {
-            if (targetInterface == this.interfaces[i].netInterface) {
-                this.currentInterface = this.interfaces[i];
-                break;
+        this.currentInterface = undefined;
+        let tmpInterface = ifaces[targetInterface];
+        if (tmpInterface) {
+            for (let i = 0; i < tmpInterface.length; i++) {
+                const tmp = tmpInterface[i];
+                if (tmp.family == 'IPv4' && !tmp.internal) {
+                    this.currentInterface = this.interfaces[i];
+                    return;
+                }
             }
         }
     }
