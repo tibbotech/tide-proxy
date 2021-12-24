@@ -1,6 +1,6 @@
 import * as dgram from 'dgram';
 // import { TibboDevice, PCODE_STATE, TaikoMessage, TIBBO_PROXY_MESSAGE, TaikoReply, PCODEMachineState, PCODE_COMMANDS } from './types';
-import * as socketIOClient from 'socket.io-client';
+import { io as socketIOClient } from 'socket.io-client';
 const winston = require('winston');
 const url = require('url');
 const io = require("socket.io")({ serveClient: false });
