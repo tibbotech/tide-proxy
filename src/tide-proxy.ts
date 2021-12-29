@@ -240,13 +240,13 @@ export class TIDEProxy {
         for (let i = 0; i < device.messageQueue.length; i++) {
             if (device.messageQueue[i].nonce == identifier) {
                 replyFor = device.messageQueue.splice(i, 1)[0];
-                break;
+                i--;
             }
         }
         for (let i = 0; i < this.pendingMessages.length; i++) {
             if (this.pendingMessages[i].nonce == identifier) {
                 this.pendingMessages.splice(i, 1)[0];
-                break;
+                i--;
             }
         }
         const reply = message.substring(message.indexOf(']') + 1, message.indexOf(']') + 2);
@@ -341,12 +341,14 @@ export class TIDEProxy {
                     if (reply == REPLY_OK) {
                         device.fileIndex += device.blockSize;
                         if (device.file != null && device.fileIndex * BLOCK_SIZE < device.file.length) {
-                            this.sendBlock(mac, device.fileIndex);
-                            if (device.fileIndex % 10 == 0 || device.fileIndex == device.fileBlocksTotal) {
-                                this.emit(TIBBO_PROXY_MESSAGE.UPLOAD, {
-                                    'data': device.fileIndex / device.fileBlocksTotal,
-                                    'mac': mac
-                                });
+                            if (this.pendingMessages.length > 0) {
+                                this.sendBlock(mac, device.fileIndex);
+                                if (device.fileIndex % 10 == 0 || device.fileIndex == device.fileBlocksTotal) {
+                                    this.emit(TIBBO_PROXY_MESSAGE.UPLOAD, {
+                                        'data': device.fileIndex / device.fileBlocksTotal,
+                                        'mac': mac
+                                    });
+                                }
                             }
                         }
                         else {
