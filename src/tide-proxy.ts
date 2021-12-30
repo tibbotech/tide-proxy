@@ -339,16 +339,26 @@ export class TIDEProxy {
                     break;
                 case PCODE_COMMANDS.UPLOAD:
                     if (reply == REPLY_OK) {
+                        for (let i = 0; i < device.messageQueue.length; i++) {
+                            if (device.messageQueue[i].command == PCODE_COMMANDS.UPLOAD) {
+                                for (let j = 0; j < this.pendingMessages.length; j++) {
+                                    if (this.pendingMessages[j].nonce == device.messageQueue[i].nonce) {
+                                        this.pendingMessages.splice(j, 1);
+                                        j--;
+                                    }
+                                }
+                                device.messageQueue.splice(i, 1);
+                                i--;
+                            }
+                        }
                         device.fileIndex += device.blockSize;
                         if (device.file != null && device.fileIndex * BLOCK_SIZE < device.file.length) {
-                            if (this.pendingMessages.length > 0) {
-                                this.sendBlock(mac, device.fileIndex);
-                                if (device.fileIndex % 10 == 0 || device.fileIndex == device.fileBlocksTotal) {
-                                    this.emit(TIBBO_PROXY_MESSAGE.UPLOAD, {
-                                        'data': device.fileIndex / device.fileBlocksTotal,
-                                        'mac': mac
-                                    });
-                                }
+                            this.sendBlock(mac, device.fileIndex);
+                            if (device.fileIndex % 10 == 0 || device.fileIndex == device.fileBlocksTotal) {
+                                this.emit(TIBBO_PROXY_MESSAGE.UPLOAD, {
+                                    'data': device.fileIndex / device.fileBlocksTotal,
+                                    'mac': mac
+                                });
                             }
                         }
                         else {
@@ -363,18 +373,14 @@ export class TIDEProxy {
                         }
                     }
                     else {
-                        if (device.blockSize == 1) {
-                            this.sendToDevice(mac, PCODE_COMMANDS.RESET_PROGRAMMING, '');
-                        }
-                        else {
-                            this.sendBlock(mac, device.fileIndex);
-                        }
+                        device.fileIndex--;
+                        this.sendBlock(mac, device.fileIndex);
                     }
                     break;
                 case PCODE_COMMANDS.RESET_PROGRAMMING:
-                    // if (messagePart) {
-                    //     device.blockSize = Number(messagePart);
-                    // }
+                    if (messagePart) {
+                        device.blockSize = Number(messagePart);
+                    }
                     if (device.file != null) {
                         this.sendBlock(mac, 0);
                     }
@@ -382,19 +388,6 @@ export class TIDEProxy {
                 default:
 
                     break;
-            }
-
-            for (let i = 0; i < device.messageQueue.length; i++) {
-                if (device.messageQueue[i].command == PCODE_COMMANDS.UPLOAD) {
-                    for (let j = 0; j < this.pendingMessages.length; j++) {
-                        if (this.pendingMessages[j].nonce == device.messageQueue[i].nonce) {
-                            this.pendingMessages.splice(j, 1);
-                            break;
-                        }
-                    }
-                    device.messageQueue.splice(i, 1);
-                    break;
-                }
             }
 
             if (reply == NOTIFICATION_OK) {
@@ -458,7 +451,7 @@ export class TIDEProxy {
             }
         }
         device.messageQueue = [];
-        this.sendBlock(mac, 0);
+        this.sendToDevice(mac, PCODE_COMMANDS.RESET_PROGRAMMING, '');
     }
 
     sendBlock(mac: string, blockIndex: number): void {
