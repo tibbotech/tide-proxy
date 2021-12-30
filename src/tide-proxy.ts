@@ -373,14 +373,14 @@ export class TIDEProxy {
                         }
                     }
                     else {
-                        device.fileIndex--;
                         this.sendBlock(mac, device.fileIndex);
                     }
                     break;
                 case PCODE_COMMANDS.RESET_PROGRAMMING:
-                    if (messagePart) {
-                        device.blockSize = Number(messagePart);
-                    }
+                    // if (messagePart) {
+                    //     device.blockSize = Number(messagePart);
+                    // }
+                    device.blockSize = 1;
                     if (device.file != null) {
                         this.sendBlock(mac, 0);
                     }
