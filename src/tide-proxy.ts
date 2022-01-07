@@ -170,7 +170,9 @@ export class TIDEProxy {
             socketioPath = socketURL.path + socketioPath;
         }
         this.socket = socketIOClient(socketURL.protocol + '//' + socketURL.host + '/devices', {
-            path: socketioPath
+            path: socketioPath,
+            agent: false,
+            rejectUnauthorized: false
         });
         this.socket.on('connect', () => {
             this.emit(TIBBO_PROXY_MESSAGE.REGISTER, proxyName);
@@ -351,6 +353,7 @@ export class TIDEProxy {
                                 i--;
                             }
                         }
+                        device.fileIndex = 0xff00 & msg[msg.length - 2] << 8 | 0x00ff & msg[msg.length - 1];
                         device.fileIndex += device.blockSize;
                         if (device.file != null && device.fileIndex * BLOCK_SIZE < device.file.length) {
                             this.sendBlock(mac, device.fileIndex);
