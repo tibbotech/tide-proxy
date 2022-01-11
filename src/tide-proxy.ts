@@ -517,7 +517,7 @@ export class TIDEProxy {
                 });
             }
             const newMessage = Buffer.concat([Buffer.from(`${message}|${pnum}`, 'binary')]);
-            this.send(newMessage, device.deviceInterface);
+            this.send(newMessage, device.deviceInterface, device.ip === '1.0.0.1' ? undefined : device.ip);
 
             if (this.timer == undefined) {
                 this.timer = setInterval(this.checkMessageQueue.bind(this), 300);
@@ -560,7 +560,7 @@ export class TIDEProxy {
         return result;
     }
 
-    send(message: Buffer, netInterface?: any): void {
+    send(message: Buffer, netInterface?: any, targetIP?: string): void {
         logger.info(`${new Date().toLocaleTimeString()} sent: ${message}`);
         let targetInterface = this.currentInterface;
         if (netInterface != undefined) {
@@ -568,7 +568,10 @@ export class TIDEProxy {
         }
         if (targetInterface != undefined) {
             const broadcastAddress = this.getBroadcastAddress(targetInterface.netInterface.address, targetInterface.netInterface.netmask);
-            targetInterface.socket.send(message, 0, message.length, PORT, broadcastAddress, (err, bytes) => {
+            if (targetIP === undefined) {
+                targetIP = broadcastAddress;
+            }
+            targetInterface.socket.send(message, 0, message.length, PORT, targetIP, (err, bytes) => {
                 if (err) {
                     logger.error('error sending ' + err.toString());
                 }
@@ -579,14 +582,16 @@ export class TIDEProxy {
                 try {
                     const tmp = this.interfaces[i];
                     const broadcastAddress = this.getBroadcastAddress(tmp.netInterface.address, tmp.netInterface.netmask);
-                    tmp.socket.send(message, 0, message.length, PORT, broadcastAddress, (err, bytes) => {
+                    if (targetIP === undefined) {
+                        targetIP = broadcastAddress;
+                    }
+                    tmp.socket.send(message, 0, message.length, PORT, targetIP, (err, bytes) => {
                         if (err) {
                             logger.error('error sending ' + err.toString());
                         }
                     });
                 }
                 catch (ex) {
-
                 }
             }
         }
