@@ -8,7 +8,7 @@ const os = require('os');
 const ifaces = os.networkInterfaces();
 const { Subject } = require('await-notify');
 
-const RETRY_TIMEOUT = 500;
+const RETRY_TIMEOUT = 10;
 const PORT = 65535;
 
 
@@ -278,7 +278,14 @@ export class TIDEProxy {
                 }
             }
             tmpReply.replyFor = replyForCommand;
-            this.emit(TIBBO_PROXY_MESSAGE.REPLY, tmpReply);
+            switch(tmpReply.replyFor) {
+                case PCODE_COMMANDS.UPLOAD: // dont send reply for uploads
+            
+                break;
+                default:
+                    this.emit(TIBBO_PROXY_MESSAGE.REPLY, tmpReply);
+                break;
+            }
             let stateString = '';
 
             if (replyForCommand == PCODE_COMMANDS.GET_MEMORY) {
@@ -520,7 +527,7 @@ export class TIDEProxy {
             this.send(newMessage, device.deviceInterface, device.ip === '1.0.0.1' ? undefined : device.ip);
 
             if (this.timer == undefined) {
-                this.timer = setInterval(this.checkMessageQueue.bind(this), 300);
+                this.timer = setInterval(this.checkMessageQueue.bind(this), 10);
             }
         }
         catch (ex) {
