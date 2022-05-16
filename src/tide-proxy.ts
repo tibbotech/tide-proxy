@@ -8,7 +8,7 @@ const os = require('os');
 const ifaces = os.networkInterfaces();
 const { Subject } = require('await-notify');
 
-const RETRY_TIMEOUT = 10;
+const RETRY_TIMEOUT = 50;
 const PORT = 65535;
 
 
@@ -23,7 +23,8 @@ interface UDPMessage {
     message: string,
     nonce: string,
     tries: number,
-    timestamp: number
+    timestamp: number,
+    timeout: number,
 }
 
 interface TBNetworkInterface {
@@ -273,18 +274,18 @@ export class TIDEProxy {
                 replyForCommand = replyFor.command;
             }
             else {
-                if (device.fileBlocksTotal > 0) {
+                if (!identifier && device.fileBlocksTotal > 0) {
                     replyForCommand = PCODE_COMMANDS.UPLOAD;
                 }
             }
             tmpReply.replyFor = replyForCommand;
-            switch(tmpReply.replyFor) {
+            switch (tmpReply.replyFor) {
                 case PCODE_COMMANDS.UPLOAD: // dont send reply for uploads
-            
-                break;
+
+                    break;
                 default:
                     this.emit(TIBBO_PROXY_MESSAGE.REPLY, tmpReply);
-                break;
+                    break;
             }
             let stateString = '';
 
@@ -348,19 +349,27 @@ export class TIDEProxy {
                     break;
                 case PCODE_COMMANDS.UPLOAD:
                     if (reply == REPLY_OK) {
+                        const fileIndex = 0xff00 & msg[msg.length - 2] << 8 | 0x00ff & msg[msg.length - 1];
                         for (let i = 0; i < device.messageQueue.length; i++) {
                             if (device.messageQueue[i].command == PCODE_COMMANDS.UPLOAD) {
+                                const data = Buffer.from(device.messageQueue[i].data, 'binary');
+                                const tmpFileIndex = 0xff00 & data[0] << 8 | 0x00ff & data[1];
+                                if (tmpFileIndex !== fileIndex) {
+                                    continue;
+                                }
                                 for (let j = 0; j < this.pendingMessages.length; j++) {
                                     if (this.pendingMessages[j].nonce == device.messageQueue[i].nonce) {
                                         this.pendingMessages.splice(j, 1);
                                         j--;
                                     }
                                 }
-                                device.messageQueue.splice(i, 1);
+                                replyFor = device.messageQueue.splice(i, 1)[0];
                                 i--;
                             }
                         }
-                        device.fileIndex = 0xff00 & msg[msg.length - 2] << 8 | 0x00ff & msg[msg.length - 1];
+                        if (replyFor === undefined) {
+                            break;
+                        }
                         device.fileIndex += device.blockSize;
                         if (device.file != null && device.fileIndex * BLOCK_SIZE < device.file.length) {
                             this.sendBlock(mac, device.fileIndex);
@@ -400,6 +409,13 @@ export class TIDEProxy {
                     break;
             }
 
+            if (replyFor !== undefined && replyFor.timestamp != undefined) {
+                const timeout = new Date().getTime() - replyFor.timestamp;
+                device.replyTimes.push(timeout);
+                if (device.replyTimes.length > 30) {
+                    device.replyTimes.splice(1, 1);
+                }
+            }
             if (reply == NOTIFICATION_OK) {
                 stateString = messagePart;
             }
@@ -509,18 +525,28 @@ export class TIDEProxy {
             mac = parts.join('.');
             const message = `_[${mac}]${command}${data}`;
             if (reply) {
+                let timeout = RETRY_TIMEOUT;
+                if (device.replyTimes.length > 0) {
+                    let sum = 0;
+                    for (let i = 0; i < device.replyTimes.length; i++) {
+                        sum += device.replyTimes[i];
+                    }
+                    timeout = Math.round(sum / device.replyTimes.length);
+                }
                 this.pendingMessages.push({
                     deviceInterface: device.deviceInterface,
                     message: message,
                     nonce: pnum,
                     tries: 0,
-                    timestamp: new Date().getTime()
+                    timestamp: new Date().getTime(),
+                    timeout: timeout,
                 });
                 device.messageQueue.push({
                     mac: mac,
                     command: <PCODE_COMMANDS>command,
                     data: data,
-                    nonce: pnum
+                    nonce: pnum,
+                    timestamp: new Date().getTime(),
                 });
             }
             const newMessage = Buffer.concat([Buffer.from(`${message}|${pnum}`, 'binary')]);
@@ -539,8 +565,11 @@ export class TIDEProxy {
     checkMessageQueue(): void {
         const currentDate = new Date().getTime();
         for (let i = 0; i < this.pendingMessages.length; i++) {
-            if (currentDate - this.pendingMessages[i].timestamp > RETRY_TIMEOUT) {
-                if (this.pendingMessages[i].tries > 4) {
+            if (currentDate - this.pendingMessages[i].timestamp > this.pendingMessages[i].timeout) {
+                if (this.pendingMessages[i].timeout < 512) {
+                    this.pendingMessages[i].timeout *= 2;
+                }
+                if (this.pendingMessages[i].tries > 10) {
                     logger.info('discarding ' + this.pendingMessages[i].message);
                     this.pendingMessages.splice(i, 1);
                     i--;
@@ -678,7 +707,8 @@ export class TIDEProxy {
             fileBlocksTotal: 0,
             pcode: -1,
             blockSize: 1,
-            state: PCODEMachineState.STOPPED
+            state: PCODEMachineState.STOPPED,
+            replyTimes: [],
         };
 
         this.devices.push(device);
@@ -713,6 +743,7 @@ export interface TibboDevice {
     state: PCODEMachineState;
     pdbStorageAddress?: number;
     deviceInterface?: any;
+    replyTimes: Array<number>;
 }
 
 export enum PCODEMachineState {
@@ -734,6 +765,7 @@ export interface TaikoMessage {
     command: PCODE_COMMANDS;
     data: string;
     nonce?: string;
+    timestamp: number;
 }
 
 export interface TaikoReply {

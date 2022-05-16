@@ -6,6 +6,7 @@ interface UDPMessage {
     nonce: string;
     tries: number;
     timestamp: number;
+    timeout: number;
 }
 interface TBNetworkInterface {
     socket: dgram.Socket;
@@ -61,6 +62,7 @@ export interface TibboDevice {
     state: PCODEMachineState;
     pdbStorageAddress?: number;
     deviceInterface?: any;
+    replyTimes: Array<number>;
 }
 export declare enum PCODEMachineState {
     STOPPED = "***",
@@ -79,6 +81,7 @@ export interface TaikoMessage {
     command: PCODE_COMMANDS;
     data: string;
     nonce?: string;
+    timestamp: number;
 }
 export interface TaikoReply {
     mac: string;
