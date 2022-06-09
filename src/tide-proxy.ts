@@ -425,15 +425,17 @@ export class TIDEProxy {
                     'mac': mac,
                     'data': messagePart
                 });
-                switch (deviceState) {
-                    case PCODEMachineState.DEBUG_PRINT_AND_CONTINUE:
-                        await this.handleDebugPrint(device, deviceState);
-                        break;
-                    case PCODEMachineState.DEBUG_PRINT_AND_STOP:
-                        if (device.state != PCODEMachineState.DEBUG_PRINT_AND_STOP) {
+                if (reply === NOTIFICATION_OK) {
+                    switch (deviceState) {
+                        case PCODEMachineState.DEBUG_PRINT_AND_CONTINUE:
                             await this.handleDebugPrint(device, deviceState);
-                        }
-                        break;
+                            break;
+                        case PCODEMachineState.DEBUG_PRINT_AND_STOP:
+                            if (device.state != PCODEMachineState.DEBUG_PRINT_AND_STOP) {
+                                await this.handleDebugPrint(device, deviceState);
+                            }
+                            break;
+                    }
                 }
 
                 device.state = deviceState;
@@ -647,42 +649,52 @@ export class TIDEProxy {
 
     private async getVariable(address: number, mac: string): Promise<string> {
         let outputString = "";
-        let tmpAddress = address.toString(16).padStart(4, '0');
-        this.memoryCalls[tmpAddress] = new Subject();
-        const COMMAND_WAIT_TIME = 1000;
+        const COMMAND_WAIT_TIME = 3000;
         const READ_BLOCK_SIZE = 16;
-        try {
-            this.sendToDevice(mac, PCODE_COMMANDS.GET_MEMORY, tmpAddress + ',02', true);
-            await this.memoryCalls[tmpAddress].wait(COMMAND_WAIT_TIME);
-            const stringSize = parseInt(this.memoryCalls[tmpAddress].message[0], 16);
-            let index = 0;
-            address += 2;
-            let blocks = Math.floor(stringSize / READ_BLOCK_SIZE);
-            if (stringSize % READ_BLOCK_SIZE != 0) {
-                blocks++;
-            }
-            for (let i = 0; i < blocks; i++) {
-                let count = READ_BLOCK_SIZE;
-                if (index + count > stringSize) {
-                    count = stringSize - index;
-                }
-                tmpAddress = address.toString(16).padStart(4, '0')
-                this.sendToDevice(mac, PCODE_COMMANDS.GET_MEMORY, tmpAddress + ',' + count.toString(16).padStart(2, '0'), true);
+        const TRIES = 3;
+        for (let t = 0; t < TRIES; t++) {
+            try {
+                let tmpAddress = address.toString(16).padStart(4, '0');
                 this.memoryCalls[tmpAddress] = new Subject();
+                this.sendToDevice(mac, PCODE_COMMANDS.GET_MEMORY, tmpAddress + ',02', true);
                 await this.memoryCalls[tmpAddress].wait(COMMAND_WAIT_TIME);
-                for (let i = 0; i < this.memoryCalls[tmpAddress].message.length; i++) {
-                    const charCode = parseInt(this.memoryCalls[tmpAddress].message[i], 16);
-                    outputString += String.fromCharCode(charCode);
+                if (!this.memoryCalls[tmpAddress].message) {
+                    throw new Error('timeout for getting string length');
                 }
-                this.memoryCalls[tmpAddress] = undefined;
-                index += count;
-                address += count;
+                const stringSize = parseInt(this.memoryCalls[tmpAddress].message[0], 16);
+                let index = 0;
+                address += 2;
+                let blocks = Math.floor(stringSize / READ_BLOCK_SIZE);
+                if (stringSize % READ_BLOCK_SIZE != 0) {
+                    blocks++;
+                }
+                for (let i = 0; i < blocks; i++) {
+                    let count = READ_BLOCK_SIZE;
+                    if (index + count > stringSize) {
+                        count = stringSize - index;
+                    }
+                    tmpAddress = address.toString(16).padStart(4, '0');
+                    this.memoryCalls[tmpAddress] = new Subject();
+                    this.sendToDevice(mac, PCODE_COMMANDS.GET_MEMORY, tmpAddress + ',' + count.toString(16).padStart(2, '0'), true);
+                    await this.memoryCalls[tmpAddress].wait(COMMAND_WAIT_TIME);
+                    if (!this.memoryCalls[tmpAddress].message) {
+                        throw new Error('timeout for getting string value at ' + index);
+                    }
+                    for (let i = 0; i < this.memoryCalls[tmpAddress].message.length; i++) {
+                        const charCode = parseInt(this.memoryCalls[tmpAddress].message[i], 16);
+                        outputString += String.fromCharCode(charCode);
+                    }
+                    this.memoryCalls[tmpAddress] = undefined;
+                    index += count;
+                    address += count;
+                }
+                return outputString;
+            }
+            catch (ex) {
+                logger.error(ex);
             }
         }
-        catch (ex) {
-            logger.error(ex);
-        }
-        return outputString;
+        return '';
     }
 
     getDevice(mac: string): TibboDevice {
