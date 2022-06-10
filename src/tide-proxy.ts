@@ -425,7 +425,7 @@ export class TIDEProxy {
                     'mac': mac,
                     'data': messagePart
                 });
-                if (reply === NOTIFICATION_OK) {
+                if (device.state !== deviceState) {
                     switch (deviceState) {
                         case PCODEMachineState.DEBUG_PRINT_AND_CONTINUE:
                             await this.handleDebugPrint(device, deviceState);
