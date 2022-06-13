@@ -1,4 +1,5 @@
 import * as dgram from 'dgram';
+import { performance } from 'perf_hooks';
 // import { TibboDevice, PCODE_STATE, TaikoMessage, TIBBO_PROXY_MESSAGE, TaikoReply, PCODEMachineState, PCODE_COMMANDS } from './types';
 import { io as socketIOClient } from 'socket.io-client';
 const winston = require('winston');
@@ -216,7 +217,7 @@ export class TIDEProxy {
         device.pdbStorageAddress = Number(message.data);
     }
 
-    async handleMessage(msg: Buffer, info: any, socket: TBNetworkInterface): Promise<void> {
+    handleMessage(msg: Buffer, info: any, socket: TBNetworkInterface) {
         const message = msg.toString();
         const parts = message.substring(message.indexOf('[') + 1, message.indexOf(']')).split('.');
         if (message.substr(0, 1) == '_') {
@@ -370,10 +371,13 @@ export class TIDEProxy {
                         if (replyFor === undefined) {
                             break;
                         }
+                        const oldProgress = Math.round(device.fileIndex / device.fileBlocksTotal * 100);
                         device.fileIndex += device.blockSize;
+                        const newProgress = Math.round(device.fileIndex / device.fileBlocksTotal * 100);
                         if (device.file != null && device.fileIndex * BLOCK_SIZE < device.file.length) {
                             this.sendBlock(mac, device.fileIndex);
-                            if (device.fileIndex % 10 == 0 || device.fileIndex == device.fileBlocksTotal) {
+                            if (oldProgress !== newProgress) {
+                                // if (device.fileIndex % 10 == 0 || device.fileIndex == device.fileBlocksTotal) {
                                 this.emit(TIBBO_PROXY_MESSAGE.UPLOAD, {
                                     'data': device.fileIndex / device.fileBlocksTotal,
                                     'mac': mac
@@ -409,13 +413,6 @@ export class TIDEProxy {
                     break;
             }
 
-            if (replyFor !== undefined && replyFor.timestamp != undefined) {
-                const timeout = new Date().getTime() - replyFor.timestamp;
-                device.replyTimes.push(timeout);
-                if (device.replyTimes.length > 30) {
-                    device.replyTimes.splice(1, 1);
-                }
-            }
             if (reply == NOTIFICATION_OK) {
                 stateString = messagePart;
             }
@@ -425,17 +422,15 @@ export class TIDEProxy {
                     'mac': mac,
                     'data': messagePart
                 });
-                if (device.state !== deviceState) {
-                    switch (deviceState) {
-                        case PCODEMachineState.DEBUG_PRINT_AND_CONTINUE:
-                            await this.handleDebugPrint(device, deviceState);
-                            break;
-                        case PCODEMachineState.DEBUG_PRINT_AND_STOP:
-                            if (device.state != PCODEMachineState.DEBUG_PRINT_AND_STOP) {
-                                await this.handleDebugPrint(device, deviceState);
-                            }
-                            break;
-                    }
+                switch (deviceState) {
+                    case PCODEMachineState.DEBUG_PRINT_AND_CONTINUE:
+                        this.handleDebugPrint(device, deviceState);
+                        break;
+                    case PCODEMachineState.DEBUG_PRINT_AND_STOP:
+                        if (device.state != PCODEMachineState.DEBUG_PRINT_AND_STOP) {
+                            this.handleDebugPrint(device, deviceState);
+                        }
+                        break;
                 }
 
                 device.state = deviceState;
@@ -443,10 +438,17 @@ export class TIDEProxy {
         }
     }
 
-    async handleDebugPrint(device: TibboDevice, deviceState: PCODEMachineState): Promise<void> {
+    async handleDebugPrint(device: TibboDevice, deviceState: PCODEMachineState){
+        if (device.printing) {
+            return;
+        }
+        device.printing = true;
         const address = device.pdbStorageAddress;
         if (address != undefined && device.lastRunCommand != undefined) {
+            const start = performance.now();
             const val = await this.getVariable(address, device.mac);
+            const end = performance.now();
+            console.log(`getVariable ${val} took ${end - start}ms`);
             this.emit(TIBBO_PROXY_MESSAGE.DEBUG_PRINT, {
                 data: JSON.stringify({
                     data: val,
@@ -459,8 +461,9 @@ export class TIDEProxy {
                     this.sendToDevice(device.lastRunCommand.mac, device.lastRunCommand.command, device.lastRunCommand.data);
                 }
             }
-
         }
+        this.sendToDevice(device.mac, PCODE_COMMANDS.STATE, '');
+        device.printing = false;
     }
 
     startApplicationUpload(mac: string, fileString: string): void {
@@ -527,21 +530,13 @@ export class TIDEProxy {
             mac = parts.join('.');
             const message = `_[${mac}]${command}${data}`;
             if (reply) {
-                let timeout = RETRY_TIMEOUT;
-                if (device.replyTimes.length > 0) {
-                    let sum = 0;
-                    for (let i = 0; i < device.replyTimes.length; i++) {
-                        sum += device.replyTimes[i];
-                    }
-                    timeout = Math.round(sum / device.replyTimes.length);
-                }
                 this.pendingMessages.push({
                     deviceInterface: device.deviceInterface,
                     message: message,
                     nonce: pnum,
                     tries: 0,
                     timestamp: new Date().getTime(),
-                    timeout: timeout,
+                    timeout: RETRY_TIMEOUT,
                 });
                 device.messageQueue.push({
                     mac: mac,
@@ -648,12 +643,12 @@ export class TIDEProxy {
     }
 
     private async getVariable(address: number, mac: string): Promise<string> {
-        let outputString = "";
         const COMMAND_WAIT_TIME = 3000;
         const READ_BLOCK_SIZE = 16;
         const TRIES = 3;
         for (let t = 0; t < TRIES; t++) {
             try {
+                let outputString = '';
                 let tmpAddress = address.toString(16).padStart(4, '0');
                 this.memoryCalls[tmpAddress] = new Subject();
                 this.sendToDevice(mac, PCODE_COMMANDS.GET_MEMORY, tmpAddress + ',02', true);
@@ -662,36 +657,49 @@ export class TIDEProxy {
                     throw new Error('timeout for getting string length');
                 }
                 const stringSize = parseInt(this.memoryCalls[tmpAddress].message[0], 16);
-                let index = 0;
-                address += 2;
+                const startAddress = address + 2;
                 let blocks = Math.floor(stringSize / READ_BLOCK_SIZE);
                 if (stringSize % READ_BLOCK_SIZE != 0) {
                     blocks++;
                 }
+                const blockRequests = [...Array(blocks).keys()];
+                await Promise.allSettled(
+                    blockRequests.map(async (block) => {
+                        let count = READ_BLOCK_SIZE;
+                        const blockIndex = (block * READ_BLOCK_SIZE);
+                        if (blockIndex + count > stringSize) {
+                            count = stringSize - blockIndex;
+                        }
+                        const strAddress = (startAddress + block * READ_BLOCK_SIZE).toString(16).padStart(4, '0');
+                        this.memoryCalls[strAddress] = new Subject();
+                        console.log(`started getting block ${block}`);
+                        this.sendToDevice(mac, PCODE_COMMANDS.GET_MEMORY, strAddress + ',' + count.toString(16).padStart(2, '0'), true);
+                        await this.memoryCalls[strAddress].wait(COMMAND_WAIT_TIME);
+                        console.log(`finished getting block ${block}`);
+                    })
+                );
                 for (let i = 0; i < blocks; i++) {
+                    const block = i;
                     let count = READ_BLOCK_SIZE;
-                    if (index + count > stringSize) {
-                        count = stringSize - index;
+                    const blockIndex = (block * READ_BLOCK_SIZE);
+                    if (blockIndex + count > stringSize) {
+                        count = stringSize - blockIndex;
                     }
-                    tmpAddress = address.toString(16).padStart(4, '0');
-                    this.memoryCalls[tmpAddress] = new Subject();
-                    this.sendToDevice(mac, PCODE_COMMANDS.GET_MEMORY, tmpAddress + ',' + count.toString(16).padStart(2, '0'), true);
-                    await this.memoryCalls[tmpAddress].wait(COMMAND_WAIT_TIME);
-                    if (!this.memoryCalls[tmpAddress].message) {
-                        throw new Error('timeout for getting string value at ' + index);
+                    const strAddress = (startAddress + block * READ_BLOCK_SIZE).toString(16).padStart(4, '0');
+                    if (!this.memoryCalls[strAddress].message) {
+                        throw new Error('timeout for getting string value at ' + blockIndex);
                     }
-                    for (let i = 0; i < this.memoryCalls[tmpAddress].message.length; i++) {
-                        const charCode = parseInt(this.memoryCalls[tmpAddress].message[i], 16);
+                    for (let i = 0; i < this.memoryCalls[strAddress].message.length; i++) {
+                        const charCode = parseInt(this.memoryCalls[strAddress].message[i], 16);
                         outputString += String.fromCharCode(charCode);
                     }
-                    this.memoryCalls[tmpAddress] = undefined;
-                    index += count;
-                    address += count;
+                    delete this.memoryCalls[strAddress];
                 }
                 return outputString;
             }
             catch (ex) {
                 logger.error(ex);
+                console.log(ex);
             }
         }
         return '';
@@ -720,7 +728,6 @@ export class TIDEProxy {
             pcode: -1,
             blockSize: 1,
             state: PCODEMachineState.STOPPED,
-            replyTimes: [],
         };
 
         this.devices.push(device);
@@ -755,7 +762,7 @@ export interface TibboDevice {
     state: PCODEMachineState;
     pdbStorageAddress?: number;
     deviceInterface?: any;
-    replyTimes: Array<number>;
+    printing?: boolean;
 }
 
 export enum PCODEMachineState {

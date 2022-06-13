@@ -33,7 +33,7 @@ export declare class TIDEProxy {
     setServer(serverAddress: string, proxyName: string): void;
     handleRefresh(): void;
     setPDBAddress(message: TaikoMessage): void;
-    handleMessage(msg: Buffer, info: any, socket: TBNetworkInterface): Promise<void>;
+    handleMessage(msg: Buffer, info: any, socket: TBNetworkInterface): void;
     handleDebugPrint(device: TibboDevice, deviceState: PCODEMachineState): Promise<void>;
     startApplicationUpload(mac: string, fileString: string): void;
     sendBlock(mac: string, blockIndex: number): void;
@@ -62,7 +62,7 @@ export interface TibboDevice {
     state: PCODEMachineState;
     pdbStorageAddress?: number;
     deviceInterface?: any;
-    replyTimes: Array<number>;
+    printing?: boolean;
 }
 export declare enum PCODEMachineState {
     STOPPED = "***",
