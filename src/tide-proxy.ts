@@ -400,12 +400,11 @@ export class TIDEProxy {
                     }
                     break;
                 case PCODE_COMMANDS.RESET_PROGRAMMING:
-                    // if (messagePart) {
-                    //     device.blockSize = Number(messagePart);
-                    // }
-                    device.blockSize = 1;
-                    if (device.file != null) {
-                        this.sendBlock(mac, 0);
+                    if (reply == REPLY_OK) {
+                        device.blockSize = 1;
+                        if (device.file != null) {
+                            this.sendBlock(mac, 0);
+                        }
                     }
                     break;
                 default:
@@ -438,7 +437,7 @@ export class TIDEProxy {
         }
     }
 
-    async handleDebugPrint(device: TibboDevice, deviceState: PCODEMachineState){
+    async handleDebugPrint(device: TibboDevice, deviceState: PCODEMachineState) {
         if (device.printing) {
             return;
         }
