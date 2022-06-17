@@ -421,15 +421,17 @@ export class TIDEProxy {
                     'mac': mac,
                     'data': messagePart
                 });
-                switch (deviceState) {
-                    case PCODEMachineState.DEBUG_PRINT_AND_CONTINUE:
-                        this.handleDebugPrint(device, deviceState);
-                        break;
-                    case PCODEMachineState.DEBUG_PRINT_AND_STOP:
-                        if (device.state != PCODEMachineState.DEBUG_PRINT_AND_STOP) {
+                if (replyFor !== undefined || reply === NOTIFICATION_OK) {
+                    switch (deviceState) {
+                        case PCODEMachineState.DEBUG_PRINT_AND_CONTINUE:
                             this.handleDebugPrint(device, deviceState);
-                        }
-                        break;
+                            break;
+                        case PCODEMachineState.DEBUG_PRINT_AND_STOP:
+                            if (device.state != PCODEMachineState.DEBUG_PRINT_AND_STOP) {
+                                this.handleDebugPrint(device, deviceState);
+                            }
+                            break;
+                    }
                 }
 
                 device.state = deviceState;
@@ -459,9 +461,11 @@ export class TIDEProxy {
                 if (device.lastRunCommand != undefined) {
                     this.sendToDevice(device.lastRunCommand.mac, device.lastRunCommand.command, device.lastRunCommand.data);
                 }
+            } else {
+                this.sendToDevice(device.mac, PCODE_COMMANDS.STATE, '');
             }
         }
-        this.sendToDevice(device.mac, PCODE_COMMANDS.STATE, '');
+
         device.printing = false;
     }
 
