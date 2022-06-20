@@ -470,6 +470,9 @@ export class TIDEProxy {
     }
 
     startApplicationUpload(mac: string, fileString: string): void {
+        if (!mac) {
+            return;
+        }
         let device: TibboDevice = this.getDevice(mac);
         device.fileIndex = 0;
         const bytes = Buffer.from(fileString, 'binary');
