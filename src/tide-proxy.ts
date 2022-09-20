@@ -369,7 +369,7 @@ export class TIDEProxy {
                             }
                         }
                         if (replyFor === undefined) {
-                            break;
+                            return;
                         }
                         const oldProgress = Math.round(device.fileIndex / device.fileBlocksTotal * 100);
                         device.fileIndex += device.blockSize;
