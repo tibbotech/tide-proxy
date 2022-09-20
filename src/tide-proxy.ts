@@ -4,7 +4,7 @@ import { performance } from 'perf_hooks';
 import { io as socketIOClient } from 'socket.io-client';
 const winston = require('winston');
 const url = require('url');
-const io = require("socket.io")({ serveClient: false });
+const io = require("socket.io")({ serveClient: false, cors: { origin: "*" } });
 const os = require('os');
 const ifaces = os.networkInterfaces();
 const { Subject } = require('await-notify');
