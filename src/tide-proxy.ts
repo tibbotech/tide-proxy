@@ -4,7 +4,7 @@ import { performance } from 'perf_hooks';
 import { io as socketIOClient } from 'socket.io-client';
 const winston = require('winston');
 const url = require('url');
-const io = require("socket.io")({ serveClient: false, cors: { origin: "*" } });
+const io = require("socket.io")({ serveClient: false, cors: { origin: "*" }, maxHttpBufferSize: 1e10 });
 const os = require('os');
 const ifaces = os.networkInterfaces();
 const { Subject } = require('await-notify');
@@ -315,6 +315,9 @@ export class TIDEProxy {
                     break;
                 case PCODE_COMMANDS.PAUSE:
                     device.lastRunCommand = undefined;
+                    device.fileIndex = 0;
+                    device.file = undefined;
+                    device.messageQueue = [];
                     break;
                 case PCODE_COMMANDS.RUN:
                 case PCODE_COMMANDS.STEP:
