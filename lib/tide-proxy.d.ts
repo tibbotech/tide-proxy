@@ -53,6 +53,7 @@ export interface TibboDevice {
     messageQueue: Array<TaikoMessage>;
     tios: string;
     app: string;
+    appVersion: string;
     file?: Buffer;
     fileIndex: number;
     blockSize: number;

@@ -346,7 +346,8 @@ export class TIDEProxy {
                             mac: device.mac,
                             tios: device.tios,
                             app: device.app,
-                            pcode: device.pcode
+                            pcode: device.pcode,
+                            appVersion: device.appVersion,
                         });
 
                         stateString = messagePart;
