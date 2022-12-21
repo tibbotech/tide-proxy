@@ -309,6 +309,7 @@ export class TIDEProxy {
                         const parts = messagePart.split('/');
                         device.tios = parts[0];
                         device.app = parts[2];
+                        device.appVersion = parts[1];
                         this.sendToDevice(mac, PCODE_COMMANDS.STATE, '');
                         // let newMessage = Buffer.from(`_[${mac}]${P_PCODESTATE}|a`);
                     }
@@ -732,6 +733,7 @@ export class TIDEProxy {
             messageQueue: [],
             tios: '',
             app: '',
+            appVersion: '',
             fileIndex: 0,
             fileBlocksTotal: 0,
             pcode: -1,
@@ -762,6 +764,7 @@ export interface TibboDevice {
     messageQueue: Array<TaikoMessage>;
     tios: string;
     app: string;
+    appVersion: string;
     file?: Buffer;
     fileIndex: number;
     blockSize: number;
