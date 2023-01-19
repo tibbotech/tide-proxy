@@ -825,7 +825,7 @@ export enum PCODE_COMMANDS {
     UPLOAD = 'D',
     APPUPLOADFINISH = "T",
     BUZZ = 'B',
-    REBOOT = 'E'
+    REBOOT = 'EC'
 }
 
 export enum TIBBO_PROXY_MESSAGE {
