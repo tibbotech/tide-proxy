@@ -765,7 +765,7 @@ export class TIDEProxy {
     
     stop() {
         this.close();
-        this.server.close();
+        this.server.server.close();
     }
 }
 
