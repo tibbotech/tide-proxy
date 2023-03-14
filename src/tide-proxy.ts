@@ -57,9 +57,11 @@ export class TIDEProxy {
     discoveredDevices: { [key: string]: string } = {};
     id: string;
     clients: any[];
+    listenPort: number;
 
     constructor(serverAddress = '', proxyName: string, port = 3535, targetInterface?: string) {
         this.id = new Date().getTime().toString();
+        this.listenPort = port;
         for (const key in ifaces) {
             // broadcasts[i] = networks[i] | ~subnets[i] + 256;
             const iface = ifaces[key];

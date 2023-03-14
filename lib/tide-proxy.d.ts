@@ -28,6 +28,7 @@ export declare class TIDEProxy {
     };
     id: string;
     clients: any[];
+    listenPort: number;
     constructor(serverAddress: string | undefined, proxyName: string, port?: number, targetInterface?: string);
     setInterface(targetInterface: string): void;
     setServer(serverAddress: string, proxyName: string): void;
