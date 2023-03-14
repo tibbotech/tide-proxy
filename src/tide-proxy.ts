@@ -33,7 +33,7 @@ interface TBNetworkInterface {
     netInterface: any
 }
 
-const logger = winston.createLogger({
+const logger = winston.createLogger(winston.transports.Console, {
     name: 'console.info',
     level: 'info',
     format: winston.format.simple(),
@@ -45,10 +45,9 @@ const logger = winston.createLogger({
     ],
 });
 
-if (process.env.NODE_ENV != 'production') {
-    if (!process.env.TIDE_PROXY_SILENT) {
-        logger.add(new winston.transports.Console({ format: winston.format.simple(), }));
-    }
+if (process.env.NODE_ENV === 'production'
+    || process.env.TIDE_PROXY_SILENT) {
+    logger.transports['console.info'].silent = true;
 }
 
 export class TIDEProxy {
@@ -762,7 +761,7 @@ export class TIDEProxy {
             this.socket.removeAllListeners();
         }
     }
-    
+
     stop() {
         this.close();
         this.server.server.close();
