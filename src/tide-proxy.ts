@@ -76,7 +76,7 @@ export class TIDEProxy {
                     });
 
                     socket.on('error', (err) => {
-                        console.log(`udp server error:\n${err.stack}`);
+                        logger.error(`udp server error:\n${err.stack}`);
                         socket.close();
                     });
                     socket.on('message', (msg: Buffer, info) => {
@@ -84,14 +84,14 @@ export class TIDEProxy {
                     });
 
                     socket.on('listening', () => {
-                        console.log('listening on ' + tmp.address);
+                        logger.info('listening on ' + tmp.address);
                     });
 
                     socket.bind({
                         // port: PORT,
                         address: tmp.address
                     }, () => {
-                        console.log('socket bound for ' + tmp.address);
+                        logger.info('socket bound for ' + tmp.address);
                         socket.setBroadcast(true);
                     });
 
@@ -117,7 +117,7 @@ export class TIDEProxy {
         this.clients = [];
         this.server.on('connection', (conClient: any) => {
             this.clients.push(conClient);
-            console.log('client connected on socket');
+            logger.info('client connected on socket');
             conClient.on(TIBBO_PROXY_MESSAGE.REFRESH, (message: TaikoMessage) => {
                 this.handleRefresh();
             });
@@ -136,7 +136,7 @@ export class TIDEProxy {
             });
             conClient.on(TIBBO_PROXY_MESSAGE.SET_PDB_STORAGE_ADDRESS, this.setPDBAddress.bind(this));
             conClient.on('close', () => {
-                console.log('socket closed');
+                logger.info('socket closed');
                 this.clients.splice(this.clients.indexOf(this.clients), 1);
             });
         });
@@ -451,7 +451,7 @@ export class TIDEProxy {
             const start = performance.now();
             const val = await this.getVariable(address, device.mac);
             const end = performance.now();
-            console.log(`getVariable ${val} took ${end - start}ms`);
+            logger.info(`getVariable ${val} took ${end - start}ms`);
             this.emit(TIBBO_PROXY_MESSAGE.DEBUG_PRINT, {
                 data: JSON.stringify({
                     data: val,
@@ -680,10 +680,10 @@ export class TIDEProxy {
                         }
                         const strAddress = (startAddress + block * READ_BLOCK_SIZE).toString(16).padStart(4, '0');
                         this.memoryCalls[strAddress] = new Subject();
-                        console.log(`started getting block ${block}`);
+                        logger.info(`started getting block ${block}`);
                         this.sendToDevice(mac, PCODE_COMMANDS.GET_MEMORY, strAddress + ',' + count.toString(16).padStart(2, '0'), true);
                         await this.memoryCalls[strAddress].wait(COMMAND_WAIT_TIME);
-                        console.log(`finished getting block ${block}`);
+                        logger.info(`finished getting block ${block}`);
                     })
                 );
                 for (let i = 0; i < blocks; i++) {
@@ -707,7 +707,7 @@ export class TIDEProxy {
             }
             catch (ex) {
                 logger.error(ex);
-                console.log(ex);
+                logger.error(ex);
             }
         }
         return '';
