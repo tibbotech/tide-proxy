@@ -33,17 +33,17 @@ interface TBNetworkInterface {
     netInterface: any
 }
 
-const logger = winston.createLogger(winston.transports.Console, {
+const logger = winston.createLogger({
     name: 'console.info',
     level: 'info',
     format: winston.format.simple(),
-});
+    transports: [
+        new winston.transports.Console({
+            silent: process.env.TIDE_PROXY_VERBOSE ? false : true,
+        }),
 
-if (process.env.TIDE_PROXY_VERBOSE) {
-    logger.transports['console.info'].silent = false;
-} else {
-    logger.transports['console.info'].silent = true;
-}
+    ]
+});
 
 export class TIDEProxy {
     devices: Array<TibboDevice> = [];
