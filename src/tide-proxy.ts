@@ -34,6 +34,7 @@ interface TBNetworkInterface {
 }
 
 const logger = winston.createLogger({
+    name: 'console.info',
     level: 'info',
     format: winston.format.simple(),
     transports: [
@@ -45,7 +46,9 @@ const logger = winston.createLogger({
 });
 
 if (process.env.NODE_ENV != 'production') {
-    logger.add(new winston.transports.Console({ format: winston.format.simple(), }));
+    if (!process.env.TIDE_PROXY_SILENT) {
+        logger.add(new winston.transports.Console({ format: winston.format.simple(), }));
+    }
 }
 
 export class TIDEProxy {
@@ -753,9 +756,16 @@ export class TIDEProxy {
         this.server.emit(channel, content);
     }
 
-    async close() {
-        this.socket.close();
-        this.socket.removeAllListeners();
+    close() {
+        if (this.socket) {
+            this.socket.close();
+            this.socket.removeAllListeners();
+        }
+    }
+    
+    stop() {
+        this.close();
+        this.server.close();
     }
 }
 

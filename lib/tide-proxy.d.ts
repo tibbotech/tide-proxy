@@ -45,7 +45,8 @@ export declare class TIDEProxy {
     private getVariable;
     getDevice(mac: string): TibboDevice;
     emit(channel: string, content: any): void;
-    close(): Promise<void>;
+    close(): void;
+    stop(): void;
 }
 export interface TibboDevice {
     ip: string;
