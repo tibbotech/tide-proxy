@@ -45,8 +45,9 @@ const logger = winston.createLogger(winston.transports.Console, {
     ],
 });
 
-if (process.env.NODE_ENV === 'production'
-    || process.env.TIDE_PROXY_SILENT) {
+if (process.env.TIDE_PROXY_VERBOSE) {
+    logger.transports['console.info'].silent = false;
+} else {
     logger.transports['console.info'].silent = true;
 }
 
