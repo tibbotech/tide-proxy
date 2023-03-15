@@ -762,6 +762,8 @@ export class TIDEProxy {
     async stop() {
         this.close();
         await new Promise<void>((resolve) => {
+            io.removeAllListeners();
+            this.server.removeAllListeners();
             io.close(() => {
                 resolve();
             });
