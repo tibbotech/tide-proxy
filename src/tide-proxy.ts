@@ -761,11 +761,8 @@ export class TIDEProxy {
 
     async stop() {
         this.close();
-        for (const connection of this.server.connections) {
-            connection.destroy();
-        }
         await new Promise<void>((resolve) => {
-            this.server.server.close(() => {
+            io.close(() => {
                 resolve();
             });
         });
