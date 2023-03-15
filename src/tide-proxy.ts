@@ -759,9 +759,16 @@ export class TIDEProxy {
         }
     }
 
-    stop() {
+    async stop() {
         this.close();
-        this.server.server.close();
+        for (const connection of this.server.connections) {
+            connection.destroy();
+        }
+        await new Promise<void>((resolve) => {
+            this.server.server.close(() => {
+                resolve();
+            });
+        });
     }
 }
 
