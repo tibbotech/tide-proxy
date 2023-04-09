@@ -625,10 +625,11 @@ export class TIDEProxy {
                 try {
                     const tmp = this.interfaces[i];
                     const broadcastAddress = this.getBroadcastAddress(tmp.netInterface.address, tmp.netInterface.netmask);
-                    if (targetIP === undefined) {
-                        targetIP = broadcastAddress;
+                    let destIP = targetIP;
+                    if (destIP === undefined) {
+                        destIP = broadcastAddress;
                     }
-                    tmp.socket.send(message, 0, message.length, PORT, targetIP, (err, bytes) => {
+                    tmp.socket.send(message, 0, message.length, PORT, destIP, (err, bytes) => {
                         if (err) {
                             logger.error('error sending ' + err.toString());
                         }
