@@ -610,11 +610,8 @@ export class TIDEProxy {
             targetInterface = netInterface;
         }
         if (targetInterface != undefined) {
-            const broadcastAddress = this.getBroadcastAddress(targetInterface.netInterface.address, targetInterface.netInterface.netmask);
-            if (targetIP === undefined) {
-                targetIP = broadcastAddress;
-            }
-            targetInterface.socket.send(message, 0, message.length, PORT, targetIP, (err, bytes) => {
+            const broadcastAddress = '255.255.255.255';
+            targetInterface.socket.send(message, 0, message.length, PORT, broadcastAddress, (err, bytes) => {
                 if (err) {
                     logger.error('error sending ' + err.toString());
                 }
@@ -624,12 +621,8 @@ export class TIDEProxy {
             for (let i = 0; i < this.interfaces.length; i++) {
                 try {
                     const tmp = this.interfaces[i];
-                    const broadcastAddress = this.getBroadcastAddress(tmp.netInterface.address, tmp.netInterface.netmask);
-                    let destIP = targetIP;
-                    if (destIP === undefined) {
-                        destIP = broadcastAddress;
-                    }
-                    tmp.socket.send(message, 0, message.length, PORT, destIP, (err, bytes) => {
+                    const broadcastAddress = '255.255.255.255';
+                    tmp.socket.send(message, 0, message.length, PORT, broadcastAddress, (err, bytes) => {
                         if (err) {
                             logger.error('error sending ' + err.toString());
                         }
@@ -639,18 +632,6 @@ export class TIDEProxy {
                 }
             }
         }
-    }
-
-    getBroadcastAddress(address: string, netmask: string): string {
-        const addressBytes = address.split(".").map(Number);
-        const netmaskBytes = netmask.split(".").map(Number);
-        const subnetBytes = netmaskBytes.map(
-            (_, index) => addressBytes[index] & netmaskBytes[index]
-        );
-        const broadcastBytes = netmaskBytes.map(
-            (_, index) => subnetBytes[index] | (~netmaskBytes[index] + 256)
-        );
-        return broadcastBytes.map(String).join(".")
     }
 
     private async getVariable(address: number, mac: string): Promise<string> {
