@@ -2,6 +2,7 @@ import * as dgram from 'dgram';
 import { performance } from 'perf_hooks';
 // import { TibboDevice, PCODE_STATE, TaikoMessage, TIBBO_PROXY_MESSAGE, TaikoReply, PCODEMachineState, PCODE_COMMANDS } from './types';
 import { io as socketIOClient } from 'socket.io-client';
+import axios from 'axios';
 const winston = require('winston');
 const url = require('url');
 const io = require("socket.io")({ serveClient: false, cors: { origin: "*" }, maxHttpBufferSize: 1e10 });
@@ -136,6 +137,9 @@ export class TIDEProxy {
             conClient.on(TIBBO_PROXY_MESSAGE.COMMAND, (message: TaikoMessage) => {
                 this.sendToDevice(message.mac, message.command, message.data, true, message.nonce);
             });
+            conClient.on(TIBBO_PROXY_MESSAGE.HTTP, (message: HTTPMessage) => {
+                this.handleHTTPProxy(message);
+            });
             conClient.on(TIBBO_PROXY_MESSAGE.SET_PDB_STORAGE_ADDRESS, this.setPDBAddress.bind(this));
             conClient.on('close', () => {
                 logger.info('socket closed');
@@ -201,6 +205,9 @@ export class TIDEProxy {
         });
         this.socket.on(TIBBO_PROXY_MESSAGE.COMMAND, (message: TaikoMessage) => {
             this.sendToDevice(message.mac, message.command, message.data, true, message.nonce);
+        });
+        this.socket.on(TIBBO_PROXY_MESSAGE.HTTP, (message: HTTPMessage) => {
+            this.handleHTTPProxy(message);
         });
         this.socket.on(TIBBO_PROXY_MESSAGE.SET_PDB_STORAGE_ADDRESS, this.setPDBAddress.bind(this));
     }
@@ -727,6 +734,34 @@ export class TIDEProxy {
         return device;
     }
 
+    async handleHTTPProxy(message: HTTPMessage) {
+        try {
+            const response = await axios({
+                method: message.method,
+                url: message.url,
+                headers: message.headers,
+                data: message.data
+            });
+            this.emit(TIBBO_PROXY_MESSAGE.HTTP_RESPONSE, {
+                nonce: message.nonce,
+                status: response.status,
+                url: message.url,
+                data: response.data
+            });
+        } catch (error: any) {
+            if (error.response) {
+                this.emit(TIBBO_PROXY_MESSAGE.HTTP_RESPONSE, {
+                    nonce: message.nonce,
+                    status: error.response.status,
+                    url: message.url,
+                    data: error.response.data
+                });
+            } else {
+                logger.error(error);
+            }
+        }
+    }
+
     emit(channel: string, content: any) {
         if (this.socket !== undefined) {
             this.socket.emit(channel, content);
@@ -794,6 +829,14 @@ export interface TaikoMessage {
     timestamp: number;
 }
 
+export interface HTTPMessage {
+    url: string;
+    data: any;
+    method: string;
+    headers: any;
+    nonce?: string;
+}
+
 export interface TaikoReply {
     mac: string;
     data: string;
@@ -835,5 +878,7 @@ export enum TIBBO_PROXY_MESSAGE {
     COMMAND = 'command',
     REPLY = 'reply',
     SET_PDB_STORAGE_ADDRESS = 'set_pdb_storage_address',
-    DEBUG_PRINT = 'debug_print'
+    DEBUG_PRINT = 'debug_print',
+    HTTP = 'http',
+    HTTP_RESPONSE = 'http_response'
 }

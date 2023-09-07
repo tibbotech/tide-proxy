@@ -20,9 +20,4 @@ for (let i = 0; i < process.argv.length; i++) {
 }
 
 
-if (serverAddress != '') {
-    new TIDEProxy(serverAddress, networkName, LISTEN_PORT);
-}
-else {
-    console.log('use --help to view options');
-}
+new TIDEProxy(serverAddress, networkName, LISTEN_PORT);

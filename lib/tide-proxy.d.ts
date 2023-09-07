@@ -44,6 +44,7 @@ export declare class TIDEProxy {
     send(message: Buffer, netInterface?: any, targetIP?: string): void;
     private getVariable;
     getDevice(mac: string): TibboDevice;
+    handleHTTPProxy(message: HTTPMessage): Promise<void>;
     emit(channel: string, content: any): void;
     close(): void;
     stop(): Promise<void>;
@@ -85,6 +86,13 @@ export interface TaikoMessage {
     nonce?: string;
     timestamp: number;
 }
+export interface HTTPMessage {
+    url: string;
+    data: any;
+    method: string;
+    headers: any;
+    nonce?: string;
+}
 export interface TaikoReply {
     mac: string;
     data: string;
@@ -124,6 +132,8 @@ export declare enum TIBBO_PROXY_MESSAGE {
     COMMAND = "command",
     REPLY = "reply",
     SET_PDB_STORAGE_ADDRESS = "set_pdb_storage_address",
-    DEBUG_PRINT = "debug_print"
+    DEBUG_PRINT = "debug_print",
+    HTTP = "http",
+    HTTP_RESPONSE = "http_response"
 }
 export {};

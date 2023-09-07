@@ -19,7 +19,7 @@
             "outputCapture": "std",
             "args": [
                 "--server",
-                "http://192.168.1.93:8098/5f55f4e3defe3835f69cfa6b",
+                "http://localhost:8080/tide/networks/NmI4Y2VjOTQtMzhhZS00ODgzLWJhNDgtNzRjMTI5ZWM1NDU5",
                 "--name",
                 "testcli"
 			]
