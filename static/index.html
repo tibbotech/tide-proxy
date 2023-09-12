@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <title>Remote Debugger</title>
+</head>
+
+<body>
+
+    <form onsubmit="return setProxy(event)">
+        <label for="proxyName">Name</label>
+        <input type="text" id="proxyName" style="width:400px;" />
+        <br />
+        <label for="proxyURL">URL</label>
+        <textarea id="proxyURL" style="width:400px;">
+            </textarea>
+        <br />
+        <button type="submit">Set Proxy</button>
+    </form>
+
+    <script>
+        async function setProxy(e) {
+            e.preventDefault();
+            await fetch('/debug', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    name: document.getElementById("proxyName").value,
+                    url: document.getElementById("proxyURL").value
+                })
+            })
+            return false;
+        }
+
+        async function getProxy() {
+            const response = await fetch("/debug");
+            const config = await response.json();
+            document.getElementById("proxyURL").value = config.url;
+            document.getElementById("proxyName").value = config.name;
+        }
+
+        getProxy();
+    </script>
+</body>
+
+</html>

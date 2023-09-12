@@ -3,6 +3,7 @@
 
 This module provides commands control and monitor Tibbo Devices
 
-## Commands Availables:
+## Command Line Start
 
-- 
+
+## Proxy server with web config

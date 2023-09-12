@@ -5,9 +5,23 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Launch server",
+            "program": "${workspaceFolder}/lib/server.js",
+            "request": "launch",
+            "skipFiles": [
+                "<node_internals>/**"
+            ],
+            "type": "node",
+            "preLaunchTask": "tsc: build - tsconfig.json",
+            "outFiles": [
+                "${workspaceFolder}/lib/**/*.js"
+            ],
+            "outputCapture": "std",
+        },
+        {
             "type": "node",
             "request": "launch",
-            "name": "Launch Program",
+            "name": "Launch cli",
             "skipFiles": [
                 "<node_internals>/**"
             ],
@@ -23,6 +37,6 @@
                 "--name",
                 "testcli"
 			]
-        }
+        },
     ]
 }
