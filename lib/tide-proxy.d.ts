@@ -1,4 +1,5 @@
 /// <reference types="node" />
+/// <reference types="node" />
 import * as dgram from 'dgram';
 interface UDPMessage {
     deviceInterface: any;
@@ -66,6 +67,7 @@ export interface TibboDevice {
     pdbStorageAddress?: number;
     deviceInterface?: any;
     printing?: boolean;
+    lastPoll?: number;
 }
 export declare enum PCODEMachineState {
     STOPPED = "***",

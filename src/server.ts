@@ -23,6 +23,7 @@ const readProxy = async () => {
         proxyURL = proxyConfig.url;
         proxyName = proxyConfig.name;
     }
+    setProxy(proxyName, proxyURL);
 };
 
 const setProxy = async (name: string, url: string) => {

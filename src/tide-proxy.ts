@@ -336,6 +336,9 @@ export class TIDEProxy {
                     break;
                 case PCODE_COMMANDS.STATE:
                     {
+                        if (replyFor !== undefined) {
+                            device.lastPoll = new Date().getTime();
+                        }
                         const replyParts = messagePart.split('/');
                         const pc = replyParts[0]
                         let pcode_state = PCODE_STATE.STOPPED
@@ -452,6 +455,11 @@ export class TIDEProxy {
 
     async handleDebugPrint(device: TibboDevice, deviceState: PCODEMachineState) {
         if (device.printing) {
+            return;
+        }
+        const currentTimestamp = new Date().getTime();
+        if (device.lastPoll === undefined || currentTimestamp - device.lastPoll > 5000) {
+            // stop auto continue if no client polls of device
             return;
         }
         device.printing = true;
@@ -805,6 +813,7 @@ export interface TibboDevice {
     pdbStorageAddress?: number;
     deviceInterface?: any;
     printing?: boolean;
+    lastPoll?: number;
 }
 
 export enum PCODEMachineState {
