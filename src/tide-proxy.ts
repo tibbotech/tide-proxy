@@ -2,7 +2,7 @@ import * as dgram from 'dgram';
 import { performance } from 'perf_hooks';
 // import { TibboDevice, PCODE_STATE, TaikoMessage, TIBBO_PROXY_MESSAGE, TaikoReply, PCODEMachineState, PCODE_COMMANDS } from './types';
 import { io as socketIOClient } from 'socket.io-client';
-import axios from 'axios';
+import axios, { Method } from 'axios';
 const winston = require('winston');
 const url = require('url');
 const io = require("socket.io")({ serveClient: false, cors: { origin: "*" }, maxHttpBufferSize: 1e10 });
@@ -744,9 +744,8 @@ export class TIDEProxy {
 
     async handleHTTPProxy(message: HTTPMessage) {
         try {
-            const response = await axios({
-                method: message.method,
-                url: message.url,
+            const response = await axios(message.url, {
+                method: message.method as Method,
                 headers: message.headers,
                 data: message.data
             });

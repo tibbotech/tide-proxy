@@ -1,5 +1,4 @@
 /// <reference types="node" />
-/// <reference types="node" />
 import * as dgram from 'dgram';
 interface UDPMessage {
     deviceInterface: any;
