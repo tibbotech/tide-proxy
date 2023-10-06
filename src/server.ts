@@ -49,12 +49,10 @@ const setProxy = async (name: string, url: string) => {
         url: proxyURL,
         name: proxyName,
     }), 'utf-8');
-    if (proxyURL !== '') {
-        if (proxy) {
-            await proxy.stop();
-        }
-        proxy = new TIDEProxy(proxyURL, proxyName !== '' ? proxyName : 'remotenet', 3535);
+    if (proxy) {
+        await proxy.stop();
     }
+    proxy = new TIDEProxy(proxyURL, proxyName !== '' ? proxyName : 'remotenet', 3535);
 };
 
 app.get('/debug', (req: any, res: any) => {
