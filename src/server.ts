@@ -1,12 +1,28 @@
 import { TIDEProxy } from './tide-proxy';
+import { io } from 'socket.io-client';
 
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const app = express();
 const port = process.env.TIDE_PROXY_SERVER_PORT || 3000;
+const cors = require('cors');
+
+const socket = io('http://localhost:3535/tide');
+socket.on('connect', () => {
+    console.log('connected');
+});
 
 app.use(express.json({ limit: '50mb' }));
+app.use(
+    cors({
+        origin(origin: string, callback: Function) {
+            callback(null, true);
+        },
+        methods: ['GET', 'PUT', 'POST', 'DELETE'],
+        credentials: true,
+    }),
+);
 
 let proxyURL = '';
 let proxyName = 'remotenet';
@@ -35,7 +51,7 @@ const setProxy = async (name: string, url: string) => {
     }), 'utf-8');
     if (proxyURL !== '') {
         if (proxy) {
-            proxy.close();
+            await proxy.stop();
         }
         proxy = new TIDEProxy(proxyURL, proxyName !== '' ? proxyName : 'remotenet', 3535);
     }
@@ -50,6 +66,26 @@ app.get('/debug', (req: any, res: any) => {
 
 app.post('/debug', async (req: any, res: any) => {
     await setProxy(req.body.name, req.body.url);
+    res.status(200).send();
+});
+
+app.post('/upload', async (req: any, res: any) => {
+    socket.emit('application', {
+        data: req.body.file,
+        mac: req.body.mac,
+    });
+    await new Promise((resolve, reject) => {
+        const listener = (data: any) => {
+            socket.off('upload_complete', listener);
+            socket.off('upload', progressListener);
+            resolve(data);
+        };
+        const progressListener = (data: any) => {
+            console.log(data);
+        };
+        socket.on('upload', progressListener);
+        socket.on('upload_complete', listener);
+    });
     res.status(200).send();
 });
 
