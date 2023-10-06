@@ -91,6 +91,6 @@ app.use('/*', express.static(path.join(__dirname, '..', 'static')));
 
 
 app.listen(port, () => {
-    console.log(`Example app listening on port ${port}`);
+    console.log(`TIDE Proxy listening on port ${port}`);
     readProxy();
 });
