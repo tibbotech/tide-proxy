@@ -480,6 +480,9 @@ export class TIDEProxy {
             });
             if (deviceState == PCODEMachineState.DEBUG_PRINT_AND_CONTINUE) {
                 if (device.lastRunCommand != undefined) {
+                    if (device.lastRunCommand.command == PCODE_COMMANDS.RUN) {
+                        device.lastRunCommand.data = '+' + device.breakpoints;
+                    }
                     this.sendToDevice(device.lastRunCommand.mac, device.lastRunCommand.command, device.lastRunCommand.data);
                 }
             } else {
