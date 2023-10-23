@@ -330,7 +330,9 @@ export class TIDEProxy {
                 case PCODE_COMMANDS.STEP:
                 case PCODE_COMMANDS.SET_POINTER:
                     stateString = messagePart;
-                    if (replyForCommand == PCODE_COMMANDS.RUN || replyForCommand == PCODE_COMMANDS.STEP) {
+                    if (replyForCommand == PCODE_COMMANDS.RUN
+                        || replyForCommand == PCODE_COMMANDS.STEP
+                    ) {
                         device.lastRunCommand = replyFor;
                     }
                     break;
@@ -570,6 +572,12 @@ export class TIDEProxy {
                     nonce: pnum,
                     timestamp: new Date().getTime(),
                 });
+            }
+            if (command === PCODE_COMMANDS.BREAKPOINT || command === PCODE_COMMANDS.RUN) {
+                device.breakpoints = data;
+                if (command === PCODE_COMMANDS.RUN && data.indexOf('+') === 0) {
+                    device.breakpoints = data.substring(1);
+                }
             }
             const newMessage = Buffer.concat([Buffer.from(`${message}|${pnum}`, 'binary')]);
             this.send(newMessage, device.deviceInterface, device.ip === '1.0.0.1' ? undefined : device.ip);
@@ -813,6 +821,7 @@ export interface TibboDevice {
     deviceInterface?: any;
     printing?: boolean;
     lastPoll?: number;
+    breakpoints?: string;
 }
 
 export enum PCODEMachineState {

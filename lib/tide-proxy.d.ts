@@ -67,6 +67,7 @@ export interface TibboDevice {
     deviceInterface?: any;
     printing?: boolean;
     lastPoll?: number;
+    breakpoints?: string;
 }
 export declare enum PCODEMachineState {
     STOPPED = "***",
