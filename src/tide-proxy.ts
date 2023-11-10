@@ -7,7 +7,6 @@ const winston = require('winston');
 const url = require('url');
 const io = require("socket.io")({ serveClient: false, cors: { origin: "*" }, maxHttpBufferSize: 1e10 });
 const os = require('os');
-const ifaces = os.networkInterfaces();
 const { Subject } = require('await-notify');
 
 const RETRY_TIMEOUT = 50;
@@ -63,6 +62,7 @@ export class TIDEProxy {
     constructor(serverAddress = '', proxyName: string, port = 3535, targetInterface?: string) {
         this.id = new Date().getTime().toString();
         this.listenPort = port;
+        const ifaces = os.networkInterfaces();
         for (const key in ifaces) {
             // broadcasts[i] = networks[i] | ~subnets[i] + 256;
             const iface = ifaces[key];
@@ -152,6 +152,7 @@ export class TIDEProxy {
 
     setInterface(targetInterface: string) {
         this.currentInterface = undefined;
+        const ifaces = os.networkInterfaces();
         let tmpInterface = ifaces[targetInterface];
         if (tmpInterface) {
             for (let i = 0; i < tmpInterface.length; i++) {
