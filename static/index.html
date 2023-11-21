@@ -5,6 +5,30 @@
 <head>
     <meta charset="utf-8">
     <title>Remote Debugger</title>
+    <style>
+        body {
+            font-family: sans-serif;
+        }
+
+        table {
+            border-collapse: collapse;
+        }
+
+        table,
+        th,
+        td {
+            border: 1px solid black;
+        }
+
+        th,
+        td {
+            padding: 5px;
+        }
+
+        th {
+            text-align: left;
+        }
+    </style>
 </head>
 
 <body>
@@ -19,6 +43,24 @@
         <br />
         <button type="submit">Set Proxy</button>
     </form>
+    <br/>
+    <br/>
+    <button onclick="getDevices()">Get Devices</button>
+
+    <table>
+        <thead>
+            <tr>
+                <th>MAC</th>
+                <th>IP</th>
+                <th>App</th>
+                <th>tios</th>
+                <th>fileBlocksTotal</th>
+                <th>state</th>
+            </tr>
+        </thead>
+        <tbody id="devices">
+        </tbody>
+    </table>
 
     <script>
         async function setProxy(e) {
@@ -41,6 +83,35 @@
             const config = await response.json();
             document.getElementById("proxyURL").value = config.url;
             document.getElementById("proxyName").value = config.name;
+        }
+
+        async function getDevices() {
+            const tbody = document.getElementById("devices");
+            tbody.innerHTML = "";
+            const response = await fetch("/devices");
+            const devices = await response.json();
+            devices.forEach(device => {
+                const tr = document.createElement("tr");
+                const tdMAC = document.createElement("td");
+                tdMAC.innerText = device.mac;
+                const tdIP = document.createElement("td");
+                tdIP.innerText = device.ip;
+                const tdApp = document.createElement("td");
+                tdApp.innerText = device.app;
+                const tdtios = document.createElement("td");
+                tdtios.innerText = device.tios;
+                const tdfileBlocksTotal = document.createElement("td");
+                tdfileBlocksTotal.innerText = device.fileBlocksTotal;
+                const tdstate = document.createElement("td");
+                tdstate.innerText = device.state;
+                tr.appendChild(tdMAC);
+                tr.appendChild(tdIP);
+                tr.appendChild(tdApp);
+                tr.appendChild(tdtios);
+                tr.appendChild(tdfileBlocksTotal);
+                tr.appendChild(tdstate);
+                tbody.appendChild(tr);
+            });
         }
 
         getProxy();

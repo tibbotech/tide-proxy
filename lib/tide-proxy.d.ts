@@ -47,6 +47,7 @@ export declare class TIDEProxy {
     handleHTTPProxy(message: HTTPMessage): Promise<void>;
     emit(channel: string, content: any): void;
     close(): void;
+    getDevices(): Array<TibboDevice>;
     stop(): Promise<void>;
 }
 export interface TibboDevice {

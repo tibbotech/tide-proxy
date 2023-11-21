@@ -87,6 +87,10 @@ app.post('/upload', async (req: any, res: any) => {
     res.status(200).send();
 });
 
+app.get('/devices', async (req: any, res: any) => {
+    res.json(proxy.getDevices());
+});
+
 app.use('/*', express.static(path.join(__dirname, '..', 'static')));
 
 

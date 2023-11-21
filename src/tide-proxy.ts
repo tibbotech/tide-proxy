@@ -795,6 +795,10 @@ export class TIDEProxy {
         }
     }
 
+    getDevices(): Array<TibboDevice> {
+        return this.devices;
+    }
+
     async stop() {
         this.close();
         await new Promise<void>((resolve) => {
