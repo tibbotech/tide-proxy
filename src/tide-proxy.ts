@@ -254,6 +254,12 @@ export class TIDEProxy {
                 i--;
             }
         }
+        // detect failed upload
+        if (device && device.file) {
+            if (identifier !== undefined && replyFor === undefined && device.fileIndex !== 0) {
+                console.log('consuming message ' + msg.toString());
+            }
+        }
         for (let i = 0; i < this.pendingMessages.length; i++) {
             if (this.pendingMessages[i].nonce == identifier) {
                 this.pendingMessages.splice(i, 1)[0];
@@ -268,6 +274,7 @@ export class TIDEProxy {
             device.ip = ip;
             device.mac = mac;
             this.sendToDevice(mac, PCODE_COMMANDS.INFO, '');
+            return;
         }
 
         if (reply != undefined) {
@@ -406,15 +413,17 @@ export class TIDEProxy {
                             device.file = undefined;
                             device.fileBlocksTotal = 0;
                             this.sendToDevice(mac, PCODE_COMMANDS.APPUPLOADFINISH, '');
-                            this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
-                                'nonce': identifier,
-                                'mac': mac
-                            });
                         }
                     }
                     else {
                         this.sendBlock(mac, device.fileIndex);
                     }
+                    break;
+                case PCODE_COMMANDS.APPUPLOADFINISH:
+                    this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
+                        'nonce': identifier,
+                        'mac': mac
+                    });
                     break;
                 case PCODE_COMMANDS.RESET_PROGRAMMING:
                     if (reply == REPLY_OK) {
