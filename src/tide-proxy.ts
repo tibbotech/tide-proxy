@@ -409,9 +409,10 @@ export class TIDEProxy {
                             }
                         }
                         else {
-                            device.fileIndex = 0;
-                            device.file = undefined;
-                            device.fileBlocksTotal = 0;
+                            this.emit(TIBBO_PROXY_MESSAGE.UPLOAD, {
+                                'data': 1,
+                                'mac': mac
+                            });
                             this.sendToDevice(mac, PCODE_COMMANDS.APPUPLOADFINISH, '');
                         }
                     }
@@ -420,10 +421,34 @@ export class TIDEProxy {
                     }
                     break;
                 case PCODE_COMMANDS.APPUPLOADFINISH:
-                    this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
-                        'nonce': identifier,
-                        'mac': mac
-                    });
+                    // verify binary on device is what we sent
+                    let count = 0;
+                    const deviceStatusTimer = setInterval(() => {
+                        this.sendToDevice(mac, PCODE_COMMANDS.INFO, '');
+                        const device = this.getDevice(mac);
+                        if (device.appVersion != '' && device.file) {
+                            if (device.file?.toString('binary').indexOf(device.appVersion) >= 0) {
+                                device.fileIndex = 0;
+                                device.file = undefined;
+                                device.fileBlocksTotal = 0;
+                                clearInterval(deviceStatusTimer);
+                                this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
+                                    'nonce': identifier,
+                                    'mac': mac
+                                });
+                                return;
+                            }
+                        }
+                        count++;
+                        if (count > 10) {
+                            clearInterval(deviceStatusTimer);
+                            // device is not responding or not programmed
+                            if (device.file) {
+                                // retry the upload
+                                this.startApplicationUpload(mac, device.file.toString('binary'));
+                            }
+                        }
+                    }, 1000);
                     break;
                 case PCODE_COMMANDS.RESET_PROGRAMMING:
                     if (reply == REPLY_OK) {
