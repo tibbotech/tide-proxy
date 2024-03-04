@@ -481,11 +481,11 @@ export class TIDEProxy {
                 if (replyFor !== undefined || reply === NOTIFICATION_OK) {
                     switch (deviceState) {
                         case PCODEMachineState.DEBUG_PRINT_AND_CONTINUE:
-                            this.handleDebugPrint(device, deviceState);
+                            this.handleDebugPrint(device, stateString);
                             break;
                         case PCODEMachineState.DEBUG_PRINT_AND_STOP:
                             if (device.state != PCODEMachineState.DEBUG_PRINT_AND_STOP) {
-                                this.handleDebugPrint(device, deviceState);
+                                this.handleDebugPrint(device, stateString);
                             }
                             break;
                     }
