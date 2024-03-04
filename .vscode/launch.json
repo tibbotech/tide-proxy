@@ -16,6 +16,9 @@
             "outFiles": [
                 "${workspaceFolder}/lib/**/*.js"
             ],
+            "env": {
+                // "TIDE_PROXY_VERBOSE": "true",
+            },
             "outputCapture": "std",
         },
         {

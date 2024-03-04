@@ -255,11 +255,11 @@ export class TIDEProxy {
             }
         }
         // detect failed upload
-        if (device && device.file) {
-            if (identifier !== undefined && replyFor === undefined && device.fileIndex !== 0) {
-                console.log('consuming message ' + msg.toString());
-            }
-        }
+        // if (device && device.file) {
+        //     if (identifier !== undefined && replyFor === undefined && device.fileIndex !== 0) {
+        //         console.log('consuming message ' + msg.toString());
+        //     }
+        // }
         for (let i = 0; i < this.pendingMessages.length; i++) {
             if (this.pendingMessages[i].nonce == identifier) {
                 this.pendingMessages.splice(i, 1)[0];
@@ -413,6 +413,7 @@ export class TIDEProxy {
                                 'data': 1,
                                 'mac': mac
                             });
+                            logger.info(`finished upload to ${mac}`);
                             this.sendToDevice(mac, PCODE_COMMANDS.APPUPLOADFINISH, '');
                         }
                     }
@@ -423,6 +424,7 @@ export class TIDEProxy {
                 case PCODE_COMMANDS.APPUPLOADFINISH:
                     // verify binary on device is what we sent
                     let count = 0;
+                    logger.info(`${mac}, resetting...`);
                     const deviceStatusTimer = setInterval(() => {
                         this.sendToDevice(mac, PCODE_COMMANDS.INFO, '');
                         const device = this.getDevice(mac);
@@ -432,6 +434,7 @@ export class TIDEProxy {
                                 device.file = undefined;
                                 device.fileBlocksTotal = 0;
                                 clearInterval(deviceStatusTimer);
+                                logger.info(`${mac}, upload complete`);
                                 this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
                                     'nonce': identifier,
                                     'mac': mac
@@ -445,12 +448,15 @@ export class TIDEProxy {
                             // device is not responding or not programmed
                             if (device.file) {
                                 // retry the upload
+                                console.log('retrying upload');
                                 this.startApplicationUpload(mac, device.file.toString('binary'));
                             }
                         }
                     }, 1000);
                     break;
                 case PCODE_COMMANDS.RESET_PROGRAMMING:
+
+                    logger.info(`response ${mac} for reset_programming ${reply}`);
                     if (reply == REPLY_OK) {
                         device.blockSize = 1;
                         if (device.file != null) {
@@ -490,7 +496,7 @@ export class TIDEProxy {
         }
     }
 
-    async handleDebugPrint(device: TibboDevice, deviceState: PCODEMachineState) {
+    async handleDebugPrint(device: TibboDevice, state: string) {
         if (device.printing) {
             return;
         }
@@ -509,10 +515,11 @@ export class TIDEProxy {
             this.emit(TIBBO_PROXY_MESSAGE.DEBUG_PRINT, {
                 data: JSON.stringify({
                     data: val,
-                    state: deviceState
+                    state
                 }),
                 mac: device.mac
             });
+            const deviceState: PCODEMachineState = <PCODEMachineState>state.substring(0, 3)
             if (deviceState == PCODEMachineState.DEBUG_PRINT_AND_CONTINUE) {
                 if (device.lastRunCommand != undefined) {
                     if (device.lastRunCommand.command == PCODE_COMMANDS.RUN) {
@@ -532,6 +539,7 @@ export class TIDEProxy {
         if (!mac) {
             return;
         }
+        logger.info('starting application upload for ' + mac);
         let device: TibboDevice = this.getDevice(mac);
         device.fileIndex = 0;
         const bytes = Buffer.from(fileString, 'binary');
