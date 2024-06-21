@@ -306,7 +306,8 @@ export class TIDEProxy {
 
             if (replyForCommand == PCODE_COMMANDS.GET_MEMORY) {
                 if (device.pdbStorageAddress != undefined) {
-                    const address = tmpReply.data.substring(13, 17).toLowerCase();
+                    const start = tmpReply.data.indexOf(':') - 4;
+                    const address = tmpReply.data.substring(start, start + 4).toLowerCase();
                     const value = tmpReply.data.split(' ')[1];
                     if (this.memoryCalls[address] != undefined) {
                         if (value != undefined) {
