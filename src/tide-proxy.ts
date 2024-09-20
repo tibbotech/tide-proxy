@@ -3,6 +3,9 @@ import { performance } from 'perf_hooks';
 // import { TibboDevice, PCODE_STATE, TaikoMessage, TIBBO_PROXY_MESSAGE, TaikoReply, PCODEMachineState, PCODE_COMMANDS } from './types';
 import { io as socketIOClient } from 'socket.io-client';
 import axios, { Method } from 'axios';
+const cp = require('child_process');
+const fs = require('fs');
+const path = require('path');
 const winston = require('winston');
 const url = require('url');
 const io = require("socket.io")({ serveClient: false, cors: { origin: "*" }, maxHttpBufferSize: 1e10 });
@@ -131,8 +134,8 @@ export class TIDEProxy {
             conClient.on(TIBBO_PROXY_MESSAGE.REBOOT, (message: TaikoMessage) => {
                 this.sendToDevice(message.mac, PCODE_COMMANDS.REBOOT, '', false);
             });
-            conClient.on(TIBBO_PROXY_MESSAGE.APPLICATION_UPLOAD, (message: TaikoMessage) => {
-                this.startApplicationUpload(message.mac, message.data);
+            conClient.on(TIBBO_PROXY_MESSAGE.APPLICATION_UPLOAD, (message: any) => {
+                this.startApplicationUpload(message.mac, message.data, message.deviceDefinition);
             });
             conClient.on(TIBBO_PROXY_MESSAGE.COMMAND, (message: TaikoMessage) => {
                 this.sendToDevice(message.mac, message.command, message.data, true, message.nonce);
@@ -536,27 +539,89 @@ export class TIDEProxy {
         device.printing = false;
     }
 
-    startApplicationUpload(mac: string, fileString: string): void {
-        if (!mac) {
+    startApplicationUpload(mac: string, fileString: string, deviceDefinition?: any, method?: string, files?: any[]): void {
+        if (!mac && !deviceDefinition) {
             return;
         }
-        logger.info('starting application upload for ' + mac);
-        let device: TibboDevice = this.getDevice(mac);
-        device.fileIndex = 0;
         const bytes = Buffer.from(fileString, 'binary');
-        device.file = bytes;
+        if (deviceDefinition) {
+            if (deviceDefinition.uploadMethods.find((method: any) => method.name === 'jlink')) {
+                const jlinkMethod = deviceDefinition.uploadMethods.find((method: any) => method.name === 'jlink');
+                let jlinkDevice = '';
+                let speed = '';
+                let flashAddress = deviceDefinition.flashAddress || '0x0';
+                const fileBase = this.makeid(8);
+                let scriptPath = '';
+                let filePath = '';
+                try {
 
-        for (let i = 0; i < this.pendingMessages.length; i++) {
-            for (let j = 0; j < device.messageQueue.length; j++) {
-                if (this.pendingMessages[i].nonce == device.messageQueue[j].nonce) {
-                    this.pendingMessages.splice(i);
-                    i--;
-                    break;
+                    for (let i = 0; i < jlinkMethod.options.length; i++) {
+                        let option = jlinkMethod.options[i];
+                        if (option.indexOf('"') === 0) {
+                            option = option.substring(1, option.length - 1);
+                        }
+                        if (option.indexOf('--device=') === 0) {
+                            jlinkDevice = option.split('=')[1];
+                        }
+                        if (option.indexOf('--speed=') === 0) {
+                            speed = option.split('=')[1];
+                        }
+                    }
+                    // random file name
+                    let fileName = `${fileBase}.bin`;
+                    filePath = path.join(__dirname, fileName);
+                    scriptPath = path.join(__dirname, `${fileBase}.jlink`);
+                    fs.writeFileSync(filePath, bytes);
+                    fs.writeFileSync(scriptPath, `loadbin ${filePath} ${flashAddress}\nexit`);
+                    const cleanup = () => {
+                        if (scriptPath && fs.existsSync(scriptPath)) {
+                            fs.unlinkSync(scriptPath);
+                        }
+                        if (filePath && fs.existsSync(filePath)) {
+                            fs.unlinkSync(filePath);
+                        }
+                    }
+
+                    const ccmd = `JLinkExe -device ${jlinkDevice} -if SWD -speed ${speed} -autoconnect 1 -CommanderScript ${scriptPath}`;
+                    const exec = cp.spawn(ccmd, [], { env: { ...process.env, NODE_OPTIONS: '' }, timeout: 60000, shell: true });
+                    if (!exec.pid) {
+                        return;
+                    }
+                    exec.on('error', () => {
+                        cleanup();
+                        this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
+                            mac: jlinkDevice,
+                        });
+                    });
+                    exec.on('exit', () => {
+                        cleanup();
+                        this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
+                            mac: jlinkDevice,
+                        });
+                    });
+                } catch (ex) {
+
                 }
             }
+        } else {
+            logger.info('starting application upload for ' + mac);
+            let device: TibboDevice = this.getDevice(mac);
+            device.fileIndex = 0;
+
+            device.file = bytes;
+
+            for (let i = 0; i < this.pendingMessages.length; i++) {
+                for (let j = 0; j < device.messageQueue.length; j++) {
+                    if (this.pendingMessages[i].nonce == device.messageQueue[j].nonce) {
+                        this.pendingMessages.splice(i);
+                        i--;
+                        break;
+                    }
+                }
+            }
+            device.messageQueue = [];
+            this.sendToDevice(mac, PCODE_COMMANDS.RESET_PROGRAMMING, '');
         }
-        device.messageQueue = [];
-        this.sendToDevice(mac, PCODE_COMMANDS.RESET_PROGRAMMING, '');
     }
 
     sendBlock(mac: string, blockIndex: number): void {
