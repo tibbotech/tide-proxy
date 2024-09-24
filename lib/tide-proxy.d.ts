@@ -36,7 +36,7 @@ export declare class TIDEProxy {
     setPDBAddress(message: TaikoMessage): void;
     handleMessage(msg: Buffer, info: any, socket: TBNetworkInterface): void;
     handleDebugPrint(device: TibboDevice, state: string): Promise<void>;
-    startApplicationUpload(mac: string, fileString: string, deviceDefinition?: any, files?: any[]): void;
+    startApplicationUpload(mac: string, fileString: string, deviceDefinition?: any, method?: string, files?: any[]): void;
     sendBlock(mac: string, blockIndex: number): void;
     sendToDevice(mac: string, command: string, data: string, reply?: boolean, nonce?: string | undefined): void;
     checkMessageQueue(): void;
