@@ -148,8 +148,8 @@ export class TIDEProxy {
                 this.handleHTTPProxy(message);
             });
             conClient.on(TIBBO_PROXY_MESSAGE.SET_PDB_STORAGE_ADDRESS, this.setPDBAddress.bind(this));
-            conClient.on(TIBBO_PROXY_MESSAGE.ATTACH_SERIAL, (port: string, baudRate: number) => {
-                this.attachSerial(port, baudRate);
+            conClient.on(TIBBO_PROXY_MESSAGE.ATTACH_SERIAL, (port: string, baudRate: number, reset: boolean) => {
+                this.attachSerial(port, baudRate, reset);
             });
             conClient.on(TIBBO_PROXY_MESSAGE.DETACH_SERIAL, (port: string) => {
                 this.detachSerial(port);
@@ -1008,11 +1008,11 @@ export class TIDEProxy {
         }
     }
 
-    async attachSerial(port: string, baudRate: number = 115200) {
+    async attachSerial(port: string, baudRate: number = 115200, reset: boolean = false) {
         try {
             for (let i = 0; i < this.devices.length; i++) {
                 if (this.devices[i].mac == port) {
-                    await SerialDevice.connect(port, baudRate);
+                    await SerialDevice.connect(port, baudRate, reset);
                     this.devices[i].serial_attached = true;
                     return true;
                 }

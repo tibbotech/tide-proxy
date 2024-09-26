@@ -20,7 +20,7 @@ class SerialPortInstance {
     }
 
 
-    async connect(portPath: string, baudRate: number): Promise<boolean> {
+    async connect(portPath: string, baudRate: number, reset = false): Promise<boolean> {
         return new Promise<boolean>((resolve, reject) => {
             try {
                 if (!this.tideProxy) {
@@ -34,8 +34,11 @@ class SerialPortInstance {
                 });
                 this.port= serialPort,
                 this.queue = [],
-                this.port.on('open', function() { 
+                this.port.on('open', () => { 
                     // open logic
+                    if (reset) {
+                        this.port?.write('\x04');
+                    }
                     resolve(true);
                     // console.log('port opened');
                 })
