@@ -37,7 +37,8 @@ class SerialPortInstance {
                 this.port.on('open', () => { 
                     // open logic
                     if (reset) {
-                        this.port?.write('\x04');
+                        serialPort.write('\x03');
+                        serialPort.write('\x04');
                     }
                     resolve(true);
                     // console.log('port opened');
@@ -94,6 +95,7 @@ class SerialPortInstance {
 
     private async sendDebug(data: string) {
         const proxy = this.tideProxy as TIDEProxy;
+        console.log(data);
         proxy.emit('debug_print', {
             data: JSON.stringify({
                 data: data,
