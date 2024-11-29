@@ -68,7 +68,7 @@ export async function readUntil(prompt: string, timeout = 1): Promise<string> {
                 reject(new Error('Timeout reading response'));
                 return;
             }
-            const readResult = await read(1000);
+            const readResult = await read();
             if (readResult !== '') {
                 endTime += 1000;
             }
@@ -103,7 +103,7 @@ async function execRaw(code: string, timeout = 1.5): Promise<string> {
         for (let i = 0; i < 3; i++) {
             try {
                 await sendToDevice(`${code}${Control.reset}`);
-                const result = await readUntil('\x04>', timeout);
+                const result = await readUntil('OK', timeout);
                 return result;
             } catch (e) {
                 //
@@ -115,6 +115,7 @@ async function execRaw(code: string, timeout = 1.5): Promise<string> {
 
 export async function enterRawMode(reset = false) {
     // await getPort();
+    SerialPort.setFlowingMode(false);
     if (reset) {
         await stopRunning();
         await sendToDevice(`${Control.reset}`);
@@ -143,6 +144,10 @@ import gc
 gc.collect()
 import os, hashlib, binascii
 def ___calculate_checksum(file_name):
+    if file_name not in os.listdir():
+        print(file_name + " not found")
+        print('done')
+        return
     f=open(file_name,'rb')
     m=hashlib.sha256()
     size=os.stat(file_name)[6]
@@ -165,141 +170,123 @@ def ___calculate_checksum(file_name):
 }
 
 export async function exitRawMode() {
-    await sendToDevice('\x02');
-    await sendToDevice(`${Control.reset}`);
+    await sendToDevice('\r\x02');
+    SerialPort.setFlowingMode(true);
+    // await sendToDevice(`${Control.reset}`);
 }
 
-export async function writeFileToDevice(file: any, blockSize = 128) {
+async function getFileChecksum(fileName: string, fileChecksum: string): Promise<string> {
+    let existingFileChecksum = '';
+    let tmp = '';
+    debugLog(`Checking existing file checksum of ${fileName}`);
+    for (let i = 0; i < 3; i++) {
+        try {
+            tmp += await execRaw(`___calculate_checksum('${fileName}')`);
+            if (tmp.indexOf('done') < 0) {
+                tmp += await readUntil('done');
+            }
+            if (tmp.indexOf('not found') >= 0) {
+                break;
+            }
+            const resultMarker = 'b\'';
+            const resultIndex = tmp.indexOf(resultMarker);
+            if (resultIndex >= 0) {
+                existingFileChecksum = tmp.substring(
+                    resultIndex + resultMarker.length,
+                    resultIndex + resultMarker.length + 64,
+                );
+                if (existingFileChecksum === fileChecksum) {
+                    break;
+                } else {
+                    tmp = '';
+                }
+            } else {
+                debugLog(tmp);
+            }
+        } catch (e: any) {
+            debugLog(e.toString());
+            // timeout or error
+        }
+    }
+    return existingFileChecksum;
+}
+
+export async function writeFileToDevice(file: any, blockSize = 256) {
     const code = file.contents;
-    if (file.contents === undefined) {
-        return;
-    }
-    let length = code.length;
-    if (file.contents.data) {
-        // binary
-        length = file.contents.data.length;
-    }
+    const binaryCode = file.contents.data ? file.contents.data : new TextEncoder().encode(code);
+    let length = binaryCode.length;
     const fileParts = file.name.split('.');
-    const fileExtensions = ['py', 'json', '565', 'gz', 'html'];
+    const fileExtensions = ['py', 'json', '565', 'gz', 'html', 'der'];
     if (!fileExtensions.includes(fileParts[fileParts.length - 1])) {
         return;
     }
     if (file.name === 'cody.json') {
         return;
     }
-    let fileChecksum = createHash('sha256').update(file.contents).digest('hex');
-    if (file.contents.data) {
-        // get byte array
-        const buf = Buffer.from(file.contents.data);
-        const blob = new Blob([buf], {
-            type: 'application/octet-stream',
-        });
-        // const reader = new FileReader();
-        // reader.readAsArrayBuffer(blob);
-        // const data = await new Promise((resolve) => {
-        //     reader.onload = () => {
-        //         resolve(reader.result);
-        //     };
-        // });
-        const data = await Blob.arrayBuffer();
-        fileChecksum = createHash('sha256').update(data).digest('hex');
-    }
-    let existingFileChecksum = '';
-    try {
-        let tmp = '';
-        debugLog(`Checking existing file checksum of ${file.name}`);
-        for (let i = 0; i < 3; i++) {
-            try {
-                tmp += await execRaw(`___calculate_checksum('${file.name}')`);
-                if (tmp.indexOf('done') < 0) {
-                    tmp += await readUntil('done', 1);
-                }
-                const resultMarker = 'b\'';
-                const resultIndex = tmp.indexOf(resultMarker);
-                if (resultIndex >= 0) {
-                    existingFileChecksum = tmp.substring(
-                        resultIndex + resultMarker.length,
-                        resultIndex + resultMarker.length + 64,
-                    );
-                    break;
-                } else {
-                    debugLog(tmp);
-                }
-            } catch (e) {
-                // timeout or error
-            }
-        }
-    } catch (e: any) {
-        debugLog(e.toString());
-    }
+    let fileChecksum;
+    const buf = Buffer.from(binaryCode);
+    fileChecksum = createHash('sha256').update(buf).digest('hex');
+    let existingFileChecksum = await getFileChecksum(file.name, fileChecksum);
+    let tries = 3;
 
-    if (fileChecksum === existingFileChecksum) {
-        debugLog('File already exists, skipping upload');
-        return;
-    }
-    debugLog(`Uploading file ${file.name}`);
-    const fileName = file.name;
-    await enterRawMode(false);
-    // if (fileName !== 'main.py') {
-    //     continue;
-    // }
-    // const bytes = await read();
-    // if (bytes.indexOf(`R${Control.enterRawMode}`) < 0) {
-    //     console.error('Failed to enter raw mode');
-    //     return;
-    // }
-    if (fileName.indexOf('/') >= 0) {
-        const parts = fileName.split('/');
-        parts.pop();
-        for (let i = 0; i < parts.length; i += 1) {
-            let dir = '';
-            for (let j = 0; j <= i; j += 1) {
-                // eslint-disable-next-line prefer-template
-                dir += '/' + parts[j];
-            }
-            await execRaw(`
+    while (fileChecksum !== existingFileChecksum && tries > 0) {
+
+        if (fileChecksum === existingFileChecksum) {
+            debugLog(`File ${file.name} already exists, skipping upload`);
+            return;
+        }
+        debugLog(`Uploading file ${file.name}`);
+        const fileName = file.name;
+        const start = new Date().getTime();
+        await enterRawMode(false);
+        if (fileName.indexOf('/') >= 0) {
+            const parts = fileName.split('/');
+            parts.pop();
+            for (let i = 0; i < parts.length; i += 1) {
+                let dir = '';
+                for (let j = 0; j <= i; j += 1) {
+                    // eslint-disable-next-line prefer-template
+                    dir += '/' + parts[j];
+                }
+
+                await execRaw(`
 import os
 os.mkdir('${dir}')`);
+                    }
         }
-    }
-    await execRaw(`
+        await execRaw(`
 gc.collect()
 f=open('${fileName}','wb')
-w=f.write`, 3);
-    let index = 0;
-    while (index < length) {
-        let chunk;
-        let increment = blockSize;
-        if (file.contents.data) {
-            // binary
-            increment = blockSize / 4;
-            chunk = '';
+w=f.write`);
+        let index = 0;
+        while (index < length) {
+            let chunk = '';
+            let increment = blockSize;
             for (let i = 0; i < increment; i += 1) {
-                if (index + i < file.contents.data.length) {
-                    chunk += `\\x${file.contents.data[index + i].toString(16).padStart(2, '0')}`;
+                if (index + i < length) {
+                    chunk += `\\x${binaryCode[index + i].toString(16).padStart(2, '0')}`;
                 }
             }
+            try {
+                await execRaw(`w(b"${chunk}")`, blockSize);
+                debugLog(`Uploaded chunk ${index} of ${length} for file ${file.name}`);
+            } catch (e) {
+            }
+            index += increment;
+        }
+        await execRaw('f.close()');
+        const end = new Date().getTime();
+
+        debugLog(`Uploaded file ${file.name} in ${end - start}ms`);
+
+        existingFileChecksum = await getFileChecksum(file.name, fileChecksum);
+
+        if (fileChecksum === existingFileChecksum) {
+            debugLog(`File ${file.name} uploaded successfully`);
         } else {
-            chunk = code.slice(index, index + blockSize);
-            chunk = chunk.replaceAll('\\', '\\\\');
-            chunk = chunk.replaceAll('\r\n', '\\n');
-            chunk = chunk.replaceAll('\n', '\\n');
-            chunk = chunk.replaceAll('"', '\\"');
+            debugLog(`Failed to upload file ${file.name}`);
         }
-        try {
-            await execRaw(`w(b"${chunk}")`);
-        } catch (e) {
-            debugLog(`error writing chunk ${chunk}`);
-        }
-        index += increment;
+
+        tries -= 1;
     }
-    // const lines = code.split('\n');
-    // for (let j = 0; j < lines.length; j += 1) {
-    //     let line = lines[j];
-    //     line = line.replaceAll('"', '\\"');
-    //     line = line.replaceAll('\n', '\\n');
-    //     line = line.replaceAll('\r', '\\r');
-    //     await sendToDevice(`w(b"${line}\\n")${Control.reset}`);
-    // }
-    await execRaw('f.close()');
 }

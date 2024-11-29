@@ -645,6 +645,7 @@ export class TIDEProxy {
 
     async startUploadMicropython(mac: string, files: any[], baudRate: number): Promise<void> {
         try {
+            await this.getSerialPorts();
             await this.detachSerial(mac);
             const attach = await this.attachSerial(mac, baudRate);
             if (!attach) {
@@ -661,6 +662,13 @@ export class TIDEProxy {
                     'data': i / files.length,
                     'mac': mac
                 });
+                this.emit(TIBBO_PROXY_MESSAGE.DEBUG_PRINT, {
+                    data: JSON.stringify({
+                        data: `Uploading ${files[i].name}...`,
+                        state: '',
+                    }),
+                    mac: mac,
+                });
                 await MicropythonSerial.writeFileToDevice(files[i]);
             }
             await MicropythonSerial.exitRawMode();
@@ -671,6 +679,7 @@ export class TIDEProxy {
                 'mac': mac
             });
         } catch (ex) {
+            console.log(ex);
             logger.error(ex);
         }
     }
@@ -973,6 +982,11 @@ export class TIDEProxy {
     async getSerialPorts() {
         const ports = await SerialPort.list();
         for (let i = 0; i < ports.length; i++) {
+            for (let j = 0; j < this.devices.length; j++) {
+                if (this.devices[j].mac == ports[i].path) {
+                    continue;
+                }
+            }
             const {
                 path, manufacturer, serialNumber, pnpId, locationId, productId, vendorId,
             } = ports[i];

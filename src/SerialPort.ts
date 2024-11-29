@@ -9,10 +9,10 @@ class SerialPortInstance {
     baudRate = 115200;
     portPath: string = '';
     tideProxy: TIDEProxy | null = null;
+    flowingMode = true;
 
     constructor() {
         this.sendDebug = this.sendDebug.bind(this);
-        this.addToQueue = this.addToQueue.bind(this);
     }
 
     setTideProxy(tideProxy: TIDEProxy) {
@@ -34,6 +34,7 @@ class SerialPortInstance {
                 });
                 this.port= serialPort,
                 this.queue = [],
+                this.flowingMode = true;
                 this.port.on('open', () => { 
                     // open logic
                     if (reset) {
@@ -44,8 +45,10 @@ class SerialPortInstance {
                     // console.log('port opened');
                 })
                 this.port.on('data', (data) => {
+                    if (!this.flowingMode) {
+                        return;
+                    }
                     const text = new TextDecoder().decode(data);
-                    this.addToQueue(text);
                     this.sendDebug(text);
                 });
                 this.port.on('error', (err) => {
@@ -74,10 +77,10 @@ class SerialPortInstance {
                         }
                     );
                 }
-                if (this.port && this.port.path === port) {
-                    this.port = null;
-                }
                 serialPort.close((err) => {
+                    if (this.port && this.port.path === port) {
+                        this.port = null;
+                    }
                     resolve();
                 });
             } catch (e) {
@@ -95,7 +98,6 @@ class SerialPortInstance {
 
     private async sendDebug(data: string) {
         const proxy = this.tideProxy as TIDEProxy;
-        console.log(data);
         proxy.emit('debug_print', {
             data: JSON.stringify({
                 data: data,
@@ -105,18 +107,21 @@ class SerialPortInstance {
         });
     }
 
-    public async read() {
-        if (this.queue.length === 0) {
+    public async read(size: number = 1) {
+        const data = await this.port?.read(size);
+        if (!data) {
             return '';
         }
-        const data = this.queue.shift();
-        return data;
+        const text = new TextDecoder().decode(data);
+        return text;
     }
 
-    private addToQueue(data: string) {
-        this.queue.push(data);
-        if (this.queue.length > 20) {
-            this.queue.shift();
+    public setFlowingMode(mode: boolean) {
+        this.flowingMode = mode;
+        if (this.flowingMode) {
+            this.port?.resume();
+        } else {
+            this.port?.pause();
         }
     }
 }
