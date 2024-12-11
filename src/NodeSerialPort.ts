@@ -1,11 +1,11 @@
 import { SerialPort } from 'serialport'
 const { TextEncoder, TextDecoder } = require('util');
 import { TIDEProxy } from './tide-proxy';
+import { ISerialPort } from './ISerialPort';
+const { createHash } = require('node:crypto');
 
-
-class SerialPortInstance {
+class NodeSerialPort implements ISerialPort {
     port: SerialPort | null = null;
-    queue: string[] = [];
     baudRate = 115200;
     portPath: string = '';
     tideProxy: TIDEProxy | null = null;
@@ -33,7 +33,6 @@ class SerialPortInstance {
                     baudRate: this.baudRate,
                 });
                 this.port= serialPort,
-                this.queue = [],
                 this.flowingMode = true;
                 this.port.on('open', () => { 
                     // open logic
@@ -116,6 +115,11 @@ class SerialPortInstance {
         return text;
     }
 
+    public async write(data: string) {
+        const encoder = new TextEncoder();
+        this.port?.write(encoder.encode(data));
+    }
+
     public setFlowingMode(mode: boolean) {
         this.flowingMode = mode;
         if (this.flowingMode) {
@@ -124,8 +128,12 @@ class SerialPortInstance {
             this.port?.pause();
         }
     }
+
+    async getChecksum(data: any) {
+        return createHash('sha256').update(data).digest('hex');
+    }
 }
 
-const serialPortInstance = new SerialPortInstance();
+const serialPortInstance = new NodeSerialPort();
 
 export default serialPortInstance;

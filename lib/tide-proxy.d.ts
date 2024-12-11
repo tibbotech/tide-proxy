@@ -38,6 +38,7 @@ export declare class TIDEProxy {
     handleDebugPrint(device: TibboDevice, state: string): Promise<void>;
     startApplicationUpload(mac: string, fileString: string, deviceDefinition?: any, method?: string, files?: any[], baudRate?: number): void;
     startUploadMicropython(mac: string, files: any[], baudRate: number): Promise<void>;
+    startUploadZephyr(mac: string, files: any[], baudRate: number): Promise<void>;
     sendBlock(mac: string, blockIndex: number): void;
     sendToDevice(mac: string, command: string, data: string, reply?: boolean, nonce?: string | undefined): void;
     checkMessageQueue(): void;

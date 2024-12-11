@@ -1,8 +1,9 @@
 import * as dgram from 'dgram';
 import { performance } from 'perf_hooks';
 import { SerialPort } from 'serialport'
-import * as MicropythonSerial from './serial';
-import SerialDevice from './SerialPort';
+import { MicropythonSerial } from './MicropythonSerial';
+import { ZephyrSerial } from './NodeZephyrSerial';
+import SerialDevice from './NodeSerialPort';
 
 // import { TibboDevice, PCODE_STATE, TaikoMessage, TIBBO_PROXY_MESSAGE, TaikoReply, PCODEMachineState, PCODE_COMMANDS } from './types';
 import { io as socketIOClient } from 'socket.io-client';
@@ -562,6 +563,11 @@ export class TIDEProxy {
             return;
         }
 
+        if (method === 'zephyr' && files) {
+            this.startUploadZephyr(mac, files, baudRate);
+            return;
+        }
+
         const bytes = Buffer.from(fileString, 'binary');
         if (deviceDefinition) {
             if (deviceDefinition.uploadMethods.find((method: any) => method.name === 'jlink')) {
@@ -656,7 +662,8 @@ export class TIDEProxy {
                 });
                 return;
             }
-            await MicropythonSerial.enterRawMode(true);
+            const micropythonSerial = new MicropythonSerial(SerialDevice);
+            await micropythonSerial.enterRawMode(true);
             for (let i = 0 ; i < files.length; i++) {
                 this.emit(TIBBO_PROXY_MESSAGE.UPLOAD, {
                     'data': i / files.length,
@@ -669,10 +676,37 @@ export class TIDEProxy {
                     }),
                     mac: mac,
                 });
-                await MicropythonSerial.writeFileToDevice(files[i]);
+                await micropythonSerial.writeFileToDevice(files[i]);
             }
-            await MicropythonSerial.exitRawMode();
+            await micropythonSerial.exitRawMode();
             await this.detachSerial(mac);
+            this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
+                'error' : false,
+                'nonce': '',
+                'mac': mac
+            });
+        } catch (ex) {
+            console.log(ex);
+            logger.error(ex);
+        }
+    }
+
+    async startUploadZephyr(mac: string, files: any[], baudRate: number): Promise<void> {
+        try {
+            await this.getSerialPorts();
+            const attach = await this.attachSerial(mac, baudRate);
+            if (!attach) {
+                this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
+                    'error' : true,
+                    'nonce': '',
+                    'mac': mac
+                });
+                return;
+            }
+            await this.detachSerial(mac);
+            const zephyrSerial = new ZephyrSerial(SerialDevice);
+            await zephyrSerial.writeFilesToDevice(files, this);
+            await this.attachSerial(mac, baudRate);
             this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
                 'error' : false,
                 'nonce': '',

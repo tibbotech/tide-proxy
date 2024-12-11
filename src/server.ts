@@ -1,6 +1,6 @@
 import { TIDEProxy } from './tide-proxy';
 import { io } from 'socket.io-client';
-import SerialPort from './SerialPort';
+import SerialPort from './NodeSerialPort';
 
 const express = require('express');
 const path = require('path');
