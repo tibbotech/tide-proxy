@@ -36,7 +36,9 @@ export declare class TIDEProxy {
     setPDBAddress(message: TaikoMessage): void;
     handleMessage(msg: Buffer, info: any, socket: TBNetworkInterface): void;
     handleDebugPrint(device: TibboDevice, state: string): Promise<void>;
-    startApplicationUpload(mac: string, fileString: string, deviceDefinition?: any, method?: string, files?: any[]): void;
+    startApplicationUpload(mac: string, fileString: string, deviceDefinition?: any, method?: string, files?: any[], baudRate?: number): void;
+    startUploadMicropython(mac: string, files: any[], baudRate: number): Promise<void>;
+    startUploadZephyr(mac: string, files: any[], baudRate: number): Promise<void>;
     sendBlock(mac: string, blockIndex: number): void;
     sendToDevice(mac: string, command: string, data: string, reply?: boolean, nonce?: string | undefined): void;
     checkMessageQueue(): void;
@@ -49,6 +51,9 @@ export declare class TIDEProxy {
     close(): void;
     getDevices(): Array<TibboDevice>;
     stop(): Promise<void>;
+    getSerialPorts(): Promise<void>;
+    attachSerial(port: string, baudRate?: number, reset?: boolean): Promise<boolean | undefined>;
+    detachSerial(port: string): Promise<void>;
 }
 export interface TibboDevice {
     ip: string;
@@ -57,6 +62,7 @@ export interface TibboDevice {
     tios: string;
     app: string;
     appVersion: string;
+    type: string;
     file?: Buffer;
     fileIndex: number;
     blockSize: number;
@@ -69,6 +75,7 @@ export interface TibboDevice {
     printing?: boolean;
     lastPoll?: number;
     breakpoints?: string;
+    serial_attached?: boolean;
 }
 export declare enum PCODEMachineState {
     STOPPED = "***",
@@ -137,6 +144,8 @@ export declare enum TIBBO_PROXY_MESSAGE {
     SET_PDB_STORAGE_ADDRESS = "set_pdb_storage_address",
     DEBUG_PRINT = "debug_print",
     HTTP = "http",
-    HTTP_RESPONSE = "http_response"
+    HTTP_RESPONSE = "http_response",
+    ATTACH_SERIAL = "attach_serial",
+    DETACH_SERIAL = "detach_serial"
 }
 export {};

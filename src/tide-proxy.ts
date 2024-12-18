@@ -1,5 +1,10 @@
 import * as dgram from 'dgram';
 import { performance } from 'perf_hooks';
+import { SerialPort } from 'serialport'
+import { MicropythonSerial } from './MicropythonSerial';
+import { ZephyrSerial } from './NodeZephyrSerial';
+import SerialDevice from './NodeSerialPort';
+
 // import { TibboDevice, PCODE_STATE, TaikoMessage, TIBBO_PROXY_MESSAGE, TaikoReply, PCODEMachineState, PCODE_COMMANDS } from './types';
 import { io as socketIOClient } from 'socket.io-client';
 import axios, { Method } from 'axios';
@@ -135,7 +140,7 @@ export class TIDEProxy {
                 this.sendToDevice(message.mac, PCODE_COMMANDS.REBOOT, '', false);
             });
             conClient.on(TIBBO_PROXY_MESSAGE.APPLICATION_UPLOAD, (message: any) => {
-                this.startApplicationUpload(message.mac, message.data, message.deviceDefinition);
+                this.startApplicationUpload(message.mac, message.data, message.deviceDefinition, message.method, message.files, message.baudRate);
             });
             conClient.on(TIBBO_PROXY_MESSAGE.COMMAND, (message: TaikoMessage) => {
                 this.sendToDevice(message.mac, message.command, message.data, true, message.nonce);
@@ -144,6 +149,12 @@ export class TIDEProxy {
                 this.handleHTTPProxy(message);
             });
             conClient.on(TIBBO_PROXY_MESSAGE.SET_PDB_STORAGE_ADDRESS, this.setPDBAddress.bind(this));
+            conClient.on(TIBBO_PROXY_MESSAGE.ATTACH_SERIAL, (port: string, baudRate: number, reset: boolean) => {
+                this.attachSerial(port, baudRate, reset);
+            });
+            conClient.on(TIBBO_PROXY_MESSAGE.DETACH_SERIAL, (port: string) => {
+                this.detachSerial(port);
+            });
             conClient.on('close', () => {
                 logger.info('socket closed');
                 this.clients.splice(this.clients.indexOf(this.clients), 1);
@@ -220,6 +231,7 @@ export class TIDEProxy {
         const msg = Buffer.from(PCODE_COMMANDS.DISCOVER);
         this.discoveredDevices = {};
         this.send(msg);
+        this.getSerialPorts();
     }
 
     setPDBAddress(message: TaikoMessage): void {
@@ -328,6 +340,7 @@ export class TIDEProxy {
                         device.tios = parts[0];
                         device.app = parts[2];
                         device.appVersion = parts[1];
+                        device.type = 'tios';
                         this.sendToDevice(mac, PCODE_COMMANDS.STATE, '');
                         // let newMessage = Buffer.from(`_[${mac}]${P_PCODESTATE}|a`);
                     }
@@ -371,6 +384,7 @@ export class TIDEProxy {
                             app: device.app,
                             pcode: device.pcode,
                             appVersion: device.appVersion,
+                            type: device.type,
                         });
 
                         stateString = messagePart;
@@ -539,10 +553,21 @@ export class TIDEProxy {
         device.printing = false;
     }
 
-    startApplicationUpload(mac: string, fileString: string, deviceDefinition?: any, method?: string, files?: any[]): void {
+    startApplicationUpload(mac: string, fileString: string, deviceDefinition?: any, method?: string, files?: any[], baudRate = 115200): void {
         if (!mac && !deviceDefinition) {
             return;
         }
+
+        if (method === 'micropython' && files) {
+            this.startUploadMicropython(mac, files, baudRate);
+            return;
+        }
+
+        if (method === 'zephyr' && files) {
+            this.startUploadZephyr(mac, files, baudRate);
+            return;
+        }
+
         const bytes = Buffer.from(fileString, 'binary');
         if (deviceDefinition) {
             if (deviceDefinition.uploadMethods.find((method: any) => method.name === 'openocd')) {
@@ -665,6 +690,75 @@ export class TIDEProxy {
             }
             device.messageQueue = [];
             this.sendToDevice(mac, PCODE_COMMANDS.RESET_PROGRAMMING, '');
+        }
+    }
+
+    async startUploadMicropython(mac: string, files: any[], baudRate: number): Promise<void> {
+        try {
+            await this.getSerialPorts();
+            await this.detachSerial(mac);
+            const attach = await this.attachSerial(mac, baudRate);
+            if (!attach) {
+                this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
+                    'error' : true,
+                    'nonce': '',
+                    'mac': mac
+                });
+                return;
+            }
+            const micropythonSerial = new MicropythonSerial(SerialDevice);
+            await micropythonSerial.enterRawMode(true);
+            for (let i = 0 ; i < files.length; i++) {
+                this.emit(TIBBO_PROXY_MESSAGE.UPLOAD, {
+                    'data': i / files.length,
+                    'mac': mac
+                });
+                this.emit(TIBBO_PROXY_MESSAGE.DEBUG_PRINT, {
+                    data: JSON.stringify({
+                        data: `Uploading ${files[i].name}...`,
+                        state: '',
+                    }),
+                    mac: mac,
+                });
+                await micropythonSerial.writeFileToDevice(files[i]);
+            }
+            await micropythonSerial.exitRawMode();
+            await this.detachSerial(mac);
+            this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
+                'error' : false,
+                'nonce': '',
+                'mac': mac
+            });
+        } catch (ex) {
+            console.log(ex);
+            logger.error(ex);
+        }
+    }
+
+    async startUploadZephyr(mac: string, files: any[], baudRate: number): Promise<void> {
+        try {
+            await this.getSerialPorts();
+            const attach = await this.attachSerial(mac, baudRate);
+            if (!attach) {
+                this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
+                    'error' : true,
+                    'nonce': '',
+                    'mac': mac
+                });
+                return;
+            }
+            await this.detachSerial(mac);
+            const zephyrSerial = new ZephyrSerial(SerialDevice);
+            await zephyrSerial.writeFilesToDevice(files, this);
+            await this.attachSerial(mac, baudRate);
+            this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
+                'error' : false,
+                'nonce': '',
+                'mac': mac
+            });
+        } catch (ex) {
+            console.log(ex);
+            logger.error(ex);
         }
     }
 
@@ -897,6 +991,7 @@ export class TIDEProxy {
             appVersion: '',
             fileIndex: 0,
             fileBlocksTotal: 0,
+            type: 'tios',
             pcode: -1,
             blockSize: 1,
             state: PCODEMachineState.STOPPED,
@@ -961,6 +1056,78 @@ export class TIDEProxy {
             });
         });
     }
+
+    async getSerialPorts() {
+        const ports = await SerialPort.list();
+        for (let i = 0; i < ports.length; i++) {
+            for (let j = 0; j < this.devices.length; j++) {
+                if (this.devices[j].mac == ports[i].path) {
+                    continue;
+                }
+            }
+            const {
+                path, manufacturer, serialNumber, pnpId, locationId, productId, vendorId,
+            } = ports[i];
+            const device = {
+                ip: '',
+                mac: path,
+                messageQueue: [],
+                tios: '',
+                app: '',
+                appVersion: '',
+                fileIndex: 0,
+                fileBlocksTotal: 0,
+                type: 'serial',
+                pcode: -1,
+                blockSize: 1,
+                state: PCODEMachineState.STOPPED,
+                serial_attached: false,
+            };
+            if (SerialDevice.port?.path === path
+                && SerialDevice.port.isOpen) {
+                device.serial_attached = true;
+            }
+            this.emit(TIBBO_PROXY_MESSAGE.DEVICE, {
+                ip: device.ip,
+                mac: device.mac,
+                tios: device.tios,
+                app: device.app,
+                pcode: device.pcode,
+                appVersion: device.appVersion,
+                type: device.type,
+            });
+            this.devices.push(device);
+        }
+    }
+
+    async attachSerial(port: string, baudRate: number = 115200, reset: boolean = false) {
+        try {
+            for (let i = 0; i < this.devices.length; i++) {
+                if (this.devices[i].mac == port) {
+                    await SerialDevice.connect(port, baudRate, reset);
+                    this.devices[i].serial_attached = true;
+                    return true;
+                }
+            }
+            return false;
+        } catch (ex) {
+            logger.error('error attaching serial');
+        }
+    }
+
+    async detachSerial(port: string) {
+        try {
+            for (let i = 0; i < this.devices.length; i++) {
+                if (this.devices[i].mac == port ||
+                    (this.devices[i].serial_attached && port === '')) {
+                    await SerialDevice.disconnect(this.devices[i].mac);
+                    this.devices[i].serial_attached = false;
+                }
+            }
+        } catch (ex) {
+            logger.error('error detaching serial');
+        }
+    }
 }
 
 export interface TibboDevice {
@@ -970,6 +1137,7 @@ export interface TibboDevice {
     tios: string;
     app: string;
     appVersion: string;
+    type: string;
     file?: Buffer;
     fileIndex: number;
     blockSize: number;
@@ -982,6 +1150,7 @@ export interface TibboDevice {
     printing?: boolean;
     lastPoll?: number;
     breakpoints?: string;
+    serial_attached?: boolean;
 }
 
 export enum PCODEMachineState {
@@ -1057,5 +1226,7 @@ export enum TIBBO_PROXY_MESSAGE {
     SET_PDB_STORAGE_ADDRESS = 'set_pdb_storage_address',
     DEBUG_PRINT = 'debug_print',
     HTTP = 'http',
-    HTTP_RESPONSE = 'http_response'
+    HTTP_RESPONSE = 'http_response',
+    ATTACH_SERIAL = 'attach_serial',
+    DETACH_SERIAL = 'detach_serial',
 }
