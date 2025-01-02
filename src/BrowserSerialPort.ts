@@ -32,6 +32,7 @@ export default class BrowserSerialPort extends EventEmitter implements ISerialPo
         if (this.flowingMode) {
             this.dataTimer = setInterval(this.readData.bind(this), 100);
         }
+        await port.open({ baudRate: this.baudRate });
         return true;
     }
 
@@ -96,7 +97,6 @@ export default class BrowserSerialPort extends EventEmitter implements ISerialPo
         await this.disconnect();
         if (navigator.serial) {
             const chosen = await navigator.serial.requestPort({ filters: [] });
-            await chosen.open({ baudRate: this.baudRate });
             return chosen;
         }
         return undefined;
