@@ -1,51 +1,14 @@
 /* eslint-disable no-await-in-loop */
-import { Buffer } from 'buffer';
-import { ISerialPort } from './ISerialPort';
+import ESP32Serial from './base';
 import {
-    ESPLoader, FlashOptions, LoaderOptions, Transport,
+    ESPLoader, FlashOptions, LoaderOptions,
 } from 'esptool-js/lib/index.js';
 import CryptoJS from 'crypto-js';
-
-// // Import required Node.js type
-// import { TextEncoder as NodeTextEncoder } from 'util';
-
-// // Check for TextEncoder in the global scope or fallback to Node.js's util.TextEncoder
-// const TextEncoder: typeof globalThis.TextEncoder =
-//   typeof globalThis.TextEncoder !== 'undefined'
-//     ? globalThis.TextEncoder
-//     : NodeTextEncoder;
-
-const BaudRate = 460800;
+import { NodeTransport as Transport } from '../NodeTransport'
 
 
-const debugLogging = true;
-
-const debugLog = (message: string) => {
-    if (!debugLogging) {
-        return;
-    }
-    console.log(message);
-};
-
-export class ZephyrSerial {
-    serialPort: ISerialPort | null;
-
-
-    constructor (serialPort: ISerialPort | null = null) {
-        this.serialPort = serialPort;
-    }
-
-    async getPort() {
-        if (this.serialPort) {
-            return this.serialPort.getPort();
-        }
-    }
-
-    setSerialPort(port: ISerialPort | null) {
-        this.serialPort = port;
-    }
-
-    async writeFilesToDevice(files: any[], espLoaderTerminal: any) {
+export class NodeESP32Serial extends ESP32Serial {
+    async writeFilesToDevice(files: any[]) {
         if (this.serialPort === null) {
             return;
         }
@@ -53,24 +16,16 @@ export class ZephyrSerial {
             const port = await this.serialPort.getPort();
             const transport = new Transport(port, true);
             const loaderOptions = {
-                transport,
-                baudrate: BaudRate,
-                terminal: espLoaderTerminal,
+                transport: transport as unknown,
+                baudrate: this.baudRate,
             } as LoaderOptions;
     
             const esploader = new ESPLoader(loaderOptions);
             const chip = await esploader.main();
             console.log(chip);
-            const filesArray: { address: number, data: string }[]= [];
+            const filesArray: { address: number, data: string }[] = [];
             for (let i = 0; i < files.length; i++) {
-                const reader = new FileReader();
-                const blob = new Blob([files[i].data]);
-                reader.readAsBinaryString(blob);
-                const data: string = await new Promise((resolve) => {
-                    reader.onload = () => {
-                        resolve(reader.result as string);
-                    };
-                });
+                const data = files[i].data.toString('binary');
                 filesArray.push({
                     address: files[i].address,
                     data,
@@ -89,7 +44,11 @@ export class ZephyrSerial {
                 flashFreq: '40m',
             };
             await esploader.writeFlash(flashOptions);
-            await esploader.flashFinish(false);
+            port.set({ rts: false, dtr: false });
+            await transport.sleep(20);
+            port.set({ rts: true, dtr: false });
+            await transport.sleep(20);
+            port.set({ rts: false, dtr: false });
         } catch (e) {
             console.error(e);
             // term.writeln(`Error: ${e.message}`);

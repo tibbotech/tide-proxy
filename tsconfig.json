@@ -18,12 +18,14 @@
             "./node_modules/@types"
         ],
         "esModuleInterop": true,
-        "allowSyntheticDefaultImports": true
+        "allowSyntheticDefaultImports": true,
+        "resolveJsonModule": true,
     },
     "include": [
         "src/**/*"
     ],
     "exclude": [
+        "src/ESP32Serial/node.ts",
         "node_modules",
         "./node_modules",
         "./node_modules/*",

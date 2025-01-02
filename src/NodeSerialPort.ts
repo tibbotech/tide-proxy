@@ -2,31 +2,24 @@ import { SerialPort } from 'serialport'
 const { TextEncoder, TextDecoder } = require('util');
 import { TIDEProxy } from './tide-proxy';
 import { ISerialPort } from './ISerialPort';
+import { EventEmitter } from 'events';
 const { createHash } = require('node:crypto');
 
-class NodeSerialPort implements ISerialPort {
+export default class NodeSerialPort extends EventEmitter implements ISerialPort {
     port: SerialPort | null = null;
     baudRate = 115200;
     portPath: string = '';
-    tideProxy: TIDEProxy | null = null;
     flowingMode = true;
 
-    constructor() {
+    constructor(portPath: string) {
+        super();
+        this.portPath = portPath;
         this.sendDebug = this.sendDebug.bind(this);
     }
 
-    setTideProxy(tideProxy: TIDEProxy) {
-        this.tideProxy = tideProxy;
-    }
-
-
-    async connect(portPath: string, baudRate: number, reset = false): Promise<boolean> {
+    async connect(baudRate: number, reset = false): Promise<boolean> {
         return new Promise<boolean>((resolve, reject) => {
             try {
-                if (!this.tideProxy) {
-                    throw new Error('TIDEProxy not set');
-                }
-                this.portPath = portPath;
                 this.baudRate = baudRate;
                 const serialPort = new SerialPort({
                     path: this.portPath,
@@ -47,8 +40,9 @@ class NodeSerialPort implements ISerialPort {
                     if (!this.flowingMode) {
                         return;
                     }
+                    this.emit('data', data);
                     const text = new TextDecoder().decode(data);
-                    this.sendDebug(text);
+                    // this.sendDebug(text);
                 });
                 this.port.on('error', (err) => {
                     this.sendDebug(`Error: ${err.message}`);
@@ -63,21 +57,21 @@ class NodeSerialPort implements ISerialPort {
         });
     }
 
-    async disconnect(port: string) {
+    async disconnect() {
         return new Promise<void>((resolve, reject) => {
             try {
                 let serialPort = this.port;
-                if (!serialPort || serialPort.path !== port) {
+                if (!serialPort || serialPort.path !== this.portPath) {
                     serialPort = new SerialPort(
                         {
-                            path: port,
+                            path: this.portPath,
                             baudRate: this.baudRate,
                             autoOpen: false,
                         }
                     );
                 }
                 serialPort.close((err) => {
-                    if (this.port && this.port.path === port) {
+                    if (this.port && this.port.path === this.portPath) {
                         this.port = null;
                     }
                     resolve();
@@ -89,27 +83,23 @@ class NodeSerialPort implements ISerialPort {
     }
 
     async getPort() {
-        if (!this.port && this.tideProxy) {
-            await this.connect(this.portPath, this.baudRate);
+        if (!this.port) {
+            await this.connect(this.baudRate);
         }
         return this.port;
     }
 
     private async sendDebug(data: string) {
-        const proxy = this.tideProxy as TIDEProxy;
-        proxy.emit('debug_print', {
-            data: JSON.stringify({
-                data: data,
-                state: '',
-            }),
-            mac: this.portPath
-        });
+        return;
     }
 
-    public async read(size: number = 1) {
+    public async read(raw = false, size: number = 1) {
         const data = await this.port?.read(size);
         if (!data) {
             return '';
+        }
+        if (raw) {
+            return data;
         }
         const text = new TextDecoder().decode(data);
         return text;
@@ -134,6 +124,3 @@ class NodeSerialPort implements ISerialPort {
     }
 }
 
-const serialPortInstance = new NodeSerialPort();
-
-export default serialPortInstance;

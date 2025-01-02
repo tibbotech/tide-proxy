@@ -51,10 +51,6 @@ export class MicropythonSerial {
         }
     }
 
-    setSerialPort(port: ISerialPort | null) {
-        this.serialPort = port;
-    }
-
     async sendToDevice(content: string) {
         if (!this.serialPort) {
             return;
@@ -77,7 +73,7 @@ export class MicropythonSerial {
         if (!this.serialPort) {
             return '';
         }
-        const text = await this.serialPort.read(1);
+        const text = await this.serialPort.read(false, 1);
         if (text !== '') {
             debugLog(`recv ${text}`);
         }
@@ -121,7 +117,6 @@ export class MicropythonSerial {
     }
     
     async enterRawMode(reset = false) {
-        // await getPort();
         if (!this.serialPort) {
             return;
         }

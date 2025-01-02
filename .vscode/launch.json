@@ -12,7 +12,7 @@
                 "<node_internals>/**"
             ],
             "type": "node",
-            "preLaunchTask": "tsc: build - tsconfig.json",
+            "preLaunchTask": "npm: prepare",
             "outFiles": [
                 "${workspaceFolder}/lib/**/*.js"
             ],
