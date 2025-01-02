@@ -2,7 +2,7 @@ import * as dgram from 'dgram';
 import { performance } from 'perf_hooks';
 import { SerialPort } from 'serialport'
 import { MicropythonSerial } from './MicropythonSerial';
-import { ZephyrSerial } from './NodeZephyrSerial';
+import { NodeESP32Serial as ESP32Serial } from './ESP32Serial/node';
 import SerialDevice from './NodeSerialPort';
 
 // import { TibboDevice, PCODE_STATE, TaikoMessage, TIBBO_PROXY_MESSAGE, TaikoReply, PCODEMachineState, PCODE_COMMANDS } from './types';
@@ -66,6 +66,7 @@ export class TIDEProxy {
     id: string;
     clients: any[];
     listenPort: number;
+    serialDevices: { [key: string]: SerialDevice } = {};
 
     constructor(serverAddress = '', proxyName: string, port = 3535, targetInterface?: string) {
         this.id = new Date().getTime().toString();
@@ -149,10 +150,12 @@ export class TIDEProxy {
                 this.handleHTTPProxy(message);
             });
             conClient.on(TIBBO_PROXY_MESSAGE.SET_PDB_STORAGE_ADDRESS, this.setPDBAddress.bind(this));
-            conClient.on(TIBBO_PROXY_MESSAGE.ATTACH_SERIAL, (port: string, baudRate: number, reset: boolean) => {
+            conClient.on(TIBBO_PROXY_MESSAGE.ATTACH_SERIAL, (message: any) => {
+                const { port, baudRate, reset } = message;
                 this.attachSerial(port, baudRate, reset);
             });
-            conClient.on(TIBBO_PROXY_MESSAGE.DETACH_SERIAL, (port: string) => {
+            conClient.on(TIBBO_PROXY_MESSAGE.DETACH_SERIAL, (message: any) => {
+                const { port } = message;
                 this.detachSerial(port);
             });
             conClient.on('close', () => {
@@ -563,8 +566,8 @@ export class TIDEProxy {
             return;
         }
 
-        if (method === 'zephyr' && files) {
-            this.startUploadZephyr(mac, files, baudRate);
+        if (method === 'esp32' && files) {
+            this.startUploadEsp32(mac, files, baudRate);
             return;
         }
 
@@ -662,7 +665,8 @@ export class TIDEProxy {
                 });
                 return;
             }
-            const micropythonSerial = new MicropythonSerial(SerialDevice);
+            const serialPort = this.serialDevices[mac];
+            const micropythonSerial = new MicropythonSerial(serialPort);
             await micropythonSerial.enterRawMode(true);
             for (let i = 0 ; i < files.length; i++) {
                 this.emit(TIBBO_PROXY_MESSAGE.UPLOAD, {
@@ -691,22 +695,14 @@ export class TIDEProxy {
         }
     }
 
-    async startUploadZephyr(mac: string, files: any[], baudRate: number): Promise<void> {
+    async startUploadEsp32(mac: string, files: any[], baudRate: number): Promise<void> {
         try {
             await this.getSerialPorts();
-            const attach = await this.attachSerial(mac, baudRate);
-            if (!attach) {
-                this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
-                    'error' : true,
-                    'nonce': '',
-                    'mac': mac
-                });
-                return;
-            }
             await this.detachSerial(mac);
-            const zephyrSerial = new ZephyrSerial(SerialDevice);
-            await zephyrSerial.writeFilesToDevice(files, this);
             await this.attachSerial(mac, baudRate);
+            const serialPort = this.serialDevices[mac];
+            const esp32Serial = new ESP32Serial(serialPort);
+            await esp32Serial.writeFilesToDevice(files);
             this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
                 'error' : false,
                 'nonce': '',
@@ -1039,8 +1035,7 @@ export class TIDEProxy {
                 state: PCODEMachineState.STOPPED,
                 serial_attached: false,
             };
-            if (SerialDevice.port?.path === path
-                && SerialDevice.port.isOpen) {
+            if (this.serialDevices[path]) {
                 device.serial_attached = true;
             }
             this.emit(TIBBO_PROXY_MESSAGE.DEVICE, {
@@ -1060,7 +1055,18 @@ export class TIDEProxy {
         try {
             for (let i = 0; i < this.devices.length; i++) {
                 if (this.devices[i].mac == port) {
-                    await SerialDevice.connect(port, baudRate, reset);
+                    const serialPort = new SerialDevice(port);
+                    serialPort.on('data', (data: any) => {
+                        this.emit(TIBBO_PROXY_MESSAGE.DEBUG_PRINT, {
+                            data: JSON.stringify({
+                                data: new TextDecoder().decode(data),
+                                state: '',
+                            }),
+                            mac: port,
+                        });
+                    });
+                    await serialPort.connect(baudRate, reset);
+                    this.serialDevices[port] = serialPort;
                     this.devices[i].serial_attached = true;
                     return true;
                 }
@@ -1076,7 +1082,8 @@ export class TIDEProxy {
             for (let i = 0; i < this.devices.length; i++) {
                 if (this.devices[i].mac == port ||
                     (this.devices[i].serial_attached && port === '')) {
-                    await SerialDevice.disconnect(this.devices[i].mac);
+                    this.serialDevices[port].disconnect();
+                    delete this.serialDevices[port];
                     this.devices[i].serial_attached = false;
                 }
             }

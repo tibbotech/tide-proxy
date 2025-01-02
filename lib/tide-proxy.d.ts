@@ -1,5 +1,6 @@
 /// <reference types="node" />
 import * as dgram from 'dgram';
+import SerialDevice from './NodeSerialPort';
 interface UDPMessage {
     deviceInterface: any;
     message: string;
@@ -29,6 +30,9 @@ export declare class TIDEProxy {
     id: string;
     clients: any[];
     listenPort: number;
+    serialDevices: {
+        [key: string]: SerialDevice;
+    };
     constructor(serverAddress: string | undefined, proxyName: string, port?: number, targetInterface?: string);
     setInterface(targetInterface: string): void;
     setServer(serverAddress: string, proxyName: string): void;
@@ -38,7 +42,7 @@ export declare class TIDEProxy {
     handleDebugPrint(device: TibboDevice, state: string): Promise<void>;
     startApplicationUpload(mac: string, fileString: string, deviceDefinition?: any, method?: string, files?: any[], baudRate?: number): void;
     startUploadMicropython(mac: string, files: any[], baudRate: number): Promise<void>;
-    startUploadZephyr(mac: string, files: any[], baudRate: number): Promise<void>;
+    startUploadEsp32(mac: string, files: any[], baudRate: number): Promise<void>;
     sendBlock(mac: string, blockIndex: number): void;
     sendToDevice(mac: string, command: string, data: string, reply?: boolean, nonce?: string | undefined): void;
     checkMessageQueue(): void;

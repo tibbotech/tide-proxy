@@ -1,13 +1,16 @@
 import { ISerialPort } from './ISerialPort';
 import CryptoJS from 'crypto-js';
+import { EventEmitter } from 'events';
 
 let readerTimeout: any;
 
 
-export default class BrowserSerialPort implements ISerialPort {
+export default class BrowserSerialPort extends EventEmitter implements ISerialPort {
     port: any;
 
     baudRate = 115200;
+    flowingMode = true;
+    dataTimer: any;
 
     async maybeGetPort() {
         const ports = await navigator.serial.getPorts();
@@ -19,12 +22,15 @@ export default class BrowserSerialPort implements ISerialPort {
         return undefined;
     }
 
-    async connect(portString: string, baudRate: number = 115200) {
+    async connect(baudRate: number = 115200) {
         this.baudRate = baudRate;
         await this.disconnect();
         const port = await this.getPort();
         if (port === undefined) {
             return false;
+        }
+        if (this.flowingMode) {
+            this.dataTimer = setInterval(this.readData.bind(this), 100);
         }
         return true;
     }
@@ -34,6 +40,10 @@ export default class BrowserSerialPort implements ISerialPort {
             const port = await this.maybeGetPort();
             if (port === undefined) {
                 return;
+            }
+            if (this.dataTimer !== undefined) {
+                clearInterval(this.dataTimer);
+                this.dataTimer = undefined;
             }
             await port.forget();
             // await port.cancel();
@@ -53,7 +63,7 @@ export default class BrowserSerialPort implements ISerialPort {
         return this.port;
     }
 
-    async read() {
+    async read(raw = false) {
         let reader = this.port.readable.getReader();
         readerTimeout = setTimeout(() => {
             readerTimeout = undefined;
@@ -69,8 +79,10 @@ export default class BrowserSerialPort implements ISerialPort {
         readerTimeout = undefined;
         reader.releaseLock();
         reader = undefined;
-        const text = new TextDecoder().decode(result.value);
-        return text;
+        if (raw) {
+            return result.value;
+        }
+        return new TextDecoder().decode(result.value);
     }
 
     write(data: string) {
@@ -105,5 +117,29 @@ export default class BrowserSerialPort implements ISerialPort {
         const fileChecksum = CryptoJS.SHA256(wordArray).toString();
 
         return fileChecksum;
+    }
+
+    public setFlowingMode(mode: boolean) {
+        this.flowingMode = mode;
+        if (this.flowingMode) {
+            if (this.dataTimer === undefined) {
+                this.dataTimer = setInterval(this.readData.bind(this), 100);
+            }
+        } else {
+            if (this.dataTimer !== undefined) {
+                clearInterval(this.dataTimer);
+                this.dataTimer = undefined;
+            }
+        }
+    }
+
+    async readData() {
+        if (!this.port.readable || this.port.readable.locked) {
+            return;
+        }
+        const data = await this.read(true);
+        if (data) {
+            this.emit('data', data);
+        }
     }
 }

@@ -1,6 +1,5 @@
 import { TIDEProxy } from './tide-proxy';
 import { io } from 'socket.io-client';
-import SerialPort from './NodeSerialPort';
 
 const express = require('express');
 const path = require('path');
@@ -54,7 +53,6 @@ const setProxy = async (name: string, url: string) => {
         await proxy.stop();
     }
     proxy = new TIDEProxy(proxyURL, proxyName !== '' ? proxyName : 'remotenet', 3535);
-    SerialPort.setTideProxy(proxy);
 };
 
 app.get('/debug', (req: any, res: any) => {
