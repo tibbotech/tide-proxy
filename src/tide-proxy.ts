@@ -121,6 +121,17 @@ export class TIDEProxy {
             }
         }
 
+        SerialDevice.on('debug_print', (message: any) => {
+            const { address, data } = message;
+            this.emit(TIBBO_PROXY_MESSAGE.DEBUG_PRINT, {
+                data: JSON.stringify({
+                    data,
+                }),
+                address: address,
+                mac: address,
+            });
+        });
+
         if (serverAddress != '') {
             this.setServer(serverAddress, proxyName);
         }
@@ -149,10 +160,10 @@ export class TIDEProxy {
                 this.handleHTTPProxy(message);
             });
             conClient.on(TIBBO_PROXY_MESSAGE.SET_PDB_STORAGE_ADDRESS, this.setPDBAddress.bind(this));
-            conClient.on(TIBBO_PROXY_MESSAGE.ATTACH_SERIAL, (port: string, baudRate: number, reset: boolean) => {
+            conClient.on(TIBBO_PROXY_MESSAGE.ATTACH_SERIAL, ({ port, baudRate, reset }: { port: string, baudRate: number, reset: boolean }) => {
                 this.attachSerial(port, baudRate, reset);
             });
-            conClient.on(TIBBO_PROXY_MESSAGE.DETACH_SERIAL, (port: string) => {
+            conClient.on(TIBBO_PROXY_MESSAGE.DETACH_SERIAL, ({ port }: { port: string }) => {
                 this.detachSerial(port);
             });
             conClient.on('close', () => {
@@ -235,8 +246,10 @@ export class TIDEProxy {
     }
 
     setPDBAddress(message: TaikoMessage): void {
-        const device = this.getDevice(message.mac);
-        device.pdbStorageAddress = Number(message.data);
+        if (message.mac) {
+            const device = this.getDevice(message.mac);
+            device.pdbStorageAddress = Number(message.data);
+        }
     }
 
     handleMessage(msg: Buffer, info: any, socket: TBNetworkInterface) {
@@ -569,8 +582,74 @@ export class TIDEProxy {
         }
 
         const bytes = Buffer.from(fileString, 'binary');
-        if (deviceDefinition) {
-            if (deviceDefinition.uploadMethods.find((method: any) => method.name === 'openocd')) {
+        if (deviceDefinition && method) {
+            if (method === 'bossac') {
+                const bossacMethod = deviceDefinition.uploadMethods.find((method: any) => method.name === 'bossac');
+                const fileBase = this.makeid(8);
+                let scriptPath = '';
+                let filePath = '';
+                try {
+                    // make temporary folder
+                    fs.mkdirSync(path.join(__dirname, fileBase));
+                    // random file name
+                    fs.writeFileSync(path.join(__dirname, fileBase, `zephyr.bin`), bytes);
+                    const cleanup = () => {
+                        if (fileBase && fs.existsSync(fileBase)) {
+                            fs.unlinkSync(fileBase);
+                        }
+                    }
+
+                    let ccmd = ``;
+                    // see if bossac is installed
+                    try {
+                        ccmd = `bossac -p ${mac} -d`;
+                        cp.execSync(ccmd);
+                    } catch (ex) {
+                        return this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
+                            method: 'bossac',
+                            mac: '',
+                        });
+                    }
+                    ccmd = `bossac -p ${mac} -R -e -w -v -b ${path.join(__dirname, fileBase, `zephyr.bin`)} -o ${deviceDefinition.partitions[0].size}`;
+                    const exec = cp.spawn(ccmd, [], { env: { ...process.env, NODE_OPTIONS: '' }, timeout: 60000, shell: true });
+                    if (!exec.pid) {
+                        return;
+                    }
+                    exec.stdout.on('data', (data: any) => {
+                        // [=========================     ] 99% (2178/2179 pages)
+                        try {
+                            let progress = 0;
+                            // get string in parenthesis
+                            const match = data.toString().match(/\(([^)]+)\)/);
+                            if (match) {
+                                progress = match[1].split('/')[0] / match[1].split('/')[1].replace('pages', '').trim();
+                                this.emit(TIBBO_PROXY_MESSAGE.UPLOAD, {
+                                    'data': progress,
+                                    'mac': mac
+                                });
+                            }
+                        } catch (ex) {
+
+                        }
+                    });
+                    exec.on('error', () => {
+                        cleanup();
+                        this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
+                            method: 'bossac',
+                            mac: '',
+                        });
+                    });
+                    exec.on('exit', () => {
+                        cleanup();
+                        this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
+                            method: 'bossac',
+                            mac: '',
+                        });
+                    });
+                } catch (ex) {
+                    console.log(ex);
+                }
+            } else if (method === 'openocd') {
                 const openocdMethod = deviceDefinition.uploadMethods.find((method: any) => method.name === 'openocd');
                 let jlinkDevice = deviceDefinition.id;
                 const fileBase = this.makeid(8);
@@ -593,6 +672,7 @@ export class TIDEProxy {
                     }
 
                     const ccmd = `openocd -f ${scriptPath} -c 'program ${path.join(__dirname, fileBase, 'zephyr.elf')} verify reset exit'`;
+                    console.log(ccmd);
                     const exec = cp.spawn(ccmd, [], { env: { ...process.env, NODE_OPTIONS: '' }, timeout: 60000, shell: true });
                     if (!exec.pid) {
                         return;
@@ -614,7 +694,7 @@ export class TIDEProxy {
                 } catch (ex) {
                     console.log(ex);
                 }
-            } else if (deviceDefinition.uploadMethods.find((method: any) => method.name === 'jlink')) {
+            } else if (method === 'jlink') {
                 const jlinkMethod = deviceDefinition.uploadMethods.find((method: any) => method.name === 'jlink');
                 let jlinkDevice = '';
                 let speed = '';
@@ -700,7 +780,7 @@ export class TIDEProxy {
             const attach = await this.attachSerial(mac, baudRate);
             if (!attach) {
                 this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
-                    'error' : true,
+                    'error': true,
                     'nonce': '',
                     'mac': mac
                 });
@@ -708,7 +788,7 @@ export class TIDEProxy {
             }
             const micropythonSerial = new MicropythonSerial(SerialDevice);
             await micropythonSerial.enterRawMode(true);
-            for (let i = 0 ; i < files.length; i++) {
+            for (let i = 0; i < files.length; i++) {
                 this.emit(TIBBO_PROXY_MESSAGE.UPLOAD, {
                     'data': i / files.length,
                     'mac': mac
@@ -725,7 +805,7 @@ export class TIDEProxy {
             await micropythonSerial.exitRawMode();
             await this.detachSerial(mac);
             this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
-                'error' : false,
+                'error': false,
                 'nonce': '',
                 'mac': mac
             });
@@ -741,7 +821,7 @@ export class TIDEProxy {
             const attach = await this.attachSerial(mac, baudRate);
             if (!attach) {
                 this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
-                    'error' : true,
+                    'error': true,
                     'nonce': '',
                     'mac': mac
                 });
@@ -752,7 +832,7 @@ export class TIDEProxy {
             await zephyrSerial.writeFilesToDevice(files, this);
             await this.attachSerial(mac, baudRate);
             this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
-                'error' : false,
+                'error': false,
                 'nonce': '',
                 'mac': mac
             });
@@ -1101,18 +1181,24 @@ export class TIDEProxy {
     }
 
     async attachSerial(port: string, baudRate: number = 115200, reset: boolean = false) {
-        try {
-            for (let i = 0; i < this.devices.length; i++) {
-                if (this.devices[i].mac == port) {
-                    await SerialDevice.connect(port, baudRate, reset);
-                    this.devices[i].serial_attached = true;
-                    return true;
+        for (let i = 0; i < this.devices.length; i++) {
+            if (this.devices[i].mac == port) {
+                try {
+                    this.detachSerial(port);
+                } catch (ex) {
+                    console.log(ex);
                 }
+                try {
+                    await SerialDevice.connect(port, baudRate, reset);
+                } catch (ex) {
+                    console.log(ex);
+                    return false;
+                }
+                this.devices[i].serial_attached = true;
+                return true;
             }
-            return false;
-        } catch (ex) {
-            logger.error('error attaching serial');
         }
+        return false;
     }
 
     async detachSerial(port: string) {
