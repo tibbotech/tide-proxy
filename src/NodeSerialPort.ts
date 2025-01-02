@@ -46,6 +46,8 @@ export default class NodeSerialPort extends EventEmitter implements ISerialPort 
                 });
                 this.port.on('error', (err) => {
                     this.sendDebug(`Error: ${err.message}`);
+                    err.message = `Error: ${err.message}`;
+                    this.emit('error', err);
                     reject(false);
                 });
                 this.port.on('close', function() {

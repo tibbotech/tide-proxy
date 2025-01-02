@@ -56,7 +56,7 @@ export declare class TIDEProxy {
     getDevices(): Array<TibboDevice>;
     stop(): Promise<void>;
     getSerialPorts(): Promise<void>;
-    attachSerial(port: string, baudRate?: number, reset?: boolean): Promise<boolean | undefined>;
+    attachSerial(port: string, baudRate?: number, reset?: boolean): Promise<boolean>;
     detachSerial(port: string): Promise<void>;
 }
 export interface TibboDevice {
@@ -150,6 +150,8 @@ export declare enum TIBBO_PROXY_MESSAGE {
     HTTP = "http",
     HTTP_RESPONSE = "http_response",
     ATTACH_SERIAL = "attach_serial",
-    DETACH_SERIAL = "detach_serial"
+    DETACH_SERIAL = "detach_serial",
+    UPLOAD_ERROR = "upload_error",
+    MESSAGE = "message"
 }
 export {};

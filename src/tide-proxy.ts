@@ -702,12 +702,7 @@ export class TIDEProxy {
             await this.detachSerial(mac);
             const attach = await this.attachSerial(mac, baudRate);
             if (!attach) {
-                this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
-                    'error' : true,
-                    'nonce': '',
-                    'mac': mac
-                });
-                return;
+                throw new Error('Failed to attach serial');
             }
             const serialPort = this.serialDevices[mac];
             const micropythonSerial = new MicropythonSerial(serialPort);
@@ -733,8 +728,12 @@ export class TIDEProxy {
                 'nonce': '',
                 'mac': mac
             });
-        } catch (ex) {
+        } catch (ex: any) {
             console.log(ex);
+            this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, {
+                'nonce': '',
+                'mac': mac
+            })
             logger.error(ex);
         }
     }
@@ -752,8 +751,12 @@ export class TIDEProxy {
                 'nonce': '',
                 'mac': mac
             });
-        } catch (ex) {
+        } catch (ex: any) {
             console.log(ex);
+            this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, {
+                'nonce': '',
+                'mac': mac
+            })
             logger.error(ex);
         }
     }
@@ -1109,6 +1112,13 @@ export class TIDEProxy {
                             mac: port,
                         });
                     });
+                    serialPort.on('error', (error) => {
+                        console.log('error');
+                        this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
+                            data: error.message,
+                            mac: port,
+                        });
+                    });
                     await serialPort.connect(baudRate, reset);
                     this.serialDevices[port] = serialPort;
                     this.devices[i].serial_attached = true;
@@ -1118,6 +1128,7 @@ export class TIDEProxy {
             return false;
         } catch (ex) {
             logger.error('error attaching serial');
+            return false;
         }
     }
 
@@ -1236,4 +1247,6 @@ export enum TIBBO_PROXY_MESSAGE {
     HTTP_RESPONSE = 'http_response',
     ATTACH_SERIAL = 'attach_serial',
     DETACH_SERIAL = 'detach_serial',
+    UPLOAD_ERROR = 'upload_error',
+    MESSAGE = 'message',
 }

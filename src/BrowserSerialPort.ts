@@ -23,17 +23,22 @@ export default class BrowserSerialPort extends EventEmitter implements ISerialPo
     }
 
     async connect(baudRate: number = 115200) {
-        this.baudRate = baudRate;
-        await this.disconnect();
-        const port = await this.getPort();
-        if (port === undefined) {
+        try {
+            this.baudRate = baudRate;
+            await this.disconnect();
+            const port = await this.getPort();
+            if (port === undefined) {
+                return false;
+            }
+            if (this.flowingMode) {
+                this.dataTimer = setInterval(this.readData.bind(this), 100);
+            }
+            await port.open({ baudRate: this.baudRate });
+            return true;
+        } catch (err) {
+            this.emit('error', err);
             return false;
         }
-        if (this.flowingMode) {
-            this.dataTimer = setInterval(this.readData.bind(this), 100);
-        }
-        await port.open({ baudRate: this.baudRate });
-        return true;
     }
 
     async disconnect() {
