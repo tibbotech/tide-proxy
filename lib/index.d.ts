@@ -1,3 +1,3 @@
-export * from './tide-proxy.js';
-export { MicropythonSerial } from './MicropythonSerial.js';
-export { ISerialPort } from './ISerialPort.js';
+export * from './tide-proxy';
+export { MicropythonSerial } from './MicropythonSerial';
+export { ISerialPort } from './ISerialPort';

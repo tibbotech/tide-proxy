@@ -573,7 +573,51 @@ export class TIDEProxy {
 
         const bytes = Buffer.from(fileString, 'binary');
         if (deviceDefinition) {
-            if (deviceDefinition.uploadMethods.find((method: any) => method.name === 'jlink')) {
+            if (deviceDefinition.uploadMethods.find((method: any) => method.name === 'openocd')) {
+                const openocdMethod = deviceDefinition.uploadMethods.find((method: any) => method.name === 'openocd');
+                let jlinkDevice = deviceDefinition.id;
+                const fileBase = this.makeid(8);
+                let scriptPath = '';
+                let filePath = '';
+                try {
+                    // make temporary folder
+                    fs.mkdirSync(path.join(__dirname, fileBase));
+                    // random file name
+
+                    scriptPath = path.join(__dirname, fileBase, `openocd.cfg`);
+                    if (openocdMethod.options.length > 0) {
+                        fs.writeFileSync(scriptPath, openocdMethod.options[0]);
+                    }
+                    fs.writeFileSync(path.join(__dirname, fileBase, `zephyr.elf`), bytes);
+                    const cleanup = () => {
+                        if (fileBase && fs.existsSync(fileBase)) {
+                            fs.unlinkSync(fileBase);
+                        }
+                    }
+
+                    const ccmd = `openocd -f ${scriptPath} -c 'program ${path.join(__dirname, fileBase, 'zephyr.elf')} verify reset exit'`;
+                    const exec = cp.spawn(ccmd, [], { env: { ...process.env, NODE_OPTIONS: '' }, timeout: 60000, shell: true });
+                    if (!exec.pid) {
+                        return;
+                    }
+                    exec.on('error', () => {
+                        cleanup();
+                        this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
+                            method: 'openocd',
+                            mac: jlinkDevice,
+                        });
+                    });
+                    exec.on('exit', () => {
+                        cleanup();
+                        this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
+                            method: 'openocd',
+                            mac: jlinkDevice,
+                        });
+                    });
+                } catch (ex) {
+                    console.log(ex);
+                }
+            } else if (deviceDefinition.uploadMethods.find((method: any) => method.name === 'jlink')) {
                 const jlinkMethod = deviceDefinition.uploadMethods.find((method: any) => method.name === 'jlink');
                 let jlinkDevice = '';
                 let speed = '';
