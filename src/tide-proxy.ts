@@ -722,6 +722,7 @@ export class TIDEProxy {
                 await micropythonSerial.writeFileToDevice(files[i]);
             }
             await micropythonSerial.exitRawMode();
+
             await this.detachSerial(mac);
             this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
                 'error' : false,
@@ -1119,7 +1120,7 @@ export class TIDEProxy {
                             mac: port,
                         });
                     });
-                    await serialPort.connect(baudRate, reset);
+                    await serialPort.connect(baudRate);
                     this.serialDevices[port] = serialPort;
                     this.devices[i].serial_attached = true;
                     return true;

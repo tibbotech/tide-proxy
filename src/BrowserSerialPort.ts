@@ -22,10 +22,12 @@ export default class BrowserSerialPort extends EventEmitter implements ISerialPo
         return undefined;
     }
 
-    async connect(baudRate: number = 115200) {
+    async connect(baudRate: number = 115200, reset = true) {
         try {
             this.baudRate = baudRate;
-            await this.disconnect();
+            if (reset) {
+                await this.disconnect();
+            }
             const port = await this.getPort();
             if (port === undefined) {
                 return false;
