@@ -17,7 +17,7 @@ export default class NodeSerialPort extends EventEmitter implements ISerialPort 
         this.sendDebug = this.sendDebug.bind(this);
     }
 
-    async connect(baudRate: number, reset = false): Promise<boolean> {
+    async connect(baudRate: number): Promise<boolean> {
         return new Promise<boolean>((resolve, reject) => {
             try {
                 this.baudRate = baudRate;
@@ -29,10 +29,6 @@ export default class NodeSerialPort extends EventEmitter implements ISerialPort 
                 this.flowingMode = true;
                 this.port.on('open', () => { 
                     // open logic
-                    if (reset) {
-                        serialPort.write('\x03');
-                        serialPort.write('\x04');
-                    }
                     resolve(true);
                     // console.log('port opened');
                 })
@@ -46,6 +42,8 @@ export default class NodeSerialPort extends EventEmitter implements ISerialPort 
                 });
                 this.port.on('error', (err) => {
                     this.sendDebug(`Error: ${err.message}`);
+                    err.message = `Error: ${err.message}`;
+                    this.emit('error', err);
                     reject(false);
                 });
                 this.port.on('close', function() {
