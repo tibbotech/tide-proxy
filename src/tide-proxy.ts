@@ -231,7 +231,6 @@ export class TIDEProxy {
     }
 
     handleRefresh() {
-        console.log('refreshing');
         const msg = Buffer.from(PCODE_COMMANDS.DISCOVER);
         this.discoveredDevices = {};
         this.send(msg);
@@ -269,12 +268,10 @@ export class TIDEProxy {
         let replyFor: TaikoMessage | undefined = undefined;
 
         const identifier = secondPart.split('|')[1];
-        if (device.messageQueue) {
-            for (let i = 0; i < device.messageQueue.length; i++) {
-                if (device.messageQueue[i].nonce == identifier) {
-                    replyFor = device.messageQueue.splice(i, 1)[0];
-                    i--;
-                }
+        for (let i = 0; i < device.messageQueue.length; i++) {
+            if (device.messageQueue[i].nonce == identifier) {
+                replyFor = device.messageQueue.splice(i, 1)[0];
+                i--;
             }
         }
         // detect failed upload
@@ -943,7 +940,7 @@ export class TIDEProxy {
                 if (this.pendingMessages[i].timeout < 512) {
                     this.pendingMessages[i].timeout *= 2;
                 }
-                if (this.pendingMessages[i].tries > 10 || elapsed > 10000) {
+                if (this.pendingMessages[i].tries > 10 || elapsed > 5000) {
                     logger.info('discarding ' + this.pendingMessages[i].message);
                     this.pendingMessages.splice(i, 1);
                     i--;

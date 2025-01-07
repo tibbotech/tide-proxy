@@ -95,9 +95,12 @@ app.post('/upload', async (req: any, res: any) => {
 app.get('/devices', async (req: any, res: any) => {
     const devices = proxy.getDevices();
     // remove file from devices
-    devices.forEach((device: any) => {
-        delete device.file;
-        delete device.messageQueue;
+    const devicesResult = devices.map((device: any) => {
+        return {
+            ...device,
+            file: undefined,
+            messageQueue: undefined,
+        };
     });
     res.json(devices);
 });
