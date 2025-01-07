@@ -395,8 +395,7 @@ export class TIDEProxy {
                         stateString = messagePart;
                     }
                     break;
-                case PCODE_COMMANDS.UPLOAD:
-                    if (reply == REPLY_OK) {
+                case PCODE_COMMANDS.UPLOAD: {
                         const fileIndex = 0xff00 & msg[msg.length - 2] << 8 | 0x00ff & msg[msg.length - 1];
                         for (let i = 0; i < device.messageQueue.length; i++) {
                             if (device.messageQueue[i].command == PCODE_COMMANDS.UPLOAD) {
@@ -416,6 +415,10 @@ export class TIDEProxy {
                             }
                         }
                         if (replyFor === undefined) {
+                            return;
+                        }
+                        if (reply !== REPLY_OK) {
+                            this.sendBlock(mac, device.fileIndex);
                             return;
                         }
                         const oldProgress = Math.round(device.fileIndex / device.fileBlocksTotal * 100);
@@ -439,9 +442,6 @@ export class TIDEProxy {
                             logger.info(`finished upload to ${mac}`);
                             this.sendToDevice(mac, PCODE_COMMANDS.APPUPLOADFINISH, '');
                         }
-                    }
-                    else {
-                        this.sendBlock(mac, device.fileIndex);
                     }
                     break;
                 case PCODE_COMMANDS.APPUPLOADFINISH:
