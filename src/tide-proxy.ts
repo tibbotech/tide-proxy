@@ -379,12 +379,12 @@ export class TIDEProxy {
                         }
                         else if (pc[2] == 'B') {
                             pcode_state = PCODE_STATE.PAUSED;
-                            if (pc[0].toUpperCase() === 'C') {
-                                // error state
-                                if (device.file) {
-                                    this.clearDeviceMessageQueue(mac);
-                                    this.startApplicationUpload(mac, device.file.toString('binary'));
-                                }
+                        }
+                        if (pc[0].toUpperCase() === 'C') {
+                            // error state
+                            if (device.file) {
+                                this.clearDeviceMessageQueue(mac);
+                                this.startApplicationUpload(mac, device.file.toString('binary'));
                             }
                         }
 
