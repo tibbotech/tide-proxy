@@ -640,6 +640,9 @@ export class TIDEProxy {
                             mac: '',
                         });
                     });
+                    exec.stderr.on('data', (data: any) => {
+                        console.log(data.toString());
+                    });
                     exec.on('exit', () => {
                         cleanup();
                         this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
@@ -685,6 +688,9 @@ export class TIDEProxy {
                             mac: jlinkDevice,
                         });
                     });
+                    exec.stderr.on('data', (data: any) => {
+                        console.log(data.toString());
+                    });
                     exec.stdout.on('data', (data: any) => {
                         console.log(data.toString());
                     });
@@ -725,7 +731,7 @@ export class TIDEProxy {
                     filePath = path.join(__dirname, fileName);
                     scriptPath = path.join(__dirname, `${fileBase}.jlink`);
                     fs.writeFileSync(filePath, bytes);
-                    fs.writeFileSync(scriptPath, `loadbin ${filePath} ${flashAddress}\nexit`);
+                    fs.writeFileSync(scriptPath, `loadbin ${filePath} ${flashAddress}\nR\nG\nExit`);
                     const cleanup = () => {
                         if (scriptPath && fs.existsSync(scriptPath)) {
                             fs.unlinkSync(scriptPath);
@@ -746,12 +752,16 @@ export class TIDEProxy {
                             mac: jlinkDevice,
                         });
                     });
+                    exec.stderr.on('data', (data: any) => {
+                        console.log(data.toString());
+                    });
                     exec.stdout.on('data', (data: any) => {
                         console.log(data.toString());
                     });
                     exec.on('exit', () => {
                         cleanup();
                         this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
+                            method: 'jlink',
                             mac: jlinkDevice,
                         });
                     });
