@@ -951,7 +951,7 @@ export class TIDEProxy {
         const currentDate = new Date().getTime();
         for (let i = 0; i < this.pendingMessages.length; i++) {
             const elapsed = currentDate - this.pendingMessages[i].timestamp;
-            if (elapsed > this.pendingMessages[i].timeout || elapsed > 5000) {
+            if (elapsed > this.pendingMessages[i].timeout) {
                 if (this.pendingMessages[i].timeout < 1024) {
                     this.pendingMessages[i].timeout *= 2;
                 }
