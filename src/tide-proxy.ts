@@ -359,7 +359,6 @@ export class TIDEProxy {
                 case PCODE_COMMANDS.RUN:
                 case PCODE_COMMANDS.STEP:
                 case PCODE_COMMANDS.SET_POINTER:
-                    device.file = undefined;
                     stateString = messagePart;
                     if (replyForCommand == PCODE_COMMANDS.RUN
                         || replyForCommand == PCODE_COMMANDS.STEP
@@ -373,13 +372,20 @@ export class TIDEProxy {
                             device.lastPoll = new Date().getTime();
                         }
                         const replyParts = messagePart.split('/');
-                        const pc = replyParts[0]
-                        let pcode_state = PCODE_STATE.STOPPED
+                        const pc = replyParts[0];
+                        let pcode_state = PCODE_STATE.STOPPED;
                         if (pc[1] == 'R') {
-                            pcode_state = PCODE_STATE.RUNNING
+                            pcode_state = PCODE_STATE.RUNNING;
                         }
                         else if (pc[2] == 'B') {
-                            pcode_state = PCODE_STATE.PAUSED
+                            pcode_state = PCODE_STATE.PAUSED;
+                            if (pc[0].toUpperCase() === 'C') {
+                                // error state
+                                if (device.file) {
+                                    this.clearDeviceMessageQueue(mac);
+                                    this.startApplicationUpload(mac, device.file.toString('binary'));
+                                }
+                            }
                         }
 
                         device.pcode = pcode_state;
