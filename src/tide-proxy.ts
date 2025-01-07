@@ -354,7 +354,7 @@ export class TIDEProxy {
                     device.lastRunCommand = undefined;
                     device.fileIndex = 0;
                     device.file = undefined;
-                    device.messageQueue = [];
+                    this.clearDeviceMessageQueue(mac);
                     break;
                 case PCODE_COMMANDS.RUN:
                 case PCODE_COMMANDS.STEP:
@@ -471,7 +471,8 @@ export class TIDEProxy {
                             // device is not responding or not programmed
                             if (device.file) {
                                 // retry the upload
-                                console.log('retrying upload');
+                                console.log(`retrying upload for ${mac}`);
+                                this.clearDeviceMessageQueue(mac);
                                 this.startApplicationUpload(mac, device.file.toString('binary'));
                             }
                         }
@@ -556,6 +557,20 @@ export class TIDEProxy {
         }
 
         device.printing = false;
+    }
+
+    clearDeviceMessageQueue(mac: string) {
+        const device = this.getDevice(mac);
+        for (let i = 0; i < device.messageQueue.length; i++) {
+            const nonce = device.messageQueue[i].nonce;
+            for (let j = 0; j < this.pendingMessages.length; j++) {
+                if (this.pendingMessages[j].nonce == nonce) {
+                    this.pendingMessages.splice(j, 1);
+                    break;
+                }
+            }
+        }
+        device.messageQueue = [];
     }
 
     startApplicationUpload(mac: string, fileString: string, deviceDefinition?: any, method?: string, files?: any[], baudRate = 115200): void {
@@ -785,7 +800,7 @@ export class TIDEProxy {
                     }
                 }
             }
-            device.messageQueue = [];
+            this.clearDeviceMessageQueue(mac);
             this.sendToDevice(mac, PCODE_COMMANDS.RESET_PROGRAMMING, '');
         }
     }
@@ -937,10 +952,10 @@ export class TIDEProxy {
         for (let i = 0; i < this.pendingMessages.length; i++) {
             const elapsed = currentDate - this.pendingMessages[i].timestamp;
             if (elapsed > this.pendingMessages[i].timeout) {
-                if (this.pendingMessages[i].timeout < 512) {
+                if (this.pendingMessages[i].timeout < 1024) {
                     this.pendingMessages[i].timeout *= 2;
                 }
-                if (this.pendingMessages[i].tries > 10 || elapsed > 5000) {
+                if (this.pendingMessages[i].tries > 10) {
                     logger.info('discarding ' + this.pendingMessages[i].message);
                     this.pendingMessages.splice(i, 1);
                     i--;
