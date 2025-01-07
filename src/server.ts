@@ -99,7 +99,7 @@ app.get('/devices', async (req: any, res: any) => {
         return {
             ...device,
             file: undefined,
-            messageQueue: undefined,
+            messageQueue: device.messageQueue.length,
         };
     });
     res.json(devicesResult);

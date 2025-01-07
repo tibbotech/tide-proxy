@@ -404,8 +404,17 @@ export class TIDEProxy {
                                 if (tmpFileIndex !== fileIndex) {
                                     continue;
                                 }
+                                
                                 for (let j = 0; j < this.pendingMessages.length; j++) {
                                     if (this.pendingMessages[j].nonce == device.messageQueue[i].nonce) {
+                                        if (reply !== REPLY_OK) {
+                                            this.pendingMessages[j].tries++;
+                                            this.pendingMessages[j].timestamp = new Date().getTime();
+                                            if (this.pendingMessages[j].tries >= 10 && device.file) {
+                                                this.startApplicationUpload(mac, device.file.toString('binary'));
+                                            }
+                                            return;
+                                        }
                                         this.pendingMessages.splice(j, 1);
                                         j--;
                                     }
@@ -559,15 +568,28 @@ export class TIDEProxy {
         device.printing = false;
     }
 
+    removeDeviceMessage(mac: string, nonce: string) {
+        const device = this.getDevice(mac);
+        for (let i = 0; i < device.messageQueue.length; i++) {
+            if (device.messageQueue[i].nonce == nonce) {
+                device.messageQueue.splice(i, 1);
+                for (let j = 0; j < this.pendingMessages.length; j++) {
+                    if (this.pendingMessages[j].nonce == nonce) {
+                        this.pendingMessages.splice(j, 1);
+                        j--;
+                    }
+                }
+                break;
+            }
+        }
+    }
+
     clearDeviceMessageQueue(mac: string) {
         const device = this.getDevice(mac);
         for (let i = 0; i < device.messageQueue.length; i++) {
             const nonce = device.messageQueue[i].nonce;
-            for (let j = 0; j < this.pendingMessages.length; j++) {
-                if (this.pendingMessages[j].nonce == nonce) {
-                    this.pendingMessages.splice(j, 1);
-                    break;
-                }
+            if (nonce) {
+                this.removeDeviceMessage(mac, nonce);
             }
         }
         device.messageQueue = [];
