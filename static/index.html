@@ -45,7 +45,8 @@
     </form>
     <br/>
     <br/>
-    <button onclick="getDevices()">Get Devices</button>
+    <!-- <button onclick="getDevices()">Get Devices</button> -->
+    <button onclick="refresh()">Refresh</button>
 
     <table>
         <thead>
@@ -85,6 +86,16 @@
             document.getElementById("proxyName").value = config.name;
         }
 
+        async function refresh() {
+            await fetch('/refresh', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+            });
+            await getDevices();
+        }
+
         async function getDevices() {
             const tbody = document.getElementById("devices");
             tbody.innerHTML = "";
@@ -115,6 +126,7 @@
         }
 
         getProxy();
+        refresh();
     </script>
 </body>
 
