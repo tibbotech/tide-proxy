@@ -231,6 +231,7 @@ export class TIDEProxy {
     }
 
     handleRefresh() {
+        console.log('refreshing');
         const msg = Buffer.from(PCODE_COMMANDS.DISCOVER);
         this.discoveredDevices = {};
         this.send(msg);
@@ -268,10 +269,12 @@ export class TIDEProxy {
         let replyFor: TaikoMessage | undefined = undefined;
 
         const identifier = secondPart.split('|')[1];
-        for (let i = 0; i < device.messageQueue.length; i++) {
-            if (device.messageQueue[i].nonce == identifier) {
-                replyFor = device.messageQueue.splice(i, 1)[0];
-                i--;
+        if (device.messageQueue) {
+            for (let i = 0; i < device.messageQueue.length; i++) {
+                if (device.messageQueue[i].nonce == identifier) {
+                    replyFor = device.messageQueue.splice(i, 1)[0];
+                    i--;
+                }
             }
         }
         // detect failed upload
@@ -903,7 +906,7 @@ export class TIDEProxy {
                     nonce: pnum,
                     tries: 0,
                     timestamp: new Date().getTime(),
-                    timeout: RETRY_TIMEOUT,
+                    timeout: RETRY_TIMEOUT + this.pendingMessages.length * 10,
                 });
                 device.messageQueue.push({
                     mac: mac,
@@ -935,11 +938,12 @@ export class TIDEProxy {
     checkMessageQueue(): void {
         const currentDate = new Date().getTime();
         for (let i = 0; i < this.pendingMessages.length; i++) {
-            if (currentDate - this.pendingMessages[i].timestamp > this.pendingMessages[i].timeout) {
+            const elapsed = currentDate - this.pendingMessages[i].timestamp;
+            if (elapsed > this.pendingMessages[i].timeout) {
                 if (this.pendingMessages[i].timeout < 512) {
                     this.pendingMessages[i].timeout *= 2;
                 }
-                if (this.pendingMessages[i].tries > 10) {
+                if (this.pendingMessages[i].tries > 10 || elapsed > 10000) {
                     logger.info('discarding ' + this.pendingMessages[i].message);
                     this.pendingMessages.splice(i, 1);
                     i--;

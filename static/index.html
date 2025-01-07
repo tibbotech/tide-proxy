@@ -46,8 +46,11 @@
     <br/>
     <br/>
     <!-- <button onclick="getDevices()">Get Devices</button> -->
+    
     <button onclick="refresh()">Refresh</button>
-
+    <label for="pendingMessages">Messages</label>
+    <input type="text" id="pendingMessages" style="width:400px;" disabled />
+    
     <table>
         <thead>
             <tr>
@@ -84,6 +87,12 @@
             const config = await response.json();
             document.getElementById("proxyURL").value = config.url;
             document.getElementById("proxyName").value = config.name;
+        }
+
+        async function getPendingMessages() {
+            const response = await fetch("/pendingMessages");
+            const pendingMessages = await response.json();
+            document.getElementById("pendingMessages").value = pendingMessages;
         }
 
         async function refresh() {
@@ -127,6 +136,10 @@
 
         getProxy();
         refresh();
+
+        setInterval(() => {
+            getPendingMessages();
+        }, 5000);
     </script>
 </body>
 
