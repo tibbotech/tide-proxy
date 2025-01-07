@@ -364,6 +364,9 @@ export class TIDEProxy {
                         || replyForCommand == PCODE_COMMANDS.STEP
                     ) {
                         device.lastRunCommand = replyFor;
+                        if (device.file) {
+                            device.file = undefined;
+                        }
                     }
                     break;
                 case PCODE_COMMANDS.STATE:
