@@ -801,7 +801,7 @@ export class TIDEProxy {
                 }
             }
             this.clearDeviceMessageQueue(mac);
-            this.sendToDevice(mac, PCODE_COMMANDS.RESET_PROGRAMMING, '');
+            this.sendToDevice(mac, PCODE_COMMANDS.RESET_PROGRAMMING, '', true);
         }
     }
 
@@ -951,7 +951,7 @@ export class TIDEProxy {
         const currentDate = new Date().getTime();
         for (let i = 0; i < this.pendingMessages.length; i++) {
             const elapsed = currentDate - this.pendingMessages[i].timestamp;
-            if (elapsed > this.pendingMessages[i].timeout) {
+            if (elapsed > this.pendingMessages[i].timeout || elapsed > 5000) {
                 if (this.pendingMessages[i].timeout < 1024) {
                     this.pendingMessages[i].timeout *= 2;
                 }
