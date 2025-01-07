@@ -404,17 +404,8 @@ export class TIDEProxy {
                                 if (tmpFileIndex !== fileIndex) {
                                     continue;
                                 }
-                                
                                 for (let j = 0; j < this.pendingMessages.length; j++) {
                                     if (this.pendingMessages[j].nonce == device.messageQueue[i].nonce) {
-                                        if (reply !== REPLY_OK) {
-                                            this.pendingMessages[j].tries++;
-                                            this.pendingMessages[j].timestamp = new Date().getTime();
-                                            if (this.pendingMessages[j].tries >= 10 && device.file) {
-                                                this.startApplicationUpload(mac, device.file.toString('binary'));
-                                            }
-                                            return;
-                                        }
                                         this.pendingMessages.splice(j, 1);
                                         j--;
                                     }
