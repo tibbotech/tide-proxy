@@ -359,6 +359,7 @@ export class TIDEProxy {
                 case PCODE_COMMANDS.RUN:
                 case PCODE_COMMANDS.STEP:
                 case PCODE_COMMANDS.SET_POINTER:
+                    device.file = undefined;
                     stateString = messagePart;
                     if (replyForCommand == PCODE_COMMANDS.RUN
                         || replyForCommand == PCODE_COMMANDS.STEP
@@ -417,7 +418,7 @@ export class TIDEProxy {
                         if (replyFor === undefined) {
                             return;
                         }
-                        if (reply !== REPLY_OK && device.lastRunCommand === undefined) {
+                        if (reply !== REPLY_OK) {
                             this.sendBlock(mac, device.fileIndex);
                             return;
                         }
@@ -893,7 +894,6 @@ export class TIDEProxy {
             device.fileBlocksTotal = (device.file.length - remainder) / BLOCK_SIZE + 1;
         }
         device.fileIndex = blockIndex;
-        device.lastRunCommand = undefined;
         for (let i = 0; i < device.blockSize; i++) {
             let currentBlock = blockIndex + i;
             let fileBlock = device.file.slice((device.fileIndex + i) * BLOCK_SIZE, (device.fileIndex + i) * BLOCK_SIZE + BLOCK_SIZE);
