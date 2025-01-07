@@ -27,10 +27,12 @@ export default class NodeSerialPort extends EventEmitter implements ISerialPort 
                 });
                 this.port= serialPort,
                 this.flowingMode = true;
-                this.port.on('open', () => { 
+                this.port.on('open', (err) => { 
+                    if (err) {
+                        reject(false);
+                    }
                     // open logic
                     resolve(true);
-                    // console.log('port opened');
                 })
                 this.port.on('data', (data) => {
                     if (!this.flowingMode) {
@@ -46,8 +48,10 @@ export default class NodeSerialPort extends EventEmitter implements ISerialPort 
                     this.emit('error', err);
                     reject(false);
                 });
-                this.port.on('close', function() {
-                    // console.log('port closed');
+                this.port.on('close', (err: any) => {
+                    if (err) {
+                        this.emit('error', err);
+                    }
                 });
             } catch (e) {
                 reject(false);

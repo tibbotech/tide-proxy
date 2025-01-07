@@ -17,6 +17,8 @@ export class BrowserESP32Serial extends ESP32Serial {
                 transport,
                 baudrate: this.baudRate,
                 terminal: espLoaderTerminal,
+                debugLogging: false,
+                enableTracing: false,
             } as LoaderOptions;
     
             const esploader = new ESPLoader(loaderOptions);
