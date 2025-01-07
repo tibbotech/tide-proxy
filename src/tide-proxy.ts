@@ -417,7 +417,7 @@ export class TIDEProxy {
                         if (replyFor === undefined) {
                             return;
                         }
-                        if (reply !== REPLY_OK) {
+                        if (reply !== REPLY_OK && device.lastRunCommand === undefined) {
                             this.sendBlock(mac, device.fileIndex);
                             return;
                         }
@@ -893,6 +893,7 @@ export class TIDEProxy {
             device.fileBlocksTotal = (device.file.length - remainder) / BLOCK_SIZE + 1;
         }
         device.fileIndex = blockIndex;
+        device.lastRunCommand = undefined;
         for (let i = 0; i < device.blockSize; i++) {
             let currentBlock = blockIndex + i;
             let fileBlock = device.file.slice((device.fileIndex + i) * BLOCK_SIZE, (device.fileIndex + i) * BLOCK_SIZE + BLOCK_SIZE);
