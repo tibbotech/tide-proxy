@@ -102,7 +102,7 @@ app.get('/devices', async (req: any, res: any) => {
             messageQueue: undefined,
         };
     });
-    res.json(devices);
+    res.json(devicesResult);
 });
 
 app.get('/pendingMessages', async (req: any, res: any) => {
