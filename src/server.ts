@@ -67,6 +67,11 @@ app.post('/debug', async (req: any, res: any) => {
     res.status(200).send();
 });
 
+app.post('/refresh', async (req: any, res: any) => {
+    res.json(proxy.handleRefresh());
+    res.status(200).send();
+});
+
 app.post('/upload', async (req: any, res: any) => {
     socket.emit('application', {
         data: req.body.file,
@@ -92,7 +97,6 @@ app.get('/devices', async (req: any, res: any) => {
 });
 
 app.use('/*', express.static(path.join(__dirname, '..', 'static')));
-
 
 app.listen(port, () => {
     console.log(`TIDE Proxy listening on port ${port}`);
