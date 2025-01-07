@@ -383,11 +383,9 @@ export class TIDEProxy {
                         if (pc[0].toUpperCase() === 'C') {
                             // error state
                             console.log(`device ${mac} in error state`);
-                            this.sendToDevice(mac, PCODE_COMMANDS.REBOOT, '', false);
                             if (device.file) {
-                                console.log(`retrying upload for ${mac}`);
                                 this.clearDeviceMessageQueue(mac);
-                                this.startApplicationUpload(mac, device.file.toString('binary'));
+                                device.file = undefined;
                             }
                         }
 
