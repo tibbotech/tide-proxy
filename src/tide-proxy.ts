@@ -434,6 +434,7 @@ export class TIDEProxy {
                                 'mac': mac
                             });
                             logger.info(`finished upload to ${mac}`);
+                            this.clearDeviceMessageQueue(mac);
                             this.sendToDevice(mac, PCODE_COMMANDS.APPUPLOADFINISH, '', true);
                         }
                     }
