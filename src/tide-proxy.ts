@@ -371,10 +371,6 @@ export class TIDEProxy {
                         if (pc[0].toUpperCase() === 'C') {
                             // error state
                             console.log(`device ${mac} in error state`);
-                            if (device.file) {
-                                this.clearDeviceMessageQueue(mac);
-                                this.stopApplicationUpload(mac);
-                            }
                         }
 
                         device.pcode = pcode_state;
