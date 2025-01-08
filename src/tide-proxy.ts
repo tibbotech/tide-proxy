@@ -370,7 +370,7 @@ export class TIDEProxy {
                         }
                         if (pc[0].toUpperCase() === 'C') {
                             // error state
-                            console.log(`device ${mac} in error state`);
+                            // console.log(`device ${mac} in error state`);
                         }
 
                         device.pcode = pcode_state;
@@ -971,7 +971,7 @@ export class TIDEProxy {
                     this.pendingMessages[i].timeout *= 2;
                 }
                 if (this.pendingMessages[i].tries > 10) {
-                    logger.info('discarding ' + this.pendingMessages[i].message);
+                    console.log(`discarding ${this.pendingMessages[i].message}`);
                     this.pendingMessages.splice(i, 1);
                     i--;
                     continue;
