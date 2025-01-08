@@ -130,34 +130,7 @@ export class TIDEProxy {
         this.server.on('connection', (conClient: any) => {
             this.clients.push(conClient);
             logger.info('client connected on socket');
-            conClient.on(TIBBO_PROXY_MESSAGE.REFRESH, (message: TaikoMessage) => {
-                this.handleRefresh();
-            });
-
-            conClient.on(TIBBO_PROXY_MESSAGE.BUZZ, (message: TaikoMessage) => {
-                this.sendToDevice(message.mac, PCODE_COMMANDS.BUZZ, '');
-            });
-            conClient.on(TIBBO_PROXY_MESSAGE.REBOOT, (message: TaikoMessage) => {
-                this.sendToDevice(message.mac, PCODE_COMMANDS.REBOOT, '', false);
-            });
-            conClient.on(TIBBO_PROXY_MESSAGE.APPLICATION_UPLOAD, (message: any) => {
-                this.startApplicationUpload(message.mac, message.data, message.deviceDefinition, message.method, message.files, message.baudRate);
-            });
-            conClient.on(TIBBO_PROXY_MESSAGE.COMMAND, (message: TaikoMessage) => {
-                this.sendToDevice(message.mac, message.command, message.data, true, message.nonce);
-            });
-            conClient.on(TIBBO_PROXY_MESSAGE.HTTP, (message: HTTPMessage) => {
-                this.handleHTTPProxy(message);
-            });
-            conClient.on(TIBBO_PROXY_MESSAGE.SET_PDB_STORAGE_ADDRESS, this.setPDBAddress.bind(this));
-            conClient.on(TIBBO_PROXY_MESSAGE.ATTACH_SERIAL, (message: any) => {
-                const { port, baudRate, reset } = message;
-                this.attachSerial(port, baudRate, reset);
-            });
-            conClient.on(TIBBO_PROXY_MESSAGE.DETACH_SERIAL, (message: any) => {
-                const { port } = message;
-                this.detachSerial(port);
-            });
+            this.registerListeners(conClient);
             conClient.on('close', () => {
                 logger.info('socket closed');
                 this.clients.splice(this.clients.indexOf(this.clients), 1);
@@ -182,6 +155,45 @@ export class TIDEProxy {
         }
     }
 
+    registerListeners(socket: any) {
+        socket.on('disconnect', () => {
+            logger.error('disconnected');
+        });
+        socket.on('connect_error', (error: any) => {
+            logger.error('connection error' + error);
+        });
+
+        socket.on(TIBBO_PROXY_MESSAGE.REFRESH, (message: TaikoMessage) => {
+            this.handleRefresh();
+        });
+
+        socket.on(TIBBO_PROXY_MESSAGE.BUZZ, (message: TaikoMessage) => {
+            this.sendToDevice(message.mac, PCODE_COMMANDS.BUZZ, '');
+        });
+        socket.on(TIBBO_PROXY_MESSAGE.REBOOT, (message: TaikoMessage) => {
+            this.stopApplicationUpload(message.mac);
+            this.sendToDevice(message.mac, PCODE_COMMANDS.REBOOT, '', false);
+        });
+        socket.on(TIBBO_PROXY_MESSAGE.APPLICATION_UPLOAD, (message: any) => {
+            this.startApplicationUpload(message.mac, message.data, message.deviceDefinition, message.method, message.files, message.baudRate);
+        });
+        socket.on(TIBBO_PROXY_MESSAGE.COMMAND, (message: TaikoMessage) => {
+            this.sendToDevice(message.mac, message.command, message.data, true, message.nonce);
+        });
+        socket.on(TIBBO_PROXY_MESSAGE.HTTP, (message: HTTPMessage) => {
+            this.handleHTTPProxy(message);
+        });
+        socket.on(TIBBO_PROXY_MESSAGE.SET_PDB_STORAGE_ADDRESS, this.setPDBAddress.bind(this));
+        socket.on(TIBBO_PROXY_MESSAGE.ATTACH_SERIAL, (message: any) => {
+            const { port, baudRate, reset } = message;
+            this.attachSerial(port, baudRate, reset);
+        });
+        socket.on(TIBBO_PROXY_MESSAGE.DETACH_SERIAL, (message: any) => {
+            const { port } = message;
+            this.detachSerial(port);
+        });
+    }
+
     setServer(serverAddress: string, proxyName: string) {
         if (this.socket) {
             this.socket.removeAllListeners();
@@ -201,33 +213,7 @@ export class TIDEProxy {
             this.emit(TIBBO_PROXY_MESSAGE.REGISTER, proxyName);
             logger.error('connected');
         });
-        this.socket.on('disconnect', () => {
-            logger.error('disconnected');
-        });
-        this.socket.on('connect_error', (error: any) => {
-            logger.error('connection error' + error);
-        });
-
-        this.socket.on(TIBBO_PROXY_MESSAGE.REFRESH, (message: TaikoMessage) => {
-            this.handleRefresh();
-        });
-
-        this.socket.on(TIBBO_PROXY_MESSAGE.BUZZ, (message: TaikoMessage) => {
-            this.sendToDevice(message.mac, PCODE_COMMANDS.BUZZ, '');
-        });
-        this.socket.on(TIBBO_PROXY_MESSAGE.REBOOT, (message: TaikoMessage) => {
-            this.sendToDevice(message.mac, PCODE_COMMANDS.REBOOT, '', false);
-        });
-        this.socket.on(TIBBO_PROXY_MESSAGE.APPLICATION_UPLOAD, (message: TaikoMessage) => {
-            this.startApplicationUpload(message.mac, message.data);
-        });
-        this.socket.on(TIBBO_PROXY_MESSAGE.COMMAND, (message: TaikoMessage) => {
-            this.sendToDevice(message.mac, message.command, message.data, true, message.nonce);
-        });
-        this.socket.on(TIBBO_PROXY_MESSAGE.HTTP, (message: HTTPMessage) => {
-            this.handleHTTPProxy(message);
-        });
-        this.socket.on(TIBBO_PROXY_MESSAGE.SET_PDB_STORAGE_ADDRESS, this.setPDBAddress.bind(this));
+        this.registerListeners(this.socket);
     }
 
     handleRefresh() {
@@ -309,7 +295,7 @@ export class TIDEProxy {
                 replyForCommand = replyFor.command;
             }
             else {
-                if (!identifier && device.fileBlocksTotal > 0) {
+                if (!identifier && device.fileBlocksTotal > 0 && device.file) {
                     replyForCommand = PCODE_COMMANDS.UPLOAD;
                 }
             }
@@ -352,8 +338,7 @@ export class TIDEProxy {
                     break;
                 case PCODE_COMMANDS.PAUSE:
                     device.lastRunCommand = undefined;
-                    device.fileIndex = 0;
-                    device.file = undefined;
+                    this.stopApplicationUpload(mac);
                     this.clearDeviceMessageQueue(mac);
                     break;
                 case PCODE_COMMANDS.RUN:
@@ -365,7 +350,7 @@ export class TIDEProxy {
                     ) {
                         device.lastRunCommand = replyFor;
                         if (device.file) {
-                            device.file = undefined;
+                            this.stopApplicationUpload(mac);
                         }
                     }
                     break;
@@ -388,7 +373,7 @@ export class TIDEProxy {
                             console.log(`device ${mac} in error state`);
                             if (device.file) {
                                 this.clearDeviceMessageQueue(mac);
-                                device.file = undefined;
+                                this.stopApplicationUpload(mac);
                             }
                         }
 
@@ -464,9 +449,7 @@ export class TIDEProxy {
                         const device = this.getDevice(mac);
                         if (device.appVersion != '' && device.file) {
                             if (device.file?.toString('binary').indexOf(device.appVersion) >= 0) {
-                                device.fileIndex = 0;
-                                device.file = undefined;
-                                device.fileBlocksTotal = 0;
+                                this.stopApplicationUpload(mac);
                                 clearInterval(deviceStatusTimer);
                                 logger.info(`${mac}, upload complete`);
                                 this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
@@ -595,6 +578,15 @@ export class TIDEProxy {
             }
         }
         device.messageQueue = [];
+    }
+
+    stopApplicationUpload(address: string) {
+        const device = this.getDevice(address);
+        if (device && device.file) {
+            device.file = undefined;
+            device.fileIndex = 0;
+            device.fileBlocksTotal = 0;
+        }
     }
 
     startApplicationUpload(mac: string, fileString: string, deviceDefinition?: any, method?: string, files?: any[], baudRate = 115200): void {

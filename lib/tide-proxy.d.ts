@@ -35,6 +35,7 @@ export declare class TIDEProxy {
     };
     constructor(serverAddress: string | undefined, proxyName: string, port?: number, targetInterface?: string);
     setInterface(targetInterface: string): void;
+    registerListeners(socket: any): void;
     setServer(serverAddress: string, proxyName: string): void;
     handleRefresh(): void;
     setPDBAddress(message: TaikoMessage): void;
@@ -42,6 +43,7 @@ export declare class TIDEProxy {
     handleDebugPrint(device: TibboDevice, state: string): Promise<void>;
     removeDeviceMessage(mac: string, nonce: string): void;
     clearDeviceMessageQueue(mac: string): void;
+    stopApplicationUpload(address: string): void;
     startApplicationUpload(mac: string, fileString: string, deviceDefinition?: any, method?: string, files?: any[], baudRate?: number): void;
     startUploadMicropython(mac: string, files: any[], baudRate: number): Promise<void>;
     startUploadEsp32(mac: string, files: any[], baudRate: number): Promise<void>;
