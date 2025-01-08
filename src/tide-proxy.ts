@@ -414,6 +414,7 @@ export class TIDEProxy {
                             return;
                         }
                         if (reply !== REPLY_OK) {
+                            this.clearDeviceMessageQueue(mac);
                             this.sendBlock(mac, device.fileIndex);
                             return;
                         }
