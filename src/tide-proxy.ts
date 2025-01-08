@@ -414,6 +414,7 @@ export class TIDEProxy {
                             return;
                         }
                         if (reply !== REPLY_OK) {
+                            console.log(`upload block ${device.fileIndex} failed for ${mac}`);
                             this.clearDeviceMessageQueue(mac);
                             this.sendBlock(mac, device.fileIndex);
                             return;
@@ -437,7 +438,7 @@ export class TIDEProxy {
                                 'mac': mac
                             });
                             logger.info(`finished upload to ${mac}`);
-                            this.sendToDevice(mac, PCODE_COMMANDS.APPUPLOADFINISH, '');
+                            this.sendToDevice(mac, PCODE_COMMANDS.APPUPLOADFINISH, '', true);
                         }
                     }
                     break;
