@@ -93,7 +93,20 @@ app.post('/upload', async (req: any, res: any) => {
 });
 
 app.get('/devices', async (req: any, res: any) => {
-    res.json(proxy.getDevices());
+    const devices = proxy.getDevices();
+    // remove file from devices
+    const devicesResult = devices.map((device: any) => {
+        return {
+            ...device,
+            file: undefined,
+            messageQueue: device.messageQueue.length,
+        };
+    });
+    res.json(devicesResult);
+});
+
+app.get('/pendingMessages', async (req: any, res: any) => {
+    res.json(proxy.pendingMessages.length);
 });
 
 app.use('/*', express.static(path.join(__dirname, '..', 'static')));
