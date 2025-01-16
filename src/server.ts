@@ -28,6 +28,7 @@ let proxyURL = '';
 let proxyName = 'remotenet';
 let proxyConfig = { url: '', name: '' };
 let proxy: any;
+let adks: any[] = [];
 
 const readProxy = async () => {
     try {
@@ -53,6 +54,15 @@ const setProxy = async (name: string, url: string) => {
         await proxy.stop();
     }
     proxy = new TIDEProxy(proxyURL, proxyName !== '' ? proxyName : 'remotenet', 3535);
+};
+
+const readADKs = async () => {
+    try {
+        adks = JSON.parse(await fs.readFileSync(path.join(__dirname, '..', 'adks.json'), 'utf-8'));
+        proxy.setADKS(adks);
+    } catch (ex) {
+
+    }
 };
 
 app.get('/debug', (req: any, res: any) => {
@@ -109,9 +119,43 @@ app.get('/pendingMessages', async (req: any, res: any) => {
     res.json(proxy.pendingMessages.length);
 });
 
-app.use('/*', express.static(path.join(__dirname, '..', 'static')));
+app.get('/adks/:address?', async (req: any, res: any) => {
+    if (req.params.address) {
+        const adk = adks.find((adk: any) => adk.address === req.params.address);
+        if (adk) {
+            res.json(adk);
+        } else {
+            res.status(404).send();
+        }
+        return;
+    }
+    res.json(adks);
+});
 
-app.listen(port, () => {
+app.post('/adks/:address/gpio/:pin', async (req: any, res: any) => {
+    socket.emit('gpio_set', {
+        address: req.params.address,
+        pin: req.params.pin,
+        value: req.body.value,
+    });
+    res.status(200).send();
+});
+
+app.post('/adks/:address/wiegand', async (req: any, res: any) => {
+    socket.emit('wiegand_send', {
+        address: req.params.address,
+        value: req.body.value,
+    });
+    res.status(200).send();
+});
+
+
+// app.use(express.static('static'));
+
+app.use(express.static(path.join(__dirname, '..', 'static')));
+
+app.listen(port, async () => {
     console.log(`TIDE Proxy listening on port ${port}`);
-    readProxy();
+    await readProxy();
+    readADKs();
 });

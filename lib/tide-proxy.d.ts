@@ -33,10 +33,12 @@ export declare class TIDEProxy {
     serialDevices: {
         [key: string]: SerialDevice;
     };
+    adks: any[];
     constructor(serverAddress: string | undefined, proxyName: string, port?: number, targetInterface?: string);
     setInterface(targetInterface: string): void;
     registerListeners(socket: any): void;
     setServer(serverAddress: string, proxyName: string): void;
+    setADKS(adks: any[]): void;
     handleRefresh(): void;
     setPDBAddress(message: TaikoMessage): void;
     handleMessage(msg: Buffer, info: any, socket: TBNetworkInterface): void;
@@ -154,6 +156,8 @@ export declare enum TIBBO_PROXY_MESSAGE {
     HTTP = "http",
     HTTP_RESPONSE = "http_response",
     ATTACH_SERIAL = "attach_serial",
-    DETACH_SERIAL = "detach_serial"
+    DETACH_SERIAL = "detach_serial",
+    GPIO_SET = "gpio_set",
+    WIEGAND_SEND = "wiegand_send"
 }
 export {};

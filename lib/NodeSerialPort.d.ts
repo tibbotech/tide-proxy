@@ -15,5 +15,5 @@ export default class NodeSerialPort extends EventEmitter implements ISerialPort 
     read(raw?: boolean, size?: number): Promise<any>;
     write(data: string): Promise<void>;
     setFlowingMode(mode: boolean): void;
-    getChecksum(data: any): Promise<any>;
+    getChecksum(data: any): Promise<string>;
 }

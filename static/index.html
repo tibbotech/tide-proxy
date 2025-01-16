@@ -65,6 +65,18 @@
         <tbody id="devices">
         </tbody>
     </table>
+    <br />
+    <table>
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Address</th>
+                <th>Controller IP</th>
+            </tr>
+        </thead>
+        <tbody id="adks">
+        </tbody>
+    </table>
 
     <script>
         async function setProxy(e) {
@@ -105,6 +117,27 @@
             await getDevices();
         }
 
+        async function getADKs() {
+            const response = await fetch("/adks");
+            const adks = await response.json();
+            const tbody = document.getElementById("adks");
+            tbody.innerHTML = "";
+            adks.forEach(adk => {
+                const tr = document.createElement("tr");
+                const tdName = document.createElement("td");
+                tdName.innerHTML = `<a href="/pages/adk?address=${adk.address}">${adk.name}</a>`;
+                // tdName.innerText = adk.name;
+                const tdIP = document.createElement("td");
+                tdIP.innerText = adk.ip;
+                const tdAddress = document.createElement("td");
+                tdAddress.innerText = adk.address;
+                tr.appendChild(tdName);
+                tr.appendChild(tdAddress);
+                tr.appendChild(tdIP);
+                tbody.appendChild(tr);
+            });
+        }
+
         async function getDevices() {
             const tbody = document.getElementById("devices");
             tbody.innerHTML = "";
@@ -136,6 +169,7 @@
 
         getProxy();
         refresh();
+        getADKs();
 
         setInterval(() => {
             getPendingMessages();

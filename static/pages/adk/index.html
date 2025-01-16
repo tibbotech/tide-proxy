@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <title>ADK View</title>
+    <style>
+        body {
+            font-family: sans-serif;
+        }
+
+        table {
+            border-collapse: collapse;
+        }
+
+        table,
+        th,
+        td {
+            border: 1px solid black;
+        }
+
+        th,
+        td {
+            padding: 5px;
+        }
+
+        th {
+            text-align: left;
+        }
+
+        .main-container {
+            width: 1024px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .iframe-container {
+            display: flex;
+        }
+
+        #adk {
+            width: 700px;
+            height: 600px;
+            border: none;
+        }
+
+        #wiegand {
+            width: 250px;
+        }
+
+        .button-container-system {
+            display: inline-block;
+            height: 100%;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="app">
+        <input type="text" id="address" value="" disabled />
+        <a href="/">Back</a>
+        <!-- table view of iframe in center, two buttons on right, and 4 buttons below iframe-->
+        <div class="main-container">
+            <div class="iframe-container">
+                <iframe id="adk" src="">
+                </iframe>
+                <div class="button-container-system">
+                    <button onmousedown="gpioSet(5, 0)" onmouseup="gpioSet(5, 1)">MD Button</button>
+                    <br />
+                    <br />
+                    <button onmousedown="gpioSet(21, 0)" onmouseup="gpioSet(21, 1)">Reset</button>
+
+                    <br />
+                    <br />
+                    <form onsubmit="return sendWiegand(event)">
+                        <label for="wiegand">Wiegand</label>
+                        <input type="text" id="wiegand" value="10000000100000000000000001" />
+                        <button type="submit">Send</button>
+                    </form>
+                </div>
+
+            </div>
+
+            <div class="button-container-lcd">
+                <button onmousedown="gpioSet(32,0)" onmouseup="gpioSet(32,1)">KP1</button>
+                <button onmousedown="gpioSet(33,0)" onmouseup="gpioSet(33,1)">KP2</button>
+                <button onmousedown="gpioSet(4,0)" onmouseup="gpioSet(4,1)">KP3</button>
+                <button onmousedown="gpioSet(20,0)" onmouseup="gpioSet(20,1)">KP3</button>
+            </div>
+            <br />
+            <br />
+            <div class="button-container-lcd">
+                <button onmousedown="gpioSet(16,0)" onmouseup="gpioSet(16,1)">BTN1</button>
+                <button onmousedown="gpioSet(0,0)" onmouseup="gpioSet(0,1)">BTN2</button>
+                <button onmousedown="gpioSet(8,0)" onmouseup="gpioSet(8,1)">BTN3</button>
+                <button onmousedown="gpioSet(9,0)" onmouseup="gpioSet(9,1)">BTN4</button>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        let adk = undefined;
+        function gpioSet(pin, value) {
+            try {
+                fetch(`/adks/${adk.address}/gpio/${pin}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ value })
+                });
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        function sendWiegand(e) {
+            e.preventDefault();
+            const wiegand = document.getElementById('wiegand').value;
+            try {
+                fetch(`/adks/${adk.address}/wiegand`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        value: wiegand,
+                    })
+                });
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        function onLoad() {
+            // get ip url param
+            const urlParams = new URLSearchParams(window.location.search);
+            const address = urlParams.get('address');
+            try {
+                fetch(`/adks/${address}`, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                }).then(response => response.json())
+                    .then(data => {
+                        adk = data;
+                        adkIP = adk.ip;
+
+                        const adkElem = document.getElementById('adk');
+                        adkElem.src = `https://${adkIP}:14443/ShowVidFeed`;
+                        document.getElementById('address').value = adk.address;
+                    });
+            } catch (e) {
+                console.error(e);
+            }
+
+            // set iframe src
+
+
+        }
+
+        onLoad();
+    </script>
+</body>
+
+</html>

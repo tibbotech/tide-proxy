@@ -3,7 +3,7 @@ const { TextEncoder, TextDecoder } = require('util');
 import { TIDEProxy } from './tide-proxy';
 import { ISerialPort } from './ISerialPort';
 import { EventEmitter } from 'events';
-const { createHash } = require('node:crypto');
+import CryptoJS from 'crypto-js';
 
 export default class NodeSerialPort extends EventEmitter implements ISerialPort {
     port: SerialPort | null = null;
@@ -120,7 +120,10 @@ export default class NodeSerialPort extends EventEmitter implements ISerialPort 
     }
 
     async getChecksum(data: any) {
-        return createHash('sha256').update(data).digest('hex');
+        // use CryptoJS
+        return CryptoJS.SHA256(data).toString();
+        // return createHash('sha256').update(data).digest('hex');
+
     }
 }
 

@@ -67,6 +67,7 @@ export class TIDEProxy {
     clients: any[];
     listenPort: number;
     serialDevices: { [key: string]: SerialDevice } = {};
+    adks: any[] = [];
 
     constructor(serverAddress = '', proxyName: string, port = 3535, targetInterface?: string) {
         this.id = new Date().getTime().toString();
@@ -192,6 +193,49 @@ export class TIDEProxy {
             const { port } = message;
             this.detachSerial(port);
         });
+
+        socket.on(TIBBO_PROXY_MESSAGE.GPIO_SET, async (message: any) => {
+            const { address, pin, value } = message;
+            const adk = this.adks.find((adk: any) => adk.address === address);
+            if (adk) {
+                try {
+                    console.log(`sending to ${adk.ip} pin ${pin} value ${value}`);
+                    const result = await fetch(`http://${adk.ip}:18080/gpio`, {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            tibboIoPin_post: pin,
+                            value_post: value,
+                        }),
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                    });
+                } catch (ex) {
+                    console.log(ex);
+                }
+            }
+        });
+
+        socket.on(TIBBO_PROXY_MESSAGE.WIEGAND_SEND, async (message: any) => {
+            const { address, value } = message;
+            const adk = this.adks.find((adk: any) => adk.address === address);
+            if (adk) {
+                try {
+                    console.log(`sending to ${adk.ip} card value ${value}`);
+                    const result = await fetch(`http://${adk.ip}:18080/wiegand`, {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            wiegandData_post: value,
+                        }),
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                    });
+                } catch (ex) {
+                    console.log(ex);
+                }
+            }
+        });
     }
 
     setServer(serverAddress: string, proxyName: string) {
@@ -214,6 +258,10 @@ export class TIDEProxy {
             logger.error('connected');
         });
         this.registerListeners(this.socket);
+    }
+
+    setADKS(adks: any[]) {
+        this.adks = adks;
     }
 
     handleRefresh() {
@@ -1365,4 +1413,6 @@ export enum TIBBO_PROXY_MESSAGE {
     HTTP_RESPONSE = 'http_response',
     ATTACH_SERIAL = 'attach_serial',
     DETACH_SERIAL = 'detach_serial',
+    GPIO_SET = 'gpio_set',
+    WIEGAND_SEND = 'wiegand_send',
 }
