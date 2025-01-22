@@ -62,7 +62,7 @@ export declare class TIDEProxy {
     getDevices(): Array<TibboDevice>;
     stop(): Promise<void>;
     getSerialPorts(): Promise<void>;
-    attachSerial(port: string, baudRate?: number, reset?: boolean): Promise<boolean | undefined>;
+    attachSerial(port: string, baudRate?: number, reset?: boolean): Promise<boolean>;
     detachSerial(port: string): Promise<void>;
 }
 export interface TibboDevice {
@@ -85,7 +85,6 @@ export interface TibboDevice {
     printing?: boolean;
     lastPoll?: number;
     breakpoints?: string;
-    serial_attached?: boolean;
 }
 export declare enum PCODEMachineState {
     STOPPED = "***",
@@ -158,6 +157,8 @@ export declare enum TIBBO_PROXY_MESSAGE {
     ATTACH_SERIAL = "attach_serial",
     DETACH_SERIAL = "detach_serial",
     GPIO_SET = "gpio_set",
-    WIEGAND_SEND = "wiegand_send"
+    WIEGAND_SEND = "wiegand_send",
+    UPLOAD_ERROR = "upload_error",
+    MESSAGE = "message"
 }
 export {};

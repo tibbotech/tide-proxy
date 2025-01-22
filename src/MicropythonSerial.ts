@@ -13,7 +13,7 @@ const TextEncoder: typeof globalThis.TextEncoder =
     : NodeTextEncoder;
 
 
-const debugLogging = true;
+const debugLogging = false;
 
 const debugLog = (message: string) => {
     if (!debugLogging) {

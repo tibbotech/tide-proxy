@@ -641,6 +641,8 @@ export class TIDEProxy {
             return;
         }
 
+        fileString = fileString || '';
+
         const bytes = Buffer.from(fileString, 'binary');
         if (deviceDefinition && method) {
             if (method === 'micropython' && files) {
@@ -874,12 +876,7 @@ export class TIDEProxy {
             await this.detachSerial(mac);
             const attach = await this.attachSerial(mac, baudRate);
             if (!attach) {
-                this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
-                    'error': true,
-                    'nonce': '',
-                    'mac': mac
-                });
-                return;
+                throw new Error('Failed to attach serial');
             }
             const serialPort = this.serialDevices[mac];
             const micropythonSerial = new MicropythonSerial(serialPort);
@@ -899,14 +896,19 @@ export class TIDEProxy {
                 await micropythonSerial.writeFileToDevice(files[i]);
             }
             await micropythonSerial.exitRawMode();
+
             await this.detachSerial(mac);
             this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
                 'error': false,
                 'nonce': '',
                 'mac': mac
             });
-        } catch (ex) {
+        } catch (ex: any) {
             console.log(ex);
+            this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, {
+                'nonce': '',
+                'mac': mac
+            })
             logger.error(ex);
         }
     }
@@ -924,8 +926,12 @@ export class TIDEProxy {
                 'nonce': '',
                 'mac': mac
             });
-        } catch (ex) {
+        } catch (ex: any) {
             console.log(ex);
+            this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, {
+                'nonce': '',
+                'mac': mac
+            })
             logger.error(ex);
         }
     }
@@ -1252,11 +1258,7 @@ export class TIDEProxy {
                 pcode: -1,
                 blockSize: 1,
                 state: PCODEMachineState.STOPPED,
-                serial_attached: false,
             };
-            if (this.serialDevices[path]) {
-                device.serial_attached = true;
-            }
             this.emit(TIBBO_PROXY_MESSAGE.DEVICE, {
                 ip: device.ip,
                 mac: device.mac,
@@ -1286,26 +1288,37 @@ export class TIDEProxy {
                             mac: port,
                         });
                     });
-                    await serialPort.connect(baudRate, reset);
+                    serialPort.on('error', (error) => {
+                        this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
+                            data: error.message,
+                            mac: port,
+                        });
+                    });
+                    const connected = await serialPort.connect(baudRate);
+                    if (!connected) {
+                        return false;
+                    }
+                    if (reset) {
+                        await serialPort.write('\x03');
+                        await serialPort.write('\x04');
+                    }
                     this.serialDevices[port] = serialPort;
-                    this.devices[i].serial_attached = true;
                     return true;
                 }
             }
             return false;
         } catch (ex) {
             logger.error('error attaching serial');
+            return false;
         }
     }
 
     async detachSerial(port: string) {
         try {
             for (let i = 0; i < this.devices.length; i++) {
-                if (this.devices[i].mac == port ||
-                    (this.devices[i].serial_attached && port === '')) {
-                    this.serialDevices[port].disconnect();
+                if (this.devices[i].mac == port) {
+                    await this.serialDevices[port].disconnect();
                     delete this.serialDevices[port];
-                    this.devices[i].serial_attached = false;
                 }
             }
         } catch (ex) {
@@ -1334,7 +1347,6 @@ export interface TibboDevice {
     printing?: boolean;
     lastPoll?: number;
     breakpoints?: string;
-    serial_attached?: boolean;
 }
 
 export enum PCODEMachineState {
@@ -1415,4 +1427,6 @@ export enum TIBBO_PROXY_MESSAGE {
     DETACH_SERIAL = 'detach_serial',
     GPIO_SET = 'gpio_set',
     WIEGAND_SEND = 'wiegand_send',
+    UPLOAD_ERROR = 'upload_error',
+    MESSAGE = 'message',
 }

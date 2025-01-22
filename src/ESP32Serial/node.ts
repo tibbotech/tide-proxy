@@ -18,6 +18,8 @@ export class NodeESP32Serial extends ESP32Serial {
             const loaderOptions = {
                 transport: transport as unknown,
                 baudrate: this.baudRate,
+                debugLogging: false,
+                enableTracing: false,
             } as LoaderOptions;
     
             const esploader = new ESPLoader(loaderOptions);

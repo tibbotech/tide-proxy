@@ -8,7 +8,7 @@ export default class NodeSerialPort extends EventEmitter implements ISerialPort 
     portPath: string;
     flowingMode: boolean;
     constructor(portPath: string);
-    connect(baudRate: number, reset?: boolean): Promise<boolean>;
+    connect(baudRate: number): Promise<boolean>;
     disconnect(): Promise<void>;
     getPort(): Promise<SerialPort<import("@serialport/bindings-cpp").AutoDetectTypes> | null>;
     private sendDebug;
