@@ -3,16 +3,6 @@ import { Buffer } from 'buffer';
 import { ISerialPort } from './ISerialPort';
 
 
-// Import required Node.js type
-import { TextEncoder as NodeTextEncoder } from 'util';
-
-// Check for TextEncoder in the global scope or fallback to Node.js's util.TextEncoder
-const TextEncoder: typeof globalThis.TextEncoder =
-  typeof globalThis.TextEncoder !== 'undefined'
-    ? globalThis.TextEncoder
-    : NodeTextEncoder;
-
-
 const debugLogging = false;
 
 const debugLog = (message: string) => {
