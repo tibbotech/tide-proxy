@@ -968,6 +968,12 @@ export class TIDEProxy {
     }
 
     sendToDevice(mac: string, command: string, data: string, reply = true, nonce: string | undefined = undefined): void {
+        // only send messages for tibbo devices
+        for (let i = 0; i < this.devices.length; i++) {
+            if (mac === this.devices[i].mac && this.devices[i].type !== 'tios') {
+                return;
+            }
+        }
         let pnum = nonce;
         try {
             if (pnum == undefined) {
