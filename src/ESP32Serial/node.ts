@@ -17,7 +17,7 @@ export class NodeESP32Serial extends ESP32Serial {
             const transport = new Transport(port, true);
             const loaderOptions = {
                 transport: transport as unknown,
-                baudrate: this.baudRate,
+                baudrate: port.baudRate,
                 debugLogging: false,
                 enableTracing: false,
             } as LoaderOptions;
@@ -52,7 +52,7 @@ export class NodeESP32Serial extends ESP32Serial {
             await transport.sleep(20);
             port.set({ rts: false, dtr: false });
         } catch (e) {
-            console.error(e);
+            throw(e);
             // term.writeln(`Error: ${e.message}`);
         } finally {
             // Hide progress bars and show erase buttons

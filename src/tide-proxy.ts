@@ -436,56 +436,56 @@ export class TIDEProxy {
                     }
                     break;
                 case PCODE_COMMANDS.UPLOAD: {
-                        const fileIndex = 0xff00 & msg[msg.length - 2] << 8 | 0x00ff & msg[msg.length - 1];
-                        for (let i = 0; i < device.messageQueue.length; i++) {
-                            if (device.messageQueue[i].command == PCODE_COMMANDS.UPLOAD) {
-                                const data = Buffer.from(device.messageQueue[i].data, 'binary');
-                                const tmpFileIndex = 0xff00 & data[0] << 8 | 0x00ff & data[1];
-                                if (tmpFileIndex !== fileIndex) {
-                                    continue;
-                                }
-                                for (let j = 0; j < this.pendingMessages.length; j++) {
-                                    if (this.pendingMessages[j].nonce == device.messageQueue[i].nonce) {
-                                        this.pendingMessages.splice(j, 1);
-                                        j--;
-                                    }
-                                }
-                                replyFor = device.messageQueue.splice(i, 1)[0];
-                                i--;
+                    const fileIndex = 0xff00 & msg[msg.length - 2] << 8 | 0x00ff & msg[msg.length - 1];
+                    for (let i = 0; i < device.messageQueue.length; i++) {
+                        if (device.messageQueue[i].command == PCODE_COMMANDS.UPLOAD) {
+                            const data = Buffer.from(device.messageQueue[i].data, 'binary');
+                            const tmpFileIndex = 0xff00 & data[0] << 8 | 0x00ff & data[1];
+                            if (tmpFileIndex !== fileIndex) {
+                                continue;
                             }
-                        }
-                        if (replyFor === undefined) {
-                            return;
-                        }
-                        if (reply !== REPLY_OK) {
-                            console.log(`upload block ${device.fileIndex} failed for ${mac}`);
-                            this.clearDeviceMessageQueue(mac);
-                            this.sendBlock(mac, device.fileIndex);
-                            return;
-                        }
-                        const oldProgress = Math.round(device.fileIndex / device.fileBlocksTotal * 100);
-                        device.fileIndex += device.blockSize;
-                        const newProgress = Math.round(device.fileIndex / device.fileBlocksTotal * 100);
-                        if (device.file != null && device.fileIndex * BLOCK_SIZE < device.file.length) {
-                            this.sendBlock(mac, device.fileIndex);
-                            if (oldProgress !== newProgress) {
-                                // if (device.fileIndex % 10 == 0 || device.fileIndex == device.fileBlocksTotal) {
-                                this.emit(TIBBO_PROXY_MESSAGE.UPLOAD, {
-                                    'data': device.fileIndex / device.fileBlocksTotal,
-                                    'mac': mac
-                                });
+                            for (let j = 0; j < this.pendingMessages.length; j++) {
+                                if (this.pendingMessages[j].nonce == device.messageQueue[i].nonce) {
+                                    this.pendingMessages.splice(j, 1);
+                                    j--;
+                                }
                             }
-                        }
-                        else {
-                            this.emit(TIBBO_PROXY_MESSAGE.UPLOAD, {
-                                'data': 1,
-                                'mac': mac
-                            });
-                            logger.info(`finished upload to ${mac}`);
-                            this.clearDeviceMessageQueue(mac);
-                            this.sendToDevice(mac, PCODE_COMMANDS.APPUPLOADFINISH, '', true);
+                            replyFor = device.messageQueue.splice(i, 1)[0];
+                            i--;
                         }
                     }
+                    if (replyFor === undefined) {
+                        return;
+                    }
+                    if (reply !== REPLY_OK) {
+                        console.log(`upload block ${device.fileIndex} failed for ${mac}`);
+                        this.clearDeviceMessageQueue(mac);
+                        this.sendBlock(mac, device.fileIndex);
+                        return;
+                    }
+                    const oldProgress = Math.round(device.fileIndex / device.fileBlocksTotal * 100);
+                    device.fileIndex += device.blockSize;
+                    const newProgress = Math.round(device.fileIndex / device.fileBlocksTotal * 100);
+                    if (device.file != null && device.fileIndex * BLOCK_SIZE < device.file.length) {
+                        this.sendBlock(mac, device.fileIndex);
+                        if (oldProgress !== newProgress) {
+                            // if (device.fileIndex % 10 == 0 || device.fileIndex == device.fileBlocksTotal) {
+                            this.emit(TIBBO_PROXY_MESSAGE.UPLOAD, {
+                                'data': device.fileIndex / device.fileBlocksTotal,
+                                'mac': mac
+                            });
+                        }
+                    }
+                    else {
+                        this.emit(TIBBO_PROXY_MESSAGE.UPLOAD, {
+                            'data': 1,
+                            'mac': mac
+                        });
+                        logger.info(`finished upload to ${mac}`);
+                        this.clearDeviceMessageQueue(mac);
+                        this.sendToDevice(mac, PCODE_COMMANDS.APPUPLOADFINISH, '', true);
+                    }
+                }
                     break;
                 case PCODE_COMMANDS.APPUPLOADFINISH:
                     // verify binary on device is what we sent
@@ -970,7 +970,9 @@ export class TIDEProxy {
     sendToDevice(mac: string, command: string, data: string, reply = true, nonce: string | undefined = undefined): void {
         // only send messages for tibbo devices
         for (let i = 0; i < this.devices.length; i++) {
-            if (mac === this.devices[i].mac && this.devices[i].type !== 'tios') {
+            if (mac === this.devices[i].mac
+                && this.devices[i].type !== undefined
+                && this.devices[i].type !== 'tios') {
                 return;
             }
         }
@@ -1295,6 +1297,16 @@ export class TIDEProxy {
                         });
                     });
                     serialPort.on('error', (error) => {
+                        this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
+                            data: error.message,
+                            mac: port,
+                        });
+                    });
+                    serialPort.on('close', (error) => {
+                        this.emit(TIBBO_PROXY_MESSAGE.DETACH_SERIAL, {
+                            mac: port,
+                            address: port,
+                        });
                         this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
                             data: error.message,
                             mac: port,

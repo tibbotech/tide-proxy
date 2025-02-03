@@ -50,7 +50,7 @@ export default class NodeSerialPort extends EventEmitter implements ISerialPort 
                 });
                 this.port.on('close', (err: any) => {
                     if (err) {
-                        this.emit('error', err);
+                        this.emit('close', err);
                     }
                 });
             } catch (e) {
