@@ -89,11 +89,17 @@ app.post('/upload', async (req: any, res: any) => {
     });
     await new Promise((resolve, reject) => {
         const listener = (data: any) => {
+            if (data.mac !== req.body.mac) {
+                return;
+            }
             socket.off('upload_complete', listener);
             socket.off('upload', progressListener);
             resolve(data);
         };
         const progressListener = (data: any) => {
+            if (data.mac !== req.body.mac) {
+                return;
+            }
             console.log(data);
         };
         socket.on('upload', progressListener);
