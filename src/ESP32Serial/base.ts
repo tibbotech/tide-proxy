@@ -1,12 +1,14 @@
 /* eslint-disable no-await-in-loop */
+import { EventEmitter } from 'stream';
 import { ISerialPort } from '../ISerialPort';
 
-export default class ESP32Serial {
+export default class ESP32Serial extends EventEmitter {
     serialPort: ISerialPort | null;
     baudRate: number = 460800;
 
 
     constructor (serialPort: ISerialPort | null = null) {
+        super();
         this.serialPort = serialPort;
     }
 

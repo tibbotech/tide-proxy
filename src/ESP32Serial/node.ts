@@ -44,6 +44,9 @@ export class NodeESP32Serial extends ESP32Serial {
                 calculateMD5Hash: (image) => CryptoJS.MD5(CryptoJS.enc.Latin1.parse(image)).toString(),
                 flashMode: 'dio',
                 flashFreq: '40m',
+                reportProgress: (fileIndex: number, written: number, total: number) => {
+                    this.emit('progress', (written / total));
+                },
             };
             await esploader.writeFlash(flashOptions);
             port.set({ rts: false, dtr: false });

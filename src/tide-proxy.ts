@@ -920,7 +920,14 @@ export class TIDEProxy {
             await this.attachSerial(mac, baudRate);
             const serialPort = this.serialDevices[mac];
             const esp32Serial = new ESP32Serial(serialPort);
+            esp32Serial.on('progress', (progress: number) => {
+                this.emit(TIBBO_PROXY_MESSAGE.UPLOAD, {
+                    'data': progress,
+                    'mac': mac
+                });
+            });
             await esp32Serial.writeFilesToDevice(files);
+            
             this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
                 'error': false,
                 'nonce': '',
