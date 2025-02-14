@@ -4,6 +4,7 @@ esbuild.build({
   entryPoints: ['src/ESP32Serial/node.ts'],
   bundle: true,
   outdir: 'lib/ESP32Serial',
+  sourcemap: true,
   packages: 'bundle',
     platform: 'node',
     external: ['serialport'],
