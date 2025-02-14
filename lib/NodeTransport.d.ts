@@ -10,6 +10,8 @@ export interface SerialOptions {
 declare class NodeTransport extends Transport {
     device: any;
     tracing: boolean;
+    private _node_DTR_state;
+    private _node_RTS_state;
     constructor(device: any, tracing?: boolean, enableSlipReader?: boolean);
     getInfo(): string;
     getPid(): number | undefined;
@@ -21,6 +23,7 @@ declare class NodeTransport extends Transport {
     newRead(numBytes: number, timeout: number): Promise<Uint8Array>;
     flushInput(): Promise<void>;
     flushOutput(): Promise<void>;
+    private setControlFlags;
     setRTS(state: boolean): Promise<void>;
     setDTR(state: boolean): Promise<void>;
     connect(baud?: number, serialOptions?: SerialOptions): Promise<void>;

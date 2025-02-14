@@ -12,6 +12,10 @@ export interface SerialOptions {
 }
 
 class NodeTransport extends Transport {
+
+    private _node_DTR_state = true;
+    private _node_RTS_state = true;
+
     constructor(public device: any, public tracing = false, enableSlipReader = true) {
         super(device as any, tracing, enableSlipReader);
         this.setupDataListener();
@@ -187,24 +191,27 @@ class NodeTransport extends Transport {
         });
     }
 
-    async setRTS(state: boolean) {
-        return new Promise<void>((resolve, reject) => {
-            this.device.set({ rts: state }, (err: any) => {
-                if (err) return reject(err);
-                // Work-around: also re-toggle DTR to ensure line-state updates
-                this.setDTR(this._DTR_state).then(resolve, reject);
-            });
-        });
-    }
 
-    async setDTR(state: boolean) {
-        this._DTR_state = state;
+    private async setControlFlags() {
         return new Promise<void>((resolve, reject) => {
-            this.device.set({ dtr: state }, (err: any) => {
+            this.device.set({
+                rts: this._node_RTS_state,
+                dtr: this._node_DTR_state,
+            }, (err: any) => {
                 if (err) return reject(err);
                 resolve();
             });
         });
+    }
+
+    async setRTS(state: boolean) {
+        this._node_RTS_state = state;
+        return this.setControlFlags();
+    }
+
+    async setDTR(state: boolean) {
+        this._node_DTR_state = state;
+        return this.setControlFlags();
     }
 
     async connect(baud = 115200, serialOptions: SerialOptions = {}) {
@@ -215,13 +222,14 @@ class NodeTransport extends Transport {
                 this.device.open((err: any) => {
                     if (err) return reject(err);
                     this.baudrate = baud;
-                    resolve();
+                    this.setControlFlags().then(() => resolve());
                 });
             });
         } else {
             // If needed, we can change baud rate by re-opening the port (not supported by all drivers)
             // For simplicity, do nothing if already open.
             this.baudrate = baud;
+            await this.setControlFlags();
         }
     }
 
