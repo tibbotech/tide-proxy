@@ -1,10 +1,33 @@
 /* eslint-disable no-await-in-loop */
 import ESP32Serial from './base';
 import {
-    ESPLoader, FlashOptions, LoaderOptions,
+    ESPLoader,
+    FlashOptions,
+    LoaderOptions,
 } from 'esptool-js/lib/index.js';
+import { ClassicReset, UsbJtagSerialReset } from 'esptool-js/lib/reset';
 import CryptoJS from 'crypto-js';
 import { NodeTransport as Transport } from '../NodeTransport'
+
+
+export class UnixTightReset {
+    resetDelay: number;
+    transport: any;
+    constructor(transport: any, resetDelay: number) {
+        this.resetDelay = resetDelay;
+        this.transport = transport;
+    }
+    async reset() {
+        await this.transport.setDTR(false);
+        await this.transport.setRTS(true);
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        await this.transport.setDTR(true);
+        await this.transport.setRTS(false);
+        await new Promise((resolve) => setTimeout(resolve, this.resetDelay));
+        await this.transport.setDTR(false);
+        await this.transport.setRTS(false);
+    }
+}
 
 
 export class NodeESP32Serial extends ESP32Serial {
@@ -21,8 +44,34 @@ export class NodeESP32Serial extends ESP32Serial {
                 debugLogging: false,
                 enableTracing: false,
             } as LoaderOptions;
-    
+
             const esploader = new ESPLoader(loaderOptions);
+            esploader.constructResetSequency = () => {
+                if (esploader.transport.getPid() === 0x1001) {
+                    // Custom reset sequence, which is required when the device
+                    // is connecting via its USB-JTAG-Serial peripheral
+                    // this.debug("using USB JTAG Serial Reset");
+                    return [new UsbJtagSerialReset(transport)];
+                }
+                else {
+                    const DEFAULT_RESET_DELAY = 50;
+                    const EXTRA_DELAY = DEFAULT_RESET_DELAY + 500;
+                    // this.debug("using Classic Serial Reset");
+                    if (process.platform !== 'win32') {
+                        return [
+                            new UnixTightReset(transport, DEFAULT_RESET_DELAY),
+                            new UnixTightReset(transport, EXTRA_DELAY),
+                            new ClassicReset(transport, DEFAULT_RESET_DELAY),
+                            new ClassicReset(transport, EXTRA_DELAY),
+                        ];
+                    }
+
+                    return [
+                        new ClassicReset(transport, DEFAULT_RESET_DELAY),
+                        new ClassicReset(transport, EXTRA_DELAY),
+                    ];
+                }
+            }
             const chip = await esploader.main();
             console.log(chip);
             const filesArray: { address: number, data: string }[] = [];
@@ -55,7 +104,7 @@ export class NodeESP32Serial extends ESP32Serial {
             await transport.sleep(20);
             port.set({ rts: false, dtr: false });
         } catch (e) {
-            throw(e);
+            throw (e);
             // term.writeln(`Error: ${e.message}`);
         } finally {
             // Hide progress bars and show erase buttons

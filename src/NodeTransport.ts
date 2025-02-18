@@ -188,23 +188,11 @@ class NodeTransport extends Transport {
     }
 
     async setRTS(state: boolean) {
-        return new Promise<void>((resolve, reject) => {
-            this.device.set({ rts: state }, (err: any) => {
-                if (err) return reject(err);
-                // Work-around: also re-toggle DTR to ensure line-state updates
-                this.setDTR(this._DTR_state).then(resolve, reject);
-            });
-        });
+        await this.device.set({ rts: state });
     }
 
     async setDTR(state: boolean) {
-        this._DTR_state = state;
-        return new Promise<void>((resolve, reject) => {
-            this.device.set({ dtr: state }, (err: any) => {
-                if (err) return reject(err);
-                resolve();
-            });
-        });
+        await this.device.set({ dtr: state });
     }
 
     async connect(baud = 115200, serialOptions: SerialOptions = {}) {
