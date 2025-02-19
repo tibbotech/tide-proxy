@@ -29,6 +29,23 @@ export class UnixTightReset {
     }
 }
 
+export class WindowsReset {
+    resetDelay: number;
+    transport: any;
+    constructor(transport: any, resetDelay: number) {
+        this.resetDelay = resetDelay;
+        this.transport = transport;
+    }
+
+    async reset() {
+        await this.transport.device.set({ rts: true, dtr: false, })
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        await this.transport.device.set({ rts: false, dtr: true, })
+        await new Promise((resolve) => setTimeout(resolve, this.resetDelay));
+        await this.transport.device.set({ rts: false, dtr: false, })
+    }
+}
+
 
 export class NodeESP32Serial extends ESP32Serial {
     async writeFilesToDevice(files: any[]) {
@@ -67,6 +84,8 @@ export class NodeESP32Serial extends ESP32Serial {
                     }
 
                     return [
+                        new WindowsReset(transport, DEFAULT_RESET_DELAY),
+                        new WindowsReset(transport, EXTRA_DELAY),
                         new ClassicReset(transport, DEFAULT_RESET_DELAY),
                         new ClassicReset(transport, EXTRA_DELAY),
                     ];

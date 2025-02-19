@@ -5,6 +5,12 @@ export declare class UnixTightReset {
     constructor(transport: any, resetDelay: number);
     reset(): Promise<void>;
 }
+export declare class WindowsReset {
+    resetDelay: number;
+    transport: any;
+    constructor(transport: any, resetDelay: number);
+    reset(): Promise<void>;
+}
 export declare class NodeESP32Serial extends ESP32Serial {
     writeFilesToDevice(files: any[]): Promise<void>;
 }
