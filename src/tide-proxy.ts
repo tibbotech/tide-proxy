@@ -327,6 +327,10 @@ export class TIDEProxy {
             this.discoveredDevices[mac] = mac;
             device.ip = ip;
             device.mac = mac;
+            const adk = this.adks.find((adk: any) => adk.address === mac);
+            if (adk) {
+                device.streamURL = adk.streamURL;
+            }
             this.sendToDevice(mac, PCODE_COMMANDS.INFO, '');
             return;
         }
@@ -430,6 +434,7 @@ export class TIDEProxy {
                             pcode: device.pcode,
                             appVersion: device.appVersion,
                             type: device.type,
+                            streamURL: device.streamURL,
                         });
 
                         stateString = messagePart;
@@ -919,6 +924,9 @@ export class TIDEProxy {
             await this.detachSerial(mac);
             await this.attachSerial(mac, baudRate);
             const serialPort = this.serialDevices[mac];
+            if (!serialPort) {
+                throw new Error('Failed to attach serial');
+            }
             const esp32Serial = new ESP32Serial(serialPort);
             esp32Serial.on('progress', (progress: number) => {
                 this.emit(TIBBO_PROXY_MESSAGE.UPLOAD, {
@@ -927,7 +935,7 @@ export class TIDEProxy {
                 });
             });
             await esp32Serial.writeFilesToDevice(files);
-            
+
             this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
                 'error': false,
                 'nonce': '',
@@ -938,7 +946,11 @@ export class TIDEProxy {
             this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, {
                 'nonce': '',
                 'mac': mac
-            })
+            });
+            this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
+                data: ex.message,
+                mac: mac,
+            });
             logger.error(ex);
         }
     }
@@ -1372,6 +1384,7 @@ export interface TibboDevice {
     printing?: boolean;
     lastPoll?: number;
     breakpoints?: string;
+    streamURL?: string;
 }
 
 export enum PCODEMachineState {
