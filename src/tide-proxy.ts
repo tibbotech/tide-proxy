@@ -143,6 +143,10 @@ export class TIDEProxy {
 
     setInterface(targetInterface: string) {
         this.currentInterface = undefined;
+        // Clear device lists when switching interfaces
+        this.devices = [];
+        this.discoveredDevices = {};
+        
         const ifaces = os.networkInterfaces();
         let tmpInterface = ifaces[targetInterface];
         if (tmpInterface) {
@@ -690,7 +694,11 @@ export class TIDEProxy {
                     try {
                         ccmd = `bossac -p ${mac} -d`;
                         cp.execSync(ccmd);
-                    } catch (ex) {
+                    } catch (ex: any) {
+                        this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
+                            data: ex.toString(),
+                            mac: mac,
+                        });
                         return this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
                             method: 'bossac',
                             mac: '',
