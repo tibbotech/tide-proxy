@@ -78,7 +78,7 @@ After=network.target
 
 [Service]
 Type=simple
-User=ubuntu
+User=${MY_USER}
 
 ExecStart=${node_fPath} ${SERVER_JS_FPATH}
 ExecStop=/bin/kill -TERM $(pgrep -f "${SERVER_JS_FPATH}")
