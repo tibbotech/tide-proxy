@@ -1,21 +1,16 @@
 [Unit]
 Description=Start/Stop TIDE-PROXY SERVICE
 After=network.target
-StartLimitIntervalSec=300
-StartLimitBurst=5
 
 [Service]
-Type=forking
-User=root
+Type=simple
+User=ubuntu
 
-ExecStartPre=/bin/bash -c "sudo -S systemctl reset-failed tide_proxy.service || true"
-
-ExecStart=/usr/local/bin/tide_proxy.sh enable
-ExecStop=/usr/local/bin/tide_proxy.sh disable
+ExecStart=/home/ubuntu/.nvm/versions/node/v20.18.1/bin/node /repo/tide-proxy/lib/server.js
+ExecStop=/bin/kill -TERM $(pgrep -f "/repo/tide-proxy/lib/server.js")
 
 Restart=on-failure
 RestartSec=10
-
 StandardOutput=journal
 StandardError=journal
 
