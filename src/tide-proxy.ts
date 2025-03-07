@@ -142,19 +142,30 @@ export class TIDEProxy {
     }
 
     setInterface(targetInterface: string) {
-        this.currentInterface = undefined;
         // Clear device lists when switching interfaces
         this.devices = [];
         this.discoveredDevices = {};
         
+        // If empty string or falsy value is passed, set to undefined (all interfaces)
+        if (!targetInterface) {
+            this.currentInterface = undefined;
+            return;
+        }
+        
+        this.currentInterface = undefined;
         const ifaces = os.networkInterfaces();
         let tmpInterface = ifaces[targetInterface];
         if (tmpInterface) {
             for (let i = 0; i < tmpInterface.length; i++) {
                 const tmp = tmpInterface[i];
                 if (tmp.family == 'IPv4' && !tmp.internal) {
-                    this.currentInterface = this.interfaces[i];
-                    return;
+                    // Find the matching interface in this.interfaces by address
+                    for (let j = 0; j < this.interfaces.length; j++) {
+                        if (this.interfaces[j].netInterface.address === tmp.address) {
+                            this.currentInterface = this.interfaces[j];
+                            return;
+                        }
+                    }
                 }
             }
         }
@@ -1086,6 +1097,25 @@ export class TIDEProxy {
         return result;
     }
 
+    /**
+     * Calculate the broadcast address for a given IP and netmask
+     */
+    private getBroadcastAddress(ipAddress: string, netmask: string): string {
+        try {
+            // Convert IP address and netmask to numeric representation
+            const ip = ipAddress.split('.').map(Number);
+            const mask = netmask.split('.').map(Number);
+            
+            // Calculate broadcast address: (ip | ~mask)
+            const broadcast = ip.map((octet, i) => octet | (~mask[i] & 255));
+            
+            return broadcast.join('.');
+        } catch (ex) {
+            logger.error('Error calculating broadcast address:', ex);
+            return '255.255.255.255'; // Fallback to general broadcast
+        }
+    }
+
     send(message: Buffer, netInterface?: any, targetIP?: string): void {
         logger.info(`${new Date().toLocaleTimeString()} sent: ${message}`);
         let targetInterface = this.currentInterface;
@@ -1093,7 +1123,11 @@ export class TIDEProxy {
             targetInterface = netInterface;
         }
         if (targetInterface != undefined) {
-            const broadcastAddress = '255.255.255.255';
+            // Use specific broadcast address for this interface
+            const broadcastAddress = this.getBroadcastAddress(
+                targetInterface.netInterface.address, 
+                targetInterface.netInterface.netmask
+            );
             targetInterface.socket.send(message, 0, message.length, PORT, broadcastAddress, (err, bytes) => {
                 if (err) {
                     logger.error('error sending ' + err.toString());
@@ -1104,7 +1138,11 @@ export class TIDEProxy {
             for (let i = 0; i < this.interfaces.length; i++) {
                 try {
                     const tmp = this.interfaces[i];
-                    const broadcastAddress = '255.255.255.255';
+                    // Use specific broadcast address for each interface
+                    const broadcastAddress = this.getBroadcastAddress(
+                        tmp.netInterface.address, 
+                        tmp.netInterface.netmask
+                    );
                     tmp.socket.send(message, 0, message.length, PORT, broadcastAddress, (err, bytes) => {
                         if (err) {
                             logger.error('error sending ' + err.toString());
@@ -1112,6 +1150,7 @@ export class TIDEProxy {
                     });
                 }
                 catch (ex) {
+                    logger.error('Error sending to interface:', ex);
                 }
             }
         }

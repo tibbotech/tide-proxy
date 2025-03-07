@@ -7,6 +7,7 @@ const fs = require('fs');
 const app = express();
 const port = process.env.TIDE_PROXY_SERVER_PORT || 3005;
 const cors = require('cors');
+const os = require('os');
 
 const socket = io('http://localhost:3535/tide');
 socket.on('connect', () => {
@@ -155,8 +156,51 @@ app.post('/adks/:address/wiegand', async (req: any, res: any) => {
     res.status(200).send();
 });
 
+app.get('/interfaces', async (req: any, res: any) => {
+    const interfaces = os.networkInterfaces();
+    const interfacesList = [];
 
-// app.use(express.static('static'));
+    for (const key in interfaces) {
+        const iface = interfaces[key];
+        for (let i = 0; i < iface.length; i++) {
+            const tmp = iface[i];
+            if (tmp.family == 'IPv4' && !tmp.internal) {
+                interfacesList.push({
+                    name: key,
+                    address: tmp.address
+                });
+            }
+        }
+    }
+
+    // Get current interface name from proxy
+    let currentInterface = '';
+    if (proxy && proxy.currentInterface) {
+        // Find the interface name by comparing with the current interface netInterface address
+        for (const key in interfaces) {
+            const iface = interfaces[key];
+            for (let i = 0; i < iface.length; i++) {
+                const tmp = iface[i];
+                if (tmp.family == 'IPv4' && !tmp.internal &&
+                    tmp.address === proxy.currentInterface.netInterface.address) {
+                    currentInterface = key;
+                    break;
+                }
+            }
+            if (currentInterface) break;
+        }
+    }
+
+    res.json({
+        interfaces: interfacesList,
+        current: currentInterface
+    });
+});
+
+app.post('/interfaces', async (req: any, res: any) => {
+    proxy.setInterface(req.body.interface);
+    res.status(200).send();
+});
 
 app.use(express.static(path.join(__dirname, '..', 'static')));
 

@@ -33,6 +33,13 @@
 
 <body>
 
+    <form onsubmit="return setInterface(event)">
+        <label for="interfaceSelect">Network Interface</label>
+        <select id="interfaceSelect" style="width:400px;"></select>
+        <button type="submit">Set Interface</button>
+    </form>
+    <br />
+
     <form onsubmit="return setProxy(event)">
         <label for="proxyName">Name</label>
         <input type="text" id="proxyName" style="width:400px;" />
@@ -43,14 +50,14 @@
         <br />
         <button type="submit">Set Proxy</button>
     </form>
-    <br/>
-    <br/>
+    <br />
+    <br />
     <!-- <button onclick="getDevices()">Get Devices</button> -->
-    
+
     <button onclick="refresh()">Refresh</button>
     <label for="pendingMessages">Messages</label>
     <input type="text" id="pendingMessages" style="width:400px;" disabled />
-    
+
     <table>
         <thead>
             <tr>
@@ -126,7 +133,6 @@
                 const tr = document.createElement("tr");
                 const tdName = document.createElement("td");
                 tdName.innerHTML = `<a href="/pages/adk?address=${adk.address}">${adk.name}</a>`;
-                // tdName.innerText = adk.name;
                 const tdIP = document.createElement("td");
                 tdIP.innerText = adk.ip;
                 const tdAddress = document.createElement("td");
@@ -167,7 +173,43 @@
             });
         }
 
+        async function getInterfaces() {
+            const response = await fetch("/interfaces");
+            const data = await response.json();
+            const interfaces = data.interfaces || data;
+            const currentInterface = data.current || '';
+
+            const select = document.getElementById("interfaceSelect");
+            select.innerHTML = "<option value=''>All Interfaces</option>";
+            interfaces.forEach(iface => {
+                const option = document.createElement("option");
+                option.value = iface.name;
+                option.innerText = `${iface.name} (${iface.address})`;
+                if (iface.name === currentInterface) {
+                    option.selected = true;
+                }
+                select.appendChild(option);
+            });
+        }
+
+        async function setInterface(e) {
+            e.preventDefault();
+            const selectedInterface = document.getElementById("interfaceSelect").value;
+            await fetch('/interfaces', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    interface: selectedInterface
+                })
+            });
+            await refresh();
+            return false;
+        }
+
         getProxy();
+        getInterfaces();
         refresh();
         getADKs();
 

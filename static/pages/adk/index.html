@@ -151,7 +151,7 @@
                         adkIP = adk.ip;
 
                         const adkElem = document.getElementById('adk');
-                        adkElem.src = `https://${adkIP}:14443/ShowVidFeed`;
+                        adkElem.src = adk.streamURL;
                         document.getElementById('address').value = adk.address;
                     });
             } catch (e) {

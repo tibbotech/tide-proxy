@@ -53,6 +53,7 @@ export declare class TIDEProxy {
     sendToDevice(mac: string, command: string, data: string, reply?: boolean, nonce?: string | undefined): void;
     checkMessageQueue(): void;
     makeid(length: number): string;
+    private getBroadcastAddress;
     send(message: Buffer, netInterface?: any, targetIP?: string): void;
     private getVariable;
     getDevice(mac: string): TibboDevice;
