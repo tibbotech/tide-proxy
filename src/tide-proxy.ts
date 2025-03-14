@@ -72,7 +72,35 @@ export class TIDEProxy {
     constructor(serverAddress = '', proxyName: string, port = 3535, targetInterface?: string) {
         this.id = new Date().getTime().toString();
         this.listenPort = port;
+        this.initInterfaces(targetInterface);
+
+        if (serverAddress != '') {
+            this.setServer(serverAddress, proxyName);
+        }
+        this.server = io.of('/tide');
+        this.clients = [];
+        this.server.on('connection', (conClient: any) => {
+            this.clients.push(conClient);
+            logger.info('client connected on socket');
+            this.registerListeners(conClient);
+            conClient.on('close', () => {
+                logger.info('socket closed');
+                this.clients.splice(this.clients.indexOf(this.clients), 1);
+            });
+        });
+
+        io.listen(port);
+    }
+
+    initInterfaces(targetInterface: any = '') {
         const ifaces = os.networkInterfaces();
+        if (this.interfaces.length > 0) {
+            for (let i = 0; i < this.interfaces.length; i++) {
+                this.interfaces[i].socket.close();
+                this.interfaces[i].socket.removeAllListeners();
+            }
+            this.interfaces = [];
+        }
         for (const key in ifaces) {
             // broadcasts[i] = networks[i] | ~subnets[i] + 256;
             const iface = ifaces[key];
@@ -122,23 +150,6 @@ export class TIDEProxy {
                 }
             }
         }
-
-        if (serverAddress != '') {
-            this.setServer(serverAddress, proxyName);
-        }
-        this.server = io.of('/tide');
-        this.clients = [];
-        this.server.on('connection', (conClient: any) => {
-            this.clients.push(conClient);
-            logger.info('client connected on socket');
-            this.registerListeners(conClient);
-            conClient.on('close', () => {
-                logger.info('socket closed');
-                this.clients.splice(this.clients.indexOf(this.clients), 1);
-            });
-        });
-
-        io.listen(port);
     }
 
     setInterface(targetInterface: string) {
@@ -151,24 +162,27 @@ export class TIDEProxy {
             this.currentInterface = undefined;
             return;
         }
+        // go through all 
 
-        this.currentInterface = undefined;
-        const ifaces = os.networkInterfaces();
-        let tmpInterface = ifaces[targetInterface];
-        if (tmpInterface) {
-            for (let i = 0; i < tmpInterface.length; i++) {
-                const tmp = tmpInterface[i];
-                if (tmp.family == 'IPv4' && !tmp.internal) {
-                    // Find the matching interface in this.interfaces by address
-                    for (let j = 0; j < this.interfaces.length; j++) {
-                        if (this.interfaces[j].netInterface.address === tmp.address) {
-                            this.currentInterface = this.interfaces[j];
-                            return;
-                        }
-                    }
-                }
-            }
-        }
+        this.initInterfaces(targetInterface);
+
+        // this.currentInterface = undefined;
+        // const ifaces = os.networkInterfaces();
+        // let tmpInterface = ifaces[targetInterface];
+        // if (tmpInterface) {
+        //     for (let i = 0; i < tmpInterface.length; i++) {
+        //         const tmp = tmpInterface[i];
+        //         if (tmp.family == 'IPv4' && !tmp.internal) {
+        //             // Find the matching interface in this.interfaces by address
+        //             for (let j = 0; j < this.interfaces.length; j++) {
+        //                 if (this.interfaces[j].netInterface.address === tmp.address) {
+        //                     this.currentInterface = this.interfaces[j];
+        //                     return;
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
     }
 
     registerListeners(socket: any) {

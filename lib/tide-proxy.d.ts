@@ -35,6 +35,7 @@ export declare class TIDEProxy {
     };
     adks: any[];
     constructor(serverAddress: string | undefined, proxyName: string, port?: number, targetInterface?: string);
+    initInterfaces(targetInterface?: any): void;
     setInterface(targetInterface: string): void;
     registerListeners(socket: any): void;
     setServer(serverAddress: string, proxyName: string): void;
