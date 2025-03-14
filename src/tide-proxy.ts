@@ -145,13 +145,13 @@ export class TIDEProxy {
         // Clear device lists when switching interfaces
         this.devices = [];
         this.discoveredDevices = {};
-        
+
         // If empty string or falsy value is passed, set to undefined (all interfaces)
         if (!targetInterface) {
             this.currentInterface = undefined;
             return;
         }
-        
+
         this.currentInterface = undefined;
         const ifaces = os.networkInterfaces();
         let tmpInterface = ifaces[targetInterface];
@@ -435,10 +435,10 @@ export class TIDEProxy {
                         else if (pc[2] == 'B') {
                             pcode_state = PCODE_STATE.PAUSED;
                         }
-                        if (pc[0].toUpperCase() === 'C') {
-                            // error state
-                            // console.log(`device ${mac} in error state`);
-                        }
+                        // if (pc[0].toUpperCase() === 'C') {
+                        // error state
+                        // console.log(`device ${mac} in error state`);
+                        // }
 
                         device.pcode = pcode_state;
                         this.emit(TIBBO_PROXY_MESSAGE.DEVICE, {
@@ -503,9 +503,22 @@ export class TIDEProxy {
                         });
                         logger.info(`finished upload to ${mac}`);
                         this.clearDeviceMessageQueue(mac);
-                        this.sendToDevice(mac, PCODE_COMMANDS.APPUPLOADFINISH, '', true);
+                        // if is app upload, send app upload finish (starts with TBIN)
+                        if (device.file?.toString('binary').indexOf('TBIN') == 0) {
+                            this.sendToDevice(mac, PCODE_COMMANDS.APPUPLOADFINISH, '', true);
+                        } else {
+                            // otherwise is tios firmware upload
+                            this.sendToDevice(mac, 'N', '', true);
+                            this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
+                                'nonce': identifier,
+                                'mac': mac
+                            });
+                        }
                     }
                 }
+                    break;
+                case 'N': // tios firmware upload
+                    this.sendToDevice(mac, PCODE_COMMANDS.REBOOT, '', false);
                     break;
                 case PCODE_COMMANDS.APPUPLOADFINISH:
                     // verify binary on device is what we sent
@@ -1105,10 +1118,10 @@ export class TIDEProxy {
             // Convert IP address and netmask to numeric representation
             const ip = ipAddress.split('.').map(Number);
             const mask = netmask.split('.').map(Number);
-            
+
             // Calculate broadcast address: (ip | ~mask)
             const broadcast = ip.map((octet, i) => octet | (~mask[i] & 255));
-            
+
             return broadcast.join('.');
         } catch (ex) {
             logger.error('Error calculating broadcast address:', ex);
@@ -1125,7 +1138,7 @@ export class TIDEProxy {
         if (targetInterface != undefined) {
             // Use specific broadcast address for this interface
             const broadcastAddress = this.getBroadcastAddress(
-                targetInterface.netInterface.address, 
+                targetInterface.netInterface.address,
                 targetInterface.netInterface.netmask
             );
             targetInterface.socket.send(message, 0, message.length, PORT, broadcastAddress, (err, bytes) => {
@@ -1140,7 +1153,7 @@ export class TIDEProxy {
                     const tmp = this.interfaces[i];
                     // Use specific broadcast address for each interface
                     const broadcastAddress = this.getBroadcastAddress(
-                        tmp.netInterface.address, 
+                        tmp.netInterface.address,
                         tmp.netInterface.netmask
                     );
                     tmp.socket.send(message, 0, message.length, PORT, broadcastAddress, (err, bytes) => {
