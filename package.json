@@ -25,7 +25,7 @@
   "exports": {
     "./MicropythonSerial": "./lib/MicropythonSerial.js",
     "./BrowserSerialPort": "./lib/BrowserSerialPort.js",
-    "./ESP32Serial": "./lib/ESP32Serial/browser.js",
+    
     "./ISerialPort": "./lib/ISerialPort.js",
     ".": "./lib/tide-proxy.js"
   },

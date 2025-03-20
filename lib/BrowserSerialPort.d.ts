@@ -1,4 +1,3 @@
-/// <reference types="dom-serial" />
 /// <reference types="node" />
 import { ISerialPort } from './ISerialPort';
 import { EventEmitter } from 'events';
@@ -7,14 +6,14 @@ export default class BrowserSerialPort extends EventEmitter implements ISerialPo
     baudRate: number;
     flowingMode: boolean;
     dataTimer: any;
-    maybeGetPort(): Promise<SerialPort | undefined>;
+    maybeGetPort(): Promise<any>;
     connect(baudRate?: number, reset?: boolean): Promise<boolean>;
     disconnect(): Promise<void>;
     getPort(): Promise<any>;
     read(raw?: boolean): Promise<any>;
     write(data: string): void;
-    forceReselectPort(): Promise<SerialPort | undefined>;
-    getChecksum(buf: any): Promise<string>;
+    forceReselectPort(): Promise<any>;
+    getChecksum(buf: any): Promise<any>;
     setFlowingMode(mode: boolean): void;
     readData(): Promise<void>;
 }

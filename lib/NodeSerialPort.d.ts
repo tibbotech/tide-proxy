@@ -10,10 +10,10 @@ export default class NodeSerialPort extends EventEmitter implements ISerialPort 
     constructor(portPath: string);
     connect(baudRate: number): Promise<boolean>;
     disconnect(): Promise<void>;
-    getPort(): Promise<SerialPort<import("@serialport/bindings-cpp").AutoDetectTypes> | null>;
+    getPort(): Promise<any>;
     private sendDebug;
     read(raw?: boolean, size?: number): Promise<any>;
     write(data: string): Promise<void>;
     setFlowingMode(mode: boolean): void;
-    getChecksum(data: any): Promise<string>;
+    getChecksum(data: any): Promise<any>;
 }

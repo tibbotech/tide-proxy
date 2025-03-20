@@ -2,7 +2,7 @@ import * as dgram from 'dgram';
 import { performance } from 'perf_hooks';
 import { SerialPort } from 'serialport'
 import { MicropythonSerial } from './MicropythonSerial';
-import { NodeESP32Serial as ESP32Serial } from './ESP32Serial/node';
+// import { NodeESP32Serial as ESP32Serial } from './ESP32Serial/node';
 import SerialDevice from './NodeSerialPort';
 
 // import { TibboDevice, PCODE_STATE, TaikoMessage, TIBBO_PROXY_MESSAGE, TaikoReply, PCODEMachineState, PCODE_COMMANDS } from './types';
@@ -973,14 +973,14 @@ export class TIDEProxy {
             if (!serialPort) {
                 throw new Error('Failed to attach serial');
             }
-            const esp32Serial = new ESP32Serial(serialPort);
-            esp32Serial.on('progress', (progress: number) => {
-                this.emit(TIBBO_PROXY_MESSAGE.UPLOAD, {
-                    'data': progress,
-                    'mac': mac
-                });
-            });
-            await esp32Serial.writeFilesToDevice(files);
+            // const esp32Serial = new ESP32Serial(serialPort);
+            // esp32Serial.on('progress', (progress: number) => {
+            //     this.emit(TIBBO_PROXY_MESSAGE.UPLOAD, {
+            //         'data': progress,
+            //         'mac': mac
+            //     });
+            // });
+            // await esp32Serial.writeFilesToDevice(files);
 
             this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
                 'error': false,
