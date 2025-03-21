@@ -111,7 +111,7 @@ export class NodeESP32Serial extends ESP32Serial {
                 //     progressBars[fileIndex].value = (written / total) * 100;
                 // },
                 calculateMD5Hash: (image) => {
-                    let hash = crypto.createHash('md5').update(image).digest("hex");
+                    const hash = crypto.createHash('md5').update(image).digest("hex");
                     return hash;
                 },
                 flashMode: 'dio',
