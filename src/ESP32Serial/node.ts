@@ -6,8 +6,9 @@ import {
     LoaderOptions,
 } from 'esptool-js/lib/index.js';
 import { ClassicReset, UsbJtagSerialReset } from 'esptool-js/lib/reset';
-import CryptoJS from 'crypto-js';
 import { NodeTransport as Transport } from '../NodeTransport'
+
+import crypto from 'crypto';
 
 
 export class UnixTightReset {
@@ -109,7 +110,10 @@ export class NodeESP32Serial extends ESP32Serial {
                 // reportProgress: (fileIndex, written, total) => {
                 //     progressBars[fileIndex].value = (written / total) * 100;
                 // },
-                calculateMD5Hash: (image) => CryptoJS.MD5(CryptoJS.enc.Latin1.parse(image)).toString(),
+                calculateMD5Hash: (image) => {
+                    let hash = crypto.createHash('md5').update(image).digest("hex");
+                    return hash;
+                },
                 flashMode: 'dio',
                 flashFreq: '40m',
                 reportProgress: (fileIndex: number, written: number, total: number) => {
