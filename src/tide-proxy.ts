@@ -899,6 +899,60 @@ export class TIDEProxy {
                 } catch (ex) {
 
                 }
+            } else if (method === 'teensy') {
+                const teensyMethod = deviceDefinition.uploadMethods.find((method: any) => method.name === 'teensy');
+                let teensyDevice = '';
+                const fileBase = this.makeid(8);
+                let filePath = '';
+                try {
+
+                    for (let i = 0; i < teensyMethod.options.length; i++) {
+                        let option = teensyMethod.options[i];
+                        if (option.indexOf('"') === 0) {
+                            option = option.substring(1, option.length - 1);
+                        }
+                        if (option.indexOf('--mcu=') === 0) {
+                            teensyDevice = option.split('=')[1];
+                            break;
+                        }
+                    }
+                    // random file name
+                    let fileName = `${fileBase}.hex`;
+                    filePath = path.join(__dirname, fileName);
+                    fs.writeFileSync(filePath, bytes);
+                    const cleanup = () => {
+                        if (filePath && fs.existsSync(filePath)) {
+                            fs.unlinkSync(filePath);
+                        }
+                    }
+
+                    const ccmd = `teensy_loader_cli --mcu=${teensyDevice} -w -v ${filePath}`;
+                    const exec = cp.spawn(ccmd, [], { env: { ...process.env, NODE_OPTIONS: '' }, timeout: 60000, shell: true });
+                    if (!exec.pid) {
+                        return;
+                    }
+                    exec.on('error', () => {
+                        cleanup();
+                        this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
+                            mac,
+                        });
+                    });
+                    exec.stderr.on('data', (data: any) => {
+                        console.log(data.toString());
+                    });
+                    exec.stdout.on('data', (data: any) => {
+                        console.log(data.toString());
+                    });
+                    exec.on('exit', () => {
+                        cleanup();
+                        this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
+                            method: 'teensy',
+                            mac,
+                        });
+                    });
+                } catch (ex) {
+
+                }
             }
         } else {
             logger.info('starting application upload for ' + mac);
