@@ -4,3 +4,7 @@ node_modules/
 .env
 debug.json
 adks.json
+
+lib/project_output/
+
+project_output/

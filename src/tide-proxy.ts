@@ -53,6 +53,8 @@ const logger = winston.createLogger({
     ]
 });
 
+const PROJECT_OUTPUT_FOLDER = path.join(__dirname, 'project_output');
+
 export class TIDEProxy {
     devices: Array<TibboDevice> = [];
     pendingMessages: Array<UDPMessage> = [];
@@ -689,270 +691,27 @@ export class TIDEProxy {
         }
 
         fileString = fileString || '';
-
         const bytes = Buffer.from(fileString, 'binary');
+
         if (deviceDefinition && method) {
             if (method === 'micropython' && files) {
                 this.startUploadMicropython(mac, files, baudRate);
                 return;
             } else if (method === 'esp32') {
-                const filesArray = [];
-                let flashAddress = 0x10000;
-                if (deviceDefinition.flashAddress !== undefined) {
-                    if (deviceDefinition.flashAddress.startsWith('0x')) {
-                        flashAddress = parseInt(deviceDefinition.flashAddress, 16);
-                    } else {
-                        flashAddress = Number(deviceDefinition.flashAddress);
-                    }
-                }
-                filesArray.push({
-                    data: bytes,
-                    address: flashAddress,
-                });
-                this.startUploadEsp32(mac, filesArray, baudRate);
+                this.uploadESP32(mac, bytes, deviceDefinition, baudRate);
                 return;
             } else if (method === 'bossac') {
-                const bossacMethod = deviceDefinition.uploadMethods.find((method: any) => method.name === 'bossac');
-                const fileBase = this.makeid(8);
-                let scriptPath = '';
-                let filePath = '';
-                try {
-                    // make temporary folder
-                    fs.mkdirSync(path.join(__dirname, fileBase));
-                    // random file name
-                    fs.writeFileSync(path.join(__dirname, fileBase, `zephyr.bin`), bytes);
-                    const cleanup = () => {
-                        if (fileBase && fs.existsSync(fileBase)) {
-                            fs.unlinkSync(fileBase);
-                        }
-                    }
-
-                    let ccmd = ``;
-                    // see if bossac is installed
-                    try {
-                        ccmd = `bossac -p ${mac} -d`;
-                        cp.execSync(ccmd);
-                    } catch (ex: any) {
-                        this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
-                            data: ex.toString(),
-                            mac: mac,
-                        });
-                        return this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
-                            method: 'bossac',
-                            mac: '',
-                        });
-                    }
-                    ccmd = `bossac -p ${mac} -R -e -w -v -b ${path.join(__dirname, fileBase, `zephyr.bin`)} -o ${deviceDefinition.partitions[0].size}`;
-                    const exec = cp.spawn(ccmd, [], { env: { ...process.env, NODE_OPTIONS: '' }, timeout: 60000, shell: true });
-                    if (!exec.pid) {
-                        return;
-                    }
-                    exec.stdout.on('data', (data: any) => {
-                        // [=========================     ] 99% (2178/2179 pages)
-                        try {
-                            let progress = 0;
-                            // get string in parenthesis
-                            const match = data.toString().match(/\(([^)]+)\)/);
-                            if (match) {
-                                progress = match[1].split('/')[0] / match[1].split('/')[1].replace('pages', '').trim();
-                                this.emit(TIBBO_PROXY_MESSAGE.UPLOAD, {
-                                    'data': progress,
-                                    'mac': mac
-                                });
-                            }
-                        } catch (ex) {
-
-                        }
-                    });
-                    exec.on('error', () => {
-                        cleanup();
-                        this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
-                            method: 'bossac',
-                            mac: '',
-                        });
-                    });
-                    exec.stderr.on('data', (data: any) => {
-                        console.log(data.toString());
-                    });
-                    exec.on('exit', () => {
-                        cleanup();
-                        this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
-                            method: 'bossac',
-                            mac: '',
-                        });
-                    });
-                } catch (ex) {
-                    console.log(ex);
-                }
+                this.uploadBossac(mac, bytes, deviceDefinition);
+                return;
             } else if (method === 'openocd') {
-                const openocdMethod = deviceDefinition.uploadMethods.find((method: any) => method.name === 'openocd');
-                let jlinkDevice = deviceDefinition.id;
-                const fileBase = this.makeid(8);
-                let scriptPath = '';
-                let filePath = '';
-                try {
-                    // make temporary folder
-                    fs.mkdirSync(path.join(__dirname, fileBase));
-                    // random file name
-
-                    scriptPath = path.join(__dirname, fileBase, `openocd.cfg`);
-                    if (openocdMethod.options.length > 0) {
-                        fs.writeFileSync(scriptPath, openocdMethod.options[0]);
-                    }
-                    fs.writeFileSync(path.join(__dirname, fileBase, `zephyr.elf`), bytes);
-                    const cleanup = () => {
-                        if (fileBase && fs.existsSync(fileBase)) {
-                            fs.unlinkSync(fileBase);
-                        }
-                    }
-
-                    const ccmd = `openocd -f ${scriptPath} -c 'program ${path.join(__dirname, fileBase, 'zephyr.elf')} verify reset exit'`;
-                    console.log(ccmd);
-                    const exec = cp.spawn(ccmd, [], { env: { ...process.env, NODE_OPTIONS: '' }, timeout: 60000, shell: true });
-                    if (!exec.pid) {
-                        return;
-                    }
-                    exec.on('error', () => {
-                        cleanup();
-                        this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
-                            method: 'openocd',
-                            mac: jlinkDevice,
-                        });
-                    });
-                    exec.stderr.on('data', (data: any) => {
-                        console.log(data.toString());
-                    });
-                    exec.stdout.on('data', (data: any) => {
-                        console.log(data.toString());
-                    });
-                    exec.on('exit', () => {
-                        cleanup();
-                        this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
-                            method: 'openocd',
-                            mac: jlinkDevice,
-                        });
-                    });
-                } catch (ex) {
-                    console.log(ex);
-                }
+                this.uploadOpenOCD(mac, bytes, deviceDefinition);
+                return;
             } else if (method === 'jlink') {
-                const jlinkMethod = deviceDefinition.uploadMethods.find((method: any) => method.name === 'jlink');
-                let jlinkDevice = '';
-                let speed = '';
-                let flashAddress = deviceDefinition.flashAddress || '0x0';
-                const fileBase = this.makeid(8);
-                let scriptPath = '';
-                let filePath = '';
-                try {
-
-                    for (let i = 0; i < jlinkMethod.options.length; i++) {
-                        let option = jlinkMethod.options[i];
-                        if (option.indexOf('"') === 0) {
-                            option = option.substring(1, option.length - 1);
-                        }
-                        if (option.indexOf('--device=') === 0) {
-                            jlinkDevice = option.split('=')[1];
-                        }
-                        if (option.indexOf('--speed=') === 0) {
-                            speed = option.split('=')[1];
-                        }
-                    }
-                    // random file name
-                    let fileName = `${fileBase}.bin`;
-                    filePath = path.join(__dirname, fileName);
-                    scriptPath = path.join(__dirname, `${fileBase}.jlink`);
-                    fs.writeFileSync(filePath, bytes);
-                    fs.writeFileSync(scriptPath, `loadbin ${filePath} ${flashAddress}\nR\nG\nExit`);
-                    const cleanup = () => {
-                        if (scriptPath && fs.existsSync(scriptPath)) {
-                            fs.unlinkSync(scriptPath);
-                        }
-                        if (filePath && fs.existsSync(filePath)) {
-                            fs.unlinkSync(filePath);
-                        }
-                    }
-
-                    const ccmd = `JLinkExe -device ${jlinkDevice} -if SWD -speed ${speed} -autoconnect 1 -CommanderScript ${scriptPath}`;
-                    const exec = cp.spawn(ccmd, [], { env: { ...process.env, NODE_OPTIONS: '' }, timeout: 60000, shell: true });
-                    if (!exec.pid) {
-                        return;
-                    }
-                    exec.on('error', () => {
-                        cleanup();
-                        this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
-                            mac: jlinkDevice,
-                        });
-                    });
-                    exec.stderr.on('data', (data: any) => {
-                        console.log(data.toString());
-                    });
-                    exec.stdout.on('data', (data: any) => {
-                        console.log(data.toString());
-                    });
-                    exec.on('exit', () => {
-                        cleanup();
-                        this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
-                            method: 'jlink',
-                            mac: jlinkDevice,
-                        });
-                    });
-                } catch (ex) {
-
-                }
+                this.uploadJLink(mac, bytes, deviceDefinition);
+                return;
             } else if (method === 'teensy') {
-                const teensyMethod = deviceDefinition.uploadMethods.find((method: any) => method.name === 'teensy');
-                let teensyDevice = '';
-                const fileBase = this.makeid(8);
-                let filePath = '';
-                try {
-
-                    for (let i = 0; i < teensyMethod.options.length; i++) {
-                        let option = teensyMethod.options[i];
-                        if (option.indexOf('"') === 0) {
-                            option = option.substring(1, option.length - 1);
-                        }
-                        if (option.indexOf('--mcu=') === 0) {
-                            teensyDevice = option.split('=')[1];
-                            break;
-                        }
-                    }
-                    // random file name
-                    let fileName = `${fileBase}.hex`;
-                    filePath = path.join(__dirname, fileName);
-                    fs.writeFileSync(filePath, bytes);
-                    const cleanup = () => {
-                        if (filePath && fs.existsSync(filePath)) {
-                            fs.unlinkSync(filePath);
-                        }
-                    }
-
-                    const ccmd = `teensy_loader_cli --mcu=${teensyDevice} -w -v ${filePath}`;
-                    const exec = cp.spawn(ccmd, [], { env: { ...process.env, NODE_OPTIONS: '' }, timeout: 60000, shell: true });
-                    if (!exec.pid) {
-                        return;
-                    }
-                    exec.on('error', () => {
-                        cleanup();
-                        this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
-                            mac,
-                        });
-                    });
-                    exec.stderr.on('data', (data: any) => {
-                        console.log(data.toString());
-                    });
-                    exec.stdout.on('data', (data: any) => {
-                        console.log(data.toString());
-                    });
-                    exec.on('exit', () => {
-                        cleanup();
-                        this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
-                            method: 'teensy',
-                            mac,
-                        });
-                    });
-                } catch (ex) {
-
-                }
+                this.uploadTeensy(mac, bytes, deviceDefinition);
+                return;
             }
         } else {
             logger.info('starting application upload for ' + mac);
@@ -972,6 +731,292 @@ export class TIDEProxy {
             }
             this.clearDeviceMessageQueue(mac);
             this.sendToDevice(mac, PCODE_COMMANDS.RESET_PROGRAMMING, '', true);
+        }
+    }
+
+    uploadESP32(mac: string, bytes: Buffer, deviceDefinition: any, baudRate: number): void {
+        const filesArray = [];
+        let flashAddress = 0x10000;
+        if (deviceDefinition.flashAddress !== undefined) {
+            if (deviceDefinition.flashAddress.startsWith('0x')) {
+                flashAddress = parseInt(deviceDefinition.flashAddress, 16);
+            } else {
+                flashAddress = Number(deviceDefinition.flashAddress);
+            }
+        }
+        filesArray.push({
+            data: bytes,
+            address: flashAddress,
+        });
+        this.startUploadEsp32(mac, filesArray, baudRate);
+    }
+
+    uploadBossac(mac: string, bytes: Buffer, deviceDefinition: any): void {
+        const fileBase = this.makeid(8);
+        try {
+            // see if bossac is installed and in path
+            let bossacPath = 'bossac';
+            if (process.platform === 'win32') {
+                bossacPath = 'bossac.exe';
+            }
+            const bossac = cp.spawnSync(bossacPath, ['--version']);
+            if (bossac.error) {
+                this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
+                    data: `${bossacPath} not found`,
+                    format: 'markdown',
+                    mac: mac,
+                });
+                return this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, {
+                    method: 'bossac',
+                    code: 'not_found',
+                    mac,
+                });
+            }
+            // make temporary folder
+            fs.mkdirSync(path.join(PROJECT_OUTPUT_FOLDER, fileBase), { recursive: true });
+            // random file name
+            fs.writeFileSync(path.join(PROJECT_OUTPUT_FOLDER, fileBase, `zephyr.bin`), bytes);
+            const cleanup = () => {
+                if (fileBase && fs.existsSync(path.join(PROJECT_OUTPUT_FOLDER, fileBase))) {
+                    fs.rmdirSync(path.join(PROJECT_OUTPUT_FOLDER, fileBase), { recursive: true });
+                }
+            }
+
+            let ccmd = ``;
+            // see if bossac is installed
+            ccmd = `${bossacPath} -p ${mac} -R -e -w -v -b ${path.join(PROJECT_OUTPUT_FOLDER, fileBase, `zephyr.bin`)} -o ${deviceDefinition.partitions[0].size}`;
+            const exec = cp.spawn(ccmd, [], { env: { ...process.env, NODE_OPTIONS: '' }, timeout: 60000, shell: true });
+            if (!exec.pid) {
+                return;
+            }
+            let outputData = '';
+            exec.stdout.on('data', (data: any) => {
+                // [=========================     ] 99% (2178/2179 pages)
+                try {
+                    let progress = 0;
+                    // get string in parenthesis
+                    const match = data.toString().match(/\(([^)]+)\)/);
+                    if (match) {
+                        progress = match[1].split('/')[0] / match[1].split('/')[1].replace('pages', '').trim();
+                        this.emit(TIBBO_PROXY_MESSAGE.UPLOAD, {
+                            'data': progress,
+                            'mac': mac
+                        });
+                    }
+                } catch (ex) {
+
+                }
+            });
+            exec.on('error', () => {
+                cleanup();
+                this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
+                    method: 'bossac',
+                    mac: '',
+                });
+            });
+            exec.stderr.on('data', (data: any) => {
+                outputData += data.toString();
+            });
+            exec.on('exit', (code: Number) => {
+                cleanup();
+                if (code !== 0) {
+                    this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
+                        data: outputData,
+                        mac: mac,
+                    });
+                    return this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, {
+                        method: 'bossac',
+                        code: 'error',
+                        mac,
+                    });
+                }
+                this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
+                    method: 'bossac',
+                    mac,
+                });
+            });
+        } catch (ex) {
+            this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
+                data: ex.toString(),
+                mac: mac,
+            });
+            this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, {
+                method: 'bossac',
+                mac,
+            });
+        }
+    }
+
+    uploadOpenOCD(mac: string, bytes: Buffer, deviceDefinition: any): void {
+        const openocdMethod = deviceDefinition.uploadMethods.find((method: any) => method.name === 'openocd');
+        let jlinkDevice = deviceDefinition.id;
+        const fileBase = this.makeid(8);
+        let scriptPath = '';
+        let filePath = '';
+        try {
+            // make temporary folder
+            fs.mkdirSync(path.join(__dirname, fileBase));
+            // random file name
+
+            scriptPath = path.join(__dirname, fileBase, `openocd.cfg`);
+            if (openocdMethod.options.length > 0) {
+                fs.writeFileSync(scriptPath, openocdMethod.options[0]);
+            }
+            fs.writeFileSync(path.join(__dirname, fileBase, `zephyr.elf`), bytes);
+            const cleanup = () => {
+                if (fileBase && fs.existsSync(path.join(__dirname, fileBase))) {
+                    fs.rmdirSync(path.join(__dirname, fileBase), { recursive: true });
+                }
+            }
+
+            const ccmd = `openocd -f ${scriptPath} -c 'program ${path.join(__dirname, fileBase, 'zephyr.elf')} verify reset exit'`;
+            console.log(ccmd);
+            const exec = cp.spawn(ccmd, [], { env: { ...process.env, NODE_OPTIONS: '' }, timeout: 60000, shell: true });
+            if (!exec.pid) {
+                return;
+            }
+            exec.on('error', () => {
+                cleanup();
+                this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
+                    method: 'openocd',
+                    mac: jlinkDevice,
+                });
+            });
+            exec.stderr.on('data', (data: any) => {
+                console.log(data.toString());
+            });
+            exec.stdout.on('data', (data: any) => {
+                console.log(data.toString());
+            });
+            exec.on('exit', () => {
+                cleanup();
+                this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
+                    method: 'openocd',
+                    mac: jlinkDevice,
+                });
+            });
+        } catch (ex) {
+            console.log(ex);
+        }
+    }
+
+    uploadJLink(mac: string, bytes: Buffer, deviceDefinition: any): void {
+        const jlinkMethod = deviceDefinition.uploadMethods.find((method: any) => method.name === 'jlink');
+        let jlinkDevice = '';
+        let speed = '';
+        let flashAddress = deviceDefinition.flashAddress || '0x0';
+        const fileBase = this.makeid(8);
+        let scriptPath = '';
+        let filePath = '';
+        try {
+            for (let i = 0; i < jlinkMethod.options.length; i++) {
+                let option = jlinkMethod.options[i];
+                if (option.indexOf('"') === 0) {
+                    option = option.substring(1, option.length - 1);
+                }
+                if (option.indexOf('--device=') === 0) {
+                    jlinkDevice = option.split('=')[1];
+                }
+                if (option.indexOf('--speed=') === 0) {
+                    speed = option.split('=')[1];
+                }
+            }
+            // random file name
+            let fileName = `${fileBase}.bin`;
+            filePath = path.join(__dirname, fileName);
+            scriptPath = path.join(__dirname, `${fileBase}.jlink`);
+            fs.writeFileSync(filePath, bytes);
+            fs.writeFileSync(scriptPath, `loadbin ${filePath} ${flashAddress}\nR\nG\nExit`);
+            const cleanup = () => {
+                if (scriptPath && fs.existsSync(scriptPath)) {
+                    fs.unlinkSync(scriptPath);
+                }
+                if (filePath && fs.existsSync(filePath)) {
+                    fs.unlinkSync(filePath);
+                }
+            }
+
+            const ccmd = `JLinkExe -device ${jlinkDevice} -if SWD -speed ${speed} -autoconnect 1 -CommanderScript ${scriptPath}`;
+            const exec = cp.spawn(ccmd, [], { env: { ...process.env, NODE_OPTIONS: '' }, timeout: 60000, shell: true });
+            if (!exec.pid) {
+                return;
+            }
+            exec.on('error', () => {
+                cleanup();
+                this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
+                    mac: jlinkDevice,
+                });
+            });
+            exec.stderr.on('data', (data: any) => {
+                console.log(data.toString());
+            });
+            exec.stdout.on('data', (data: any) => {
+                console.log(data.toString());
+            });
+            exec.on('exit', () => {
+                cleanup();
+                this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
+                    method: 'jlink',
+                    mac: jlinkDevice,
+                });
+            });
+        } catch (ex) {
+            console.log(ex);
+        }
+    }
+
+    uploadTeensy(mac: string, bytes: Buffer, deviceDefinition: any): void {
+        const teensyMethod = deviceDefinition.uploadMethods.find((method: any) => method.name === 'teensy');
+        let teensyDevice = '';
+        const fileBase = this.makeid(8);
+        let filePath = '';
+        try {
+            for (let i = 0; i < teensyMethod.options.length; i++) {
+                let option = teensyMethod.options[i];
+                if (option.indexOf('"') === 0) {
+                    option = option.substring(1, option.length - 1);
+                }
+                if (option.indexOf('--mcu=') === 0) {
+                    teensyDevice = option.split('=')[1];
+                    break;
+                }
+            }
+            // random file name
+            let fileName = `${fileBase}.hex`;
+            filePath = path.join(__dirname, fileName);
+            fs.writeFileSync(filePath, bytes);
+            const cleanup = () => {
+                if (filePath && fs.existsSync(filePath)) {
+                    fs.unlinkSync(filePath);
+                }
+            }
+
+            const ccmd = `teensy_loader_cli --mcu=${teensyDevice} -w -v ${filePath}`;
+            const exec = cp.spawn(ccmd, [], { env: { ...process.env, NODE_OPTIONS: '' }, timeout: 60000, shell: true });
+            if (!exec.pid) {
+                return;
+            }
+            exec.on('error', () => {
+                cleanup();
+                this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
+                    mac,
+                });
+            });
+            exec.stderr.on('data', (data: any) => {
+                console.log(data.toString());
+            });
+            exec.stdout.on('data', (data: any) => {
+                console.log(data.toString());
+            });
+            exec.on('exit', () => {
+                cleanup();
+                this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
+                    method: 'teensy',
+                    mac,
+                });
+            });
+        } catch (ex) {
+            console.log(ex);
         }
     }
 

@@ -48,6 +48,11 @@ export declare class TIDEProxy {
     clearDeviceMessageQueue(mac: string): void;
     stopApplicationUpload(address: string): void;
     startApplicationUpload(mac: string, fileString: string, deviceDefinition?: any, method?: string, files?: any[], baudRate?: number): void;
+    uploadESP32(mac: string, bytes: Buffer, deviceDefinition: any, baudRate: number): void;
+    uploadBossac(mac: string, bytes: Buffer, deviceDefinition: any): void;
+    uploadOpenOCD(mac: string, bytes: Buffer, deviceDefinition: any): void;
+    uploadJLink(mac: string, bytes: Buffer, deviceDefinition: any): void;
+    uploadTeensy(mac: string, bytes: Buffer, deviceDefinition: any): void;
     startUploadMicropython(mac: string, files: any[], baudRate: number): Promise<void>;
     startUploadEsp32(mac: string, files: any[], baudRate: number): Promise<void>;
     sendBlock(mac: string, blockIndex: number): void;
