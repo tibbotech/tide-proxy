@@ -854,22 +854,43 @@ export class TIDEProxy {
         let scriptPath = '';
         let filePath = '';
         try {
+            // see if openocd is installed and in path
+            let openocdPath = 'openocd';
+            if (process.platform === 'win32') {
+                openocdPath = 'openocd.exe';
+            }
+            const openocd = cp.spawnSync(openocdPath, ['--version']);
+            if (openocd.error) {
+                this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
+                    data: `${openocdPath} not found`,
+                    format: 'markdown',
+                    mac: mac,
+                });
+                return this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, {
+                    method: 'openocd',
+                    code: 'not_found',
+                    mac,
+                });
+            }
             // make temporary folder
-            fs.mkdirSync(path.join(__dirname, fileBase));
+            fs.mkdirSync(path.join(PROJECT_OUTPUT_FOLDER, fileBase), { recursive: true });
             // random file name
 
-            scriptPath = path.join(__dirname, fileBase, `openocd.cfg`);
+            scriptPath = path.join(PROJECT_OUTPUT_FOLDER, fileBase, `openocd.cfg`);
+            let openocdOptions = '';
             if (openocdMethod.options.length > 0) {
-                fs.writeFileSync(scriptPath, openocdMethod.options[0]);
+                openocdOptions = openocdMethod.options[0];   
             }
-            fs.writeFileSync(path.join(__dirname, fileBase, `zephyr.elf`), bytes);
+            fs.writeFileSync(scriptPath, openocdOptions);
+            fs.writeFileSync(path.join(PROJECT_OUTPUT_FOLDER, fileBase, `zephyr.elf`), bytes);
             const cleanup = () => {
-                if (fileBase && fs.existsSync(path.join(__dirname, fileBase))) {
-                    fs.rmdirSync(path.join(__dirname, fileBase), { recursive: true });
+                if (fileBase && fs.existsSync(path.join(PROJECT_OUTPUT_FOLDER, fileBase))) {
+                    fs.rmdirSync(path.join(PROJECT_OUTPUT_FOLDER, fileBase), { recursive: true });
                 }
             }
+            let cmdOutput = '';
 
-            const ccmd = `openocd -f ${scriptPath} -c 'program ${path.join(__dirname, fileBase, 'zephyr.elf')} verify reset exit'`;
+            const ccmd = `${openocdPath} -f ${scriptPath} -c 'program ${path.join(PROJECT_OUTPUT_FOLDER, fileBase, 'zephyr.elf')} verify reset exit'`;
             console.log(ccmd);
             const exec = cp.spawn(ccmd, [], { env: { ...process.env, NODE_OPTIONS: '' }, timeout: 60000, shell: true });
             if (!exec.pid) {
@@ -883,20 +904,40 @@ export class TIDEProxy {
                 });
             });
             exec.stderr.on('data', (data: any) => {
+                cmdOutput += data.toString();
                 console.log(data.toString());
             });
             exec.stdout.on('data', (data: any) => {
+                cmdOutput += data.toString();
                 console.log(data.toString());
             });
-            exec.on('exit', () => {
+            exec.on('exit', (code: Number) => {
                 cleanup();
+                if (code !== 0) {
+                    this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
+                        data: `OpenOCD exited with code ${code} \n${cmdOutput}`,
+                        mac: mac,
+                    });
+                    return this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, {
+                        method: 'openocd',
+                        code: 'error',
+                        mac,
+                    });
+                }
                 this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
                     method: 'openocd',
                     mac: jlinkDevice,
                 });
             });
-        } catch (ex) {
-            console.log(ex);
+        } catch (ex: any) {
+            this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
+                data: ex.toString(),
+                mac,
+            });
+            this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, {
+                method: 'openocd',
+                mac,
+            });
         }
     }
 
@@ -909,6 +950,24 @@ export class TIDEProxy {
         let scriptPath = '';
         let filePath = '';
         try {
+            // see if jlink is installed and in path
+            let jlinkPath = 'JLinkExe';
+            if (process.platform === 'win32') {
+                jlinkPath = 'JLinkExe.exe';
+            }
+            const jlink = cp.spawnSync(jlinkPath, ['--version']);
+            if (jlink.error) {
+                this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
+                    data: `${jlinkPath} not found`,
+                    format: 'markdown',
+                    mac: mac,
+                });
+                return this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, {
+                    method: 'jlink',
+                    code: 'not_found',
+                    mac,
+                });
+            }
             for (let i = 0; i < jlinkMethod.options.length; i++) {
                 let option = jlinkMethod.options[i];
                 if (option.indexOf('"') === 0) {
@@ -923,8 +982,8 @@ export class TIDEProxy {
             }
             // random file name
             let fileName = `${fileBase}.bin`;
-            filePath = path.join(__dirname, fileName);
-            scriptPath = path.join(__dirname, `${fileBase}.jlink`);
+            filePath = path.join(PROJECT_OUTPUT_FOLDER, fileName);
+            scriptPath = path.join(PROJECT_OUTPUT_FOLDER, `${fileBase}.jlink`);
             fs.writeFileSync(filePath, bytes);
             fs.writeFileSync(scriptPath, `loadbin ${filePath} ${flashAddress}\nR\nG\nExit`);
             const cleanup = () => {
@@ -936,7 +995,7 @@ export class TIDEProxy {
                 }
             }
 
-            const ccmd = `JLinkExe -device ${jlinkDevice} -if SWD -speed ${speed} -autoconnect 1 -CommanderScript ${scriptPath}`;
+            const ccmd = `${jlinkPath} -device ${jlinkDevice} -if SWD -speed ${speed} -autoconnect 1 -CommanderScript ${scriptPath}`;
             const exec = cp.spawn(ccmd, [], { env: { ...process.env, NODE_OPTIONS: '' }, timeout: 60000, shell: true });
             if (!exec.pid) {
                 return;
@@ -983,7 +1042,7 @@ export class TIDEProxy {
             }
             // random file name
             let fileName = `${fileBase}.hex`;
-            filePath = path.join(__dirname, fileName);
+            filePath = path.join(PROJECT_OUTPUT_FOLDER, fileName);
             fs.writeFileSync(filePath, bytes);
             const cleanup = () => {
                 if (filePath && fs.existsSync(filePath)) {
@@ -1075,6 +1134,7 @@ export class TIDEProxy {
             const esp32Serial = new ESP32Serial(serialPort);
             esp32Serial.on('progress', (progress: number) => {
                 this.emit(TIBBO_PROXY_MESSAGE.UPLOAD, {
+                    method: 'esp32',
                     'data': progress,
                     'mac': mac
                 });
@@ -1089,8 +1149,8 @@ export class TIDEProxy {
         } catch (ex: any) {
             console.log(ex);
             this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, {
-                'nonce': '',
-                'mac': mac
+                method: 'esp32',
+                mac,
             });
             this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
                 data: ex.message,
