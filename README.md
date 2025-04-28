@@ -15,6 +15,11 @@ This module provides commands control and monitor Tibbo Devices
 sudo ufw allow proto udp from any to any
 ```
 
+## Local Web Server
+```
+allow tcp port 3005 to view local web server
+```
+
 ## Zephyr Upload Methods
 
 ### Teensy

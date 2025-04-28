@@ -15,6 +15,7 @@ const winston = require('winston');
 const url = require('url');
 const io = require("socket.io")({ serveClient: false, cors: { origin: "*" }, maxHttpBufferSize: 1e10 });
 const os = require('os');
+const http = require('http');
 const { Subject } = require('await-notify');
 
 const RETRY_TIMEOUT = 50;
@@ -231,16 +232,22 @@ export class TIDEProxy {
             if (adk) {
                 try {
                     console.log(`sending to ${adk.ip} pin ${pin} value ${value}`);
-                    const result = await fetch(`http://${adk.ip}:18080/gpio`, {
+                    const postData = JSON.stringify({
+                        tibboIoPin_post: pin,
+                        value_post: value,
+                    });
+                    const re = http.request({
+                        hostname: adk.ip,
+                        port: 18080,
+                        path: '/gpio',
                         method: 'POST',
-                        body: JSON.stringify({
-                            tibboIoPin_post: pin,
-                            value_post: value,
-                        }),
                         headers: {
                             'Content-Type': 'application/json',
-                        },
+                            'Content-Length': postData.length
+                        }
                     });
+                    re.write(postData);
+                    re.end();
                 } catch (ex) {
                     console.log(ex);
                 }
@@ -253,15 +260,21 @@ export class TIDEProxy {
             if (adk) {
                 try {
                     console.log(`sending to ${adk.ip} card value ${value}`);
-                    const result = await fetch(`http://${adk.ip}:18080/wiegand`, {
+                    const postData = JSON.stringify({
+                        wiegandData_post: value,
+                    });
+                    const re = http.request({
+                        hostname: adk.ip,
+                        port: 18080,
+                        path: '/wiegand',
                         method: 'POST',
-                        body: JSON.stringify({
-                            wiegandData_post: value,
-                        }),
                         headers: {
                             'Content-Type': 'application/json',
-                        },
+                            'Content-Length': postData.length
+                        }
                     });
+                    re.write(postData);
+                    re.end();
                 } catch (ex) {
                     console.log(ex);
                 }
@@ -879,7 +892,7 @@ export class TIDEProxy {
             scriptPath = path.join(PROJECT_OUTPUT_FOLDER, fileBase, `openocd.cfg`);
             let openocdOptions = '';
             if (openocdMethod.options.length > 0) {
-                openocdOptions = openocdMethod.options[0];   
+                openocdOptions = openocdMethod.options[0];
             }
             fs.writeFileSync(scriptPath, openocdOptions);
             fs.writeFileSync(path.join(PROJECT_OUTPUT_FOLDER, fileBase, `zephyr.elf`), bytes);
