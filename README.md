@@ -17,7 +17,7 @@ sudo ufw allow proto udp from any to any
 
 ## Local Web Server
 ```
-allow tcp port 3005 to view local web server
+sudo ufw allow 3005
 ```
 
 ## Zephyr Upload Methods
