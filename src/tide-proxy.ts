@@ -97,62 +97,94 @@ export class TIDEProxy {
 
     initInterfaces(targetInterface: any = '') {
         const ifaces = os.networkInterfaces();
-        if (this.interfaces.length > 0) {
-            for (let i = 0; i < this.interfaces.length; i++) {
-                this.interfaces[i].socket.close();
-                this.interfaces[i].socket.removeAllListeners();
-            }
-            this.interfaces = [];
-        }
+        
+        // Clear pending operations that might use old interfaces
+        this.clearPendingOperations();
+        
+        // Store old interfaces for cleanup
+        const oldInterfaces = [...this.interfaces];
+        this.interfaces = [];
+        
+        // Create new interfaces first
         for (const key in ifaces) {
-            // broadcasts[i] = networks[i] | ~subnets[i] + 256;
             const iface = ifaces[key];
             for (let i = 0; i < iface.length; i++) {
                 const tmp = iface[i];
                 if (tmp.family == 'IPv4' && !tmp.internal) {
-                    // const broadcastAddress = this.getBroadcastAddress(tmp.address, tmp.netmask);
-                    const socket = dgram.createSocket({ type: 'udp4', reuseAddr: true });
-                    // if (broadcastAddress == NaN) {
-                    //     continue;
-                    // }
-                    socket.on('close', () => {
-                        logger.info('client disconnected');
-                    });
+                    try {
+                        const socket = dgram.createSocket({ type: 'udp4', reuseAddr: true });
+                        
+                        socket.on('close', () => {
+                            logger.info('Socket closed for ' + tmp.address);
+                        });
 
-                    socket.on('error', (err) => {
-                        logger.error(`udp server error:\n${err.stack}`);
-                        socket.close();
-                    });
-                    socket.on('message', (msg: Buffer, info) => {
-                        this.handleMessage(msg, info, int);
-                    });
+                        socket.on('error', (err) => {
+                            logger.error(`UDP server error on ${tmp.address}:\n${err.stack}`);
+                            socket.close();
+                        });
+                        
+                        socket.on('message', (msg: Buffer, info) => {
+                            this.handleMessage(msg, info, int);
+                        });
 
-                    socket.on('listening', () => {
-                        logger.info('listening on ' + tmp.address);
-                    });
+                        socket.on('listening', () => {
+                            logger.info('Listening on ' + tmp.address);
+                        });
 
-                    socket.bind({
-                        // port: PORT,
-                        address: tmp.address
-                    }, () => {
-                        logger.info('socket bound for ' + tmp.address);
-                        socket.setBroadcast(true);
-                    });
+                        const int: TBNetworkInterface = {
+                            socket: socket,
+                            netInterface: tmp
+                        };
 
-                    const int = {
-                        socket: socket,
-                        netInterface: tmp
-                    };
+                        // Bind socket
+                        socket.bind({
+                            address: tmp.address
+                        }, () => {
+                            logger.info('Socket bound for ' + tmp.address);
+                            socket.setBroadcast(true);
+                        });
 
+                        this.interfaces.push(int);
 
-                    this.interfaces.push(int);
-
-                    if (targetInterface && key == targetInterface) {
-                        this.currentInterface = int;
+                        if (targetInterface && key == targetInterface) {
+                            this.currentInterface = int;
+                        }
+                    } catch (err: any) {
+                        logger.error(`Failed to create interface for ${tmp.address}:`, err.message);
                     }
                 }
             }
         }
+        
+        // Clean up old interfaces after new ones are ready
+        this.cleanupOldInterfaces(oldInterfaces);
+    }
+
+    private clearPendingOperations(): void {
+        // Clear the message check timer to prevent operations on old sockets
+        if (this.timer) {
+            clearInterval(this.timer);
+            this.timer = undefined;
+        }
+        
+        // Clear pending messages to prevent retries on closed sockets
+        this.pendingMessages = [];
+    }
+
+    private cleanupOldInterfaces(oldInterfaces: TBNetworkInterface[]): void {
+        // Use setTimeout to allow any in-flight operations to complete
+        setTimeout(() => {
+            oldInterfaces.forEach((oldInterface, index) => {
+                try {
+                    if (oldInterface.socket) {
+                        oldInterface.socket.removeAllListeners();
+                        oldInterface.socket.close();
+                    }
+                } catch (err: any) {
+                    logger.error(`Error closing old socket ${index}:`, err.message);
+                }
+            });
+        }, 100); // Small delay to allow pending operations to complete
     }
 
     setInterface(targetInterface: string) {
@@ -1263,27 +1295,67 @@ export class TIDEProxy {
 
     checkMessageQueue(): void {
         const currentDate = new Date().getTime();
-        for (let i = 0; i < this.pendingMessages.length; i++) {
-            const elapsed = currentDate - this.pendingMessages[i].timestamp;
-            if (elapsed > this.pendingMessages[i].timeout) {
-                if (this.pendingMessages[i].timeout < 1024) {
-                    this.pendingMessages[i].timeout *= 2;
-                }
-                if (this.pendingMessages[i].tries > 10) {
-                    console.log(`discarding ${this.pendingMessages[i].message}`);
+        
+        // Process messages from oldest to newest (FIFO), but safely handle removals
+        let i = 0;
+        while (i < this.pendingMessages.length) {
+            const pendingMessage = this.pendingMessages[i];
+            const elapsed = currentDate - pendingMessage.timestamp;
+            
+            if (elapsed > pendingMessage.timeout) {
+                // Check if we should retry or discard
+                if (pendingMessage.tries > 10) {
+                    logger.warn(`Discarding message after ${pendingMessage.tries} attempts: ${pendingMessage.message}`);
                     this.pendingMessages.splice(i, 1);
-                    i--;
+                    // Don't increment i since we removed an item
                     continue;
                 }
-                this.pendingMessages[i].tries++;
-                this.pendingMessages[i].timestamp = currentDate;
-                const message = this.pendingMessages[i].message;
-                const pnum = this.pendingMessages[i].nonce;
-                const newMessage = Buffer.concat([Buffer.from(`${message}|${pnum}`, 'binary')]);
-                logger.info('timeout ' + this.pendingMessages[i].message);
-                this.send(newMessage, this.pendingMessages[i].deviceInterface);
+                
+                // Check if the interface is still valid before retrying
+                if (!this.isValidInterface(pendingMessage.deviceInterface)) {
+                    logger.warn(`Interface no longer valid, discarding message: ${pendingMessage.message}`);
+                    this.pendingMessages.splice(i, 1);
+                    // Don't increment i since we removed an item
+                    continue;
+                }
+                
+                // Update retry parameters
+                if (pendingMessage.timeout < 1024) {
+                    pendingMessage.timeout *= 2;
+                }
+                pendingMessage.tries++;
+                pendingMessage.timestamp = currentDate;
+                
+                // Retry sending the message
+                try {
+                    const message = pendingMessage.message;
+                    const pnum = pendingMessage.nonce;
+                    const newMessage = Buffer.from(`${message}|${pnum}`, 'binary');
+                    
+                    logger.info(`Retrying message (attempt ${pendingMessage.tries}): ${pendingMessage.message}`);
+                    this.send(newMessage, pendingMessage.deviceInterface);
+                } catch (err: any) {
+                    logger.error(`Error retrying message: ${err.message}`);
+                    // Remove the message if we can't retry it
+                    this.pendingMessages.splice(i, 1);
+                    // Don't increment i since we removed an item
+                    continue;
+                }
             }
+            
+            // Only increment if we didn't remove an item
+            i++;
         }
+    }
+
+    private isValidInterface(deviceInterface: any): boolean {
+        if (!deviceInterface || !deviceInterface.socket) {
+            return false;
+        }
+        
+        // Check if this interface still exists in our current interfaces
+        return this.interfaces.some(int => int === deviceInterface) && 
+               this.isSocketActive(deviceInterface.socket);
     }
 
     makeid(length: number): string {
@@ -1315,44 +1387,98 @@ export class TIDEProxy {
         }
     }
 
+    private isSocketActive(socket: dgram.Socket): boolean {
+        try {
+            // Check if socket exists and hasn't been closed
+            return socket && typeof socket.send === 'function';
+        } catch (err) {
+            return false;
+        }
+    }
+
+    private sendToSocket(socket: dgram.Socket, message: Buffer, address: string, port: number): Promise<void> {
+        return new Promise((resolve, reject) => {
+            try {
+                if (!this.isSocketActive(socket)) {
+                    reject(new Error('Socket is not active'));
+                    return;
+                }
+                
+                // Convert Buffer to Uint8Array to satisfy TypeScript types
+                const messageArray = new Uint8Array(message);
+                socket.send(messageArray, 0, messageArray.length, port, address, (err) => {
+                    if (err) {
+                        reject(err);
+                    } else {
+                        resolve();
+                    }
+                });
+            } catch (err) {
+                reject(err);
+            }
+        });
+    }
+
     send(message: Buffer, netInterface?: any, targetIP?: string): void {
         logger.info(`${new Date().toLocaleTimeString()} sent: ${message}`);
+        
         let targetInterface = this.currentInterface;
         if (netInterface != undefined) {
             targetInterface = netInterface;
         }
+
         if (targetInterface != undefined) {
-            // Use specific broadcast address for this interface
+            this.sendToSingleInterface(message, targetInterface);
+        } else {
+            this.sendToAllInterfaces(message);
+        }
+    }
+
+    private sendToSingleInterface(message: Buffer, targetInterface: TBNetworkInterface): void {
+        if (!this.isSocketActive(targetInterface.socket)) {
+            logger.error('Target interface socket is not active');
+            return;
+        }
+
+        try {
             const broadcastAddress = this.getBroadcastAddress(
                 targetInterface.netInterface.address,
                 targetInterface.netInterface.netmask
             );
-            targetInterface.socket.send(message, 0, message.length, PORT, broadcastAddress, (err, bytes) => {
-                if (err) {
-                    logger.error('error sending ' + err.toString());
-                }
-            });
+            
+            this.sendToSocket(targetInterface.socket, message, broadcastAddress, PORT)
+                .catch(err => {
+                    logger.error('Error sending to specific interface:', err.message);
+                });
+        } catch (err: any) {
+            logger.error('Error preparing message for specific interface:', err.message);
         }
-        else {
-            for (let i = 0; i < this.interfaces.length; i++) {
-                try {
-                    const tmp = this.interfaces[i];
-                    // Use specific broadcast address for each interface
-                    const broadcastAddress = this.getBroadcastAddress(
-                        tmp.netInterface.address,
-                        tmp.netInterface.netmask
-                    );
-                    tmp.socket.send(message, 0, message.length, PORT, broadcastAddress, (err, bytes) => {
-                        if (err) {
-                            logger.error('error sending ' + err.toString());
-                        }
-                    });
-                }
-                catch (ex) {
-                    logger.error('Error sending to interface:', ex);
-                }
+    }
+
+    private sendToAllInterfaces(message: Buffer): void {
+        // Create a snapshot of interfaces to avoid race conditions
+        const interfaceSnapshot = [...this.interfaces];
+        
+        interfaceSnapshot.forEach((interfaceItem, index) => {
+            if (!this.isSocketActive(interfaceItem.socket)) {
+                logger.warn(`Interface ${index} socket is not active, skipping`);
+                return;
             }
-        }
+
+            try {
+                const broadcastAddress = this.getBroadcastAddress(
+                    interfaceItem.netInterface.address,
+                    interfaceItem.netInterface.netmask
+                );
+                
+                this.sendToSocket(interfaceItem.socket, message, broadcastAddress, PORT)
+                    .catch(err => {
+                        logger.error(`Error sending to interface ${index}:`, err.message);
+                    });
+            } catch (err: any) {
+                logger.error(`Error preparing message for interface ${index}:`, err.message);
+            }
+        });
     }
 
     private async getVariable(address: number, mac: string): Promise<string> {
@@ -1484,10 +1610,28 @@ export class TIDEProxy {
     }
 
     close() {
+        logger.info('Closing TIDEProxy...');
+        
+        // Stop all pending operations first
+        this.clearPendingOperations();
+        
+        // Close socket.io connection
         if (this.socket) {
-            this.socket.close();
             this.socket.removeAllListeners();
+            this.socket.close();
+            this.socket = undefined;
         }
+        
+        // Close all UDP interfaces
+        this.cleanupOldInterfaces([...this.interfaces]);
+        this.interfaces = [];
+        this.currentInterface = undefined;
+        
+        // Clear device states
+        this.devices = [];
+        this.discoveredDevices = {};
+        
+        logger.info('TIDEProxy closed successfully');
     }
 
     getDevices(): Array<TibboDevice> {

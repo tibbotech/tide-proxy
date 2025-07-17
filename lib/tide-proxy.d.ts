@@ -36,6 +36,8 @@ export declare class TIDEProxy {
     adks: any[];
     constructor(serverAddress: string | undefined, proxyName: string, port?: number, targetInterface?: string);
     initInterfaces(targetInterface?: any): void;
+    private clearPendingOperations;
+    private cleanupOldInterfaces;
     setInterface(targetInterface: string): void;
     registerListeners(socket: any): void;
     setServer(serverAddress: string, proxyName: string): void;
@@ -58,9 +60,14 @@ export declare class TIDEProxy {
     sendBlock(mac: string, blockIndex: number): void;
     sendToDevice(mac: string, command: string, data: string, reply?: boolean, nonce?: string | undefined): void;
     checkMessageQueue(): void;
+    private isValidInterface;
     makeid(length: number): string;
     private getBroadcastAddress;
+    private isSocketActive;
+    private sendToSocket;
     send(message: Buffer, netInterface?: any, targetIP?: string): void;
+    private sendToSingleInterface;
+    private sendToAllInterfaces;
     private getVariable;
     getDevice(mac: string): TibboDevice;
     handleHTTPProxy(message: HTTPMessage): Promise<void>;
