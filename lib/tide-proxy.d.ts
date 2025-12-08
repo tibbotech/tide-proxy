@@ -44,7 +44,7 @@ export declare class TIDEProxy {
     setADKS(adks: any[]): void;
     handleRefresh(): void;
     setPDBAddress(message: TaikoMessage): void;
-    handleMessage(msg: Buffer, info: any, socket: TBNetworkInterface): void;
+    handleMessage(msg: Buffer, info: any): void;
     handleDebugPrint(device: TibboDevice, state: string): Promise<void>;
     removeDeviceMessage(mac: string, nonce: string): void;
     clearDeviceMessageQueue(mac: string): void;
