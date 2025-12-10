@@ -71,11 +71,14 @@ export class TIDEProxy {
     listenPort: number;
     serialDevices: { [key: string]: SerialDevice } = {};
     adks: any[] = [];
+    networkWatcherTimer?: NodeJS.Timeout;
+    lastInterfaceState: string = '';
 
     constructor(serverAddress = '', proxyName: string, port = 3535, targetInterface?: string) {
         this.id = new Date().getTime().toString();
         this.listenPort = port;
         this.initInterfaces(targetInterface);
+        this.startNetworkWatcher(targetInterface);
 
         if (serverAddress != '') {
             this.setServer(serverAddress, proxyName);
@@ -106,45 +109,43 @@ export class TIDEProxy {
         this.interfaces = [];
         
         // Create new interfaces first
-        const socket = dgram.createSocket({ type: 'udp4', reuseAddr: false });
-
-        socket.on('close', () => {
-            logger.info('Socket closed for ');
-        });
-
-        socket.on('error', (err) => {
-            logger.error(`UDP server error on `);
-            socket.close();
-        });
-        
-        socket.on('message', (msg: Buffer, info) => {
-            this.handleMessage(msg, info);
-        });
-
-        socket.on('listening', () => {
-            logger.info('Listening on ');
-        });
-
-        // Bind socket
-        socket.bind({
-            // address: tmp.address
-        }, () => {
-            logger.info('Socket bound for ');
-            socket.setBroadcast(true);
-            // socket.addMembership(tmp.address);
-        });
         for (const key in ifaces) {
             const iface = ifaces[key];
             for (let i = 0; i < iface.length; i++) {
                 const tmp = iface[i];
                 if (tmp.family == 'IPv4' && !tmp.internal) {
                     try {
+                        const socket = dgram.createSocket({ type: 'udp4', reuseAddr: true });
                         
+                        socket.on('close', () => {
+                            logger.info('Socket closed for ' + tmp.address);
+                        });
+
+                        socket.on('error', (err) => {
+                            logger.error(`UDP server error on ${tmp.address}:\n${err.stack}`);
+                            socket.close();
+                        });
                         
+                        socket.on('message', (msg: Buffer, info) => {
+                            this.handleMessage(msg, info, int);
+                        });
+
+                        socket.on('listening', () => {
+                            logger.info('Listening on ' + tmp.address);
+                        });
+
                         const int: TBNetworkInterface = {
                             socket: socket,
                             netInterface: tmp
                         };
+
+                        // Bind socket
+                        socket.bind({
+                            address: tmp.address
+                        }, () => {
+                            logger.info('Socket bound for ' + tmp.address);
+                            socket.setBroadcast(true);
+                        });
 
                         this.interfaces.push(int);
 
@@ -187,6 +188,43 @@ export class TIDEProxy {
                 }
             });
         }, 100); // Small delay to allow pending operations to complete
+    }
+
+    private getInterfaceState(): string {
+        const ifaces = os.networkInterfaces();
+        const state: string[] = [];
+        for (const key in ifaces) {
+            const iface = ifaces[key];
+            for (let i = 0; i < iface.length; i++) {
+                const tmp = iface[i];
+                if (tmp.family == 'IPv4' && !tmp.internal) {
+                    state.push(`${key}:${tmp.address}:${tmp.netmask}`);
+                }
+            }
+        }
+        return state.sort().join('|');
+    }
+
+    private startNetworkWatcher(targetInterface?: string): void {
+        // Store the initial state
+        this.lastInterfaceState = this.getInterfaceState();
+
+        // Check for network interface changes every 5 seconds
+        this.networkWatcherTimer = setInterval(() => {
+            const currentState = this.getInterfaceState();
+            if (currentState !== this.lastInterfaceState) {
+                logger.info('Network interface change detected, reinitializing interfaces...');
+                this.lastInterfaceState = currentState;
+                this.initInterfaces(targetInterface);
+            }
+        }, 5000);
+    }
+
+    private stopNetworkWatcher(): void {
+        if (this.networkWatcherTimer) {
+            clearInterval(this.networkWatcherTimer);
+            this.networkWatcherTimer = undefined;
+        }
     }
 
     setInterface(targetInterface: string) {
@@ -356,7 +394,7 @@ export class TIDEProxy {
         }
     }
 
-    handleMessage(msg: Buffer, info: any) {
+    handleMessage(msg: Buffer, info: any, socket: TBNetworkInterface) {
         const message = msg.toString();
         const parts = message.substring(message.indexOf('[') + 1, message.indexOf(']')).split('.');
         if (message.substr(0, 1) == '_') {
@@ -373,7 +411,7 @@ export class TIDEProxy {
         if (device.ip == '') {
             device.ip = ip;
         }
-        // device.deviceInterface = socket;
+        device.deviceInterface = socket;
 
         const secondPart = message.substring(message.indexOf(']') + 2);
         const messagePart = secondPart.split('|')[0];
@@ -1614,6 +1652,9 @@ export class TIDEProxy {
 
     close() {
         logger.info('Closing TIDEProxy...');
+        
+        // Stop network watcher
+        this.stopNetworkWatcher();
         
         // Stop all pending operations first
         this.clearPendingOperations();
