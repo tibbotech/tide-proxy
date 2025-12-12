@@ -37,6 +37,20 @@ interface UDPMessage {
     timeout: number,
 }
 
+export interface TIDEProxyToolPaths {
+    openocd?: string;
+    bossac?: string;
+    jlink?: string;
+}
+
+export interface TIDEProxyOptions {
+    serverAddress?: string;
+    proxyName?: string;
+    port?: number;
+    targetInterface?: string;
+    toolPaths?: TIDEProxyToolPaths;
+}
+
 interface TBNetworkInterface {
     socket: dgram.Socket,
     netInterface: any
@@ -74,15 +88,55 @@ export class TIDEProxy {
     adks: any[] = [];
     networkWatcherTimer?: NodeJS.Timeout;
     lastInterfaceState: string = '';
+    toolPaths: TIDEProxyToolPaths;
 
-    constructor(serverAddress = '', proxyName: string, port = 3535, targetInterface?: string) {
+    constructor(serverAddress: string, proxyName: string, port?: number, targetInterface?: string, options?: TIDEProxyOptions);
+    constructor(options: TIDEProxyOptions);
+    constructor(
+        serverAddressOrOptions: string | TIDEProxyOptions = '', 
+        proxyName?: string, 
+        port: number = 3535, 
+        targetInterface?: string,
+        options?: TIDEProxyOptions
+    ) {
+        // Handle both constructor signatures
+        let serverAddress: string;
+        let actualProxyName: string;
+        let actualPort: number;
+        let actualTargetInterface: string | undefined;
+        let toolPaths: TIDEProxyToolPaths;
+
+        if (typeof serverAddressOrOptions === 'object') {
+            // New options-based constructor
+            serverAddress = serverAddressOrOptions.serverAddress || '';
+            actualProxyName = serverAddressOrOptions.proxyName || '';
+            actualPort = serverAddressOrOptions.port || 3535;
+            actualTargetInterface = serverAddressOrOptions.targetInterface;
+            toolPaths = serverAddressOrOptions.toolPaths || {};
+        } else {
+            // Legacy constructor
+            serverAddress = serverAddressOrOptions;
+            actualProxyName = proxyName || '';
+            actualPort = port;
+            actualTargetInterface = targetInterface;
+            toolPaths = options?.toolPaths || {};
+        }
+
+        // Set default tool paths based on platform
+        const isWindows = process.platform === 'win32';
+        this.toolPaths = {
+            openocd: toolPaths.openocd || (isWindows ? 'openocd.exe' : 'openocd'),
+            bossac: toolPaths.bossac || (isWindows ? 'bossac.exe' : 'bossac'),
+            jlink: toolPaths.jlink || (isWindows ? 'JLinkExe.exe' : 'JLinkExe'),
+        };
+
         this.id = new Date().getTime().toString();
-        this.listenPort = port;
-        this.initInterfaces(targetInterface);
-        this.startNetworkWatcher(targetInterface);
+        this.listenPort = actualPort;
+        this.initInterfaces(actualTargetInterface);
+        this.startNetworkWatcher(actualTargetInterface);
 
         if (serverAddress != '') {
-            this.setServer(serverAddress, proxyName);
+            this.setServer(serverAddress, actualProxyName);
         }
         this.server = io.of('/tide');
         this.clients = [];
@@ -96,7 +150,7 @@ export class TIDEProxy {
             });
         });
 
-        io.listen(port);
+        io.listen(actualPort);
     }
 
     initInterfaces(targetInterface: any = '') {
@@ -839,12 +893,9 @@ export class TIDEProxy {
 
     uploadBossac(mac: string, bytes: Buffer, deviceDefinition: any): void {
         const fileBase = this.makeid(8);
+        const bossacPath = this.toolPaths.bossac!;
         try {
             // see if bossac is installed and in path
-            let bossacPath = 'bossac';
-            if (process.platform === 'win32') {
-                bossacPath = 'bossac.exe';
-            }
             const bossac = cp.spawnSync(bossacPath, ['--version'], { shell: true });
             if (bossac.error) {
                 this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
@@ -939,12 +990,9 @@ export class TIDEProxy {
         const fileBase = this.makeid(8);
         let scriptPath = '';
         let filePath = '';
+        const openocdPath = this.toolPaths.openocd!;
         try {
             // see if openocd is installed and in path
-            let openocdPath = 'openocd';
-            if (process.platform === 'win32') {
-                openocdPath = 'openocd.exe';
-            }
             const openocd = cp.spawnSync(openocdPath, ['--version'], { shell: true });
             if (openocd.error) {
                 this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
@@ -1035,12 +1083,9 @@ export class TIDEProxy {
         const fileBase = this.makeid(8);
         let scriptPath = '';
         let filePath = '';
+        const jlinkPath = this.toolPaths.jlink!;
         try {
             // see if jlink is installed and in path
-            let jlinkPath = 'JLinkExe';
-            if (process.platform === 'win32') {
-                jlinkPath = 'JLinkExe.exe';
-            }
             const jlink = cp.spawnSync(jlinkPath, ['--version'], { shell: true });
             if (jlink.error) {
                 this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
