@@ -844,7 +844,7 @@ export class TIDEProxy {
             if (process.platform === 'win32') {
                 bossacPath = 'bossac.exe';
             }
-            const bossac = cp.spawnSync(bossacPath, ['--version']);
+            const bossac = cp.spawnSync(bossacPath, ['--version'], { shell: true });
             if (bossac.error) {
                 this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
                     data: `${bossacPath} not found`,
@@ -944,7 +944,7 @@ export class TIDEProxy {
             if (process.platform === 'win32') {
                 openocdPath = 'openocd.exe';
             }
-            const openocd = cp.spawnSync(openocdPath, ['--version']);
+            const openocd = cp.spawnSync(openocdPath, ['--version'], { shell: true });
             if (openocd.error) {
                 this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
                     data: `${openocdPath} not found`,
@@ -1040,7 +1040,7 @@ export class TIDEProxy {
             if (process.platform === 'win32') {
                 jlinkPath = 'JLinkExe.exe';
             }
-            const jlink = cp.spawnSync(jlinkPath, ['--version']);
+            const jlink = cp.spawnSync(jlinkPath, ['--version'], { shell: true });
             if (jlink.error) {
                 this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
                     data: `${jlinkPath} not found`,
