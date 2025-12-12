@@ -54,7 +54,8 @@ const logger = winston.createLogger({
     ]
 });
 
-const PROJECT_OUTPUT_FOLDER = path.join(__dirname, 'project_output');
+const PROJECT_OUTPUT_FOLDER = process.env.TIDE_PROXY_OUTPUT_DIR 
+    || path.join(os.tmpdir(), 'tide-proxy', 'project_output');
 
 export class TIDEProxy {
     devices: Array<TibboDevice> = [];
