@@ -35,6 +35,9 @@ interface UDPMessage {
     tries: number,
     timestamp: number,
     timeout: number,
+    command?: PCODE_COMMANDS,
+    mac?: string,
+    uploadSessionId?: string,
 }
 
 interface TBNetworkInterface {
@@ -277,7 +280,7 @@ export class TIDEProxy {
             this.sendToDevice(message.mac, PCODE_COMMANDS.BUZZ, '');
         });
         socket.on(TIBBO_PROXY_MESSAGE.REBOOT, (message: TaikoMessage) => {
-            this.stopApplicationUpload(message.mac);
+            this.stopApplicationUpload(message.mac, 'REBOOT command received');
             this.sendToDevice(message.mac, PCODE_COMMANDS.REBOOT, '', false);
         });
         socket.on(TIBBO_PROXY_MESSAGE.APPLICATION_UPLOAD, (message: any) => {
@@ -507,8 +510,25 @@ export class TIDEProxy {
                     break;
                 case PCODE_COMMANDS.PAUSE:
                     device.lastRunCommand = undefined;
-                    this.stopApplicationUpload(mac);
-                    this.clearDeviceMessageQueue(mac);
+                    // Only stop upload if the PAUSE was for this session (or no session is active)
+                    // This prevents stale PAUSE replies from killing a new upload session
+                    if (replyFor?.uploadSessionId) {
+                        if (replyFor.uploadSessionId === device.uploadSessionId) {
+                            logger.info(`PAUSE reply for current session ${device.uploadSessionId}, stopping upload`);
+                            this.stopApplicationUpload(mac, 'PAUSE reply for current session');
+                            this.clearDeviceMessageQueue(mac);
+                        } else {
+                            logger.info(`ignoring stale PAUSE reply for old session ${replyFor.uploadSessionId}, current session: ${device.uploadSessionId}`);
+                        }
+                    } else {
+                        // No session tracking on the PAUSE - only stop if no active upload
+                        if (!device.uploadSessionId) {
+                            this.stopApplicationUpload(mac, 'PAUSE reply with no active session');
+                            this.clearDeviceMessageQueue(mac);
+                        } else {
+                            logger.info(`ignoring PAUSE reply without session while upload session ${device.uploadSessionId} is active`);
+                        }
+                    }
                     break;
                 case PCODE_COMMANDS.RUN:
                 case PCODE_COMMANDS.STEP:
@@ -518,8 +538,16 @@ export class TIDEProxy {
                         || replyForCommand == PCODE_COMMANDS.STEP
                     ) {
                         device.lastRunCommand = replyFor;
+                        // Only stop upload if reply is for current session
                         if (device.file) {
-                            this.stopApplicationUpload(mac);
+                            logger.info(`RUN/STEP reply while file exists: replyFor.session=${replyFor?.uploadSessionId}, device.session=${device.uploadSessionId}`);
+                            if (replyFor?.uploadSessionId && replyFor.uploadSessionId !== device.uploadSessionId) {
+                                logger.info(`ignoring stale RUN/STEP reply for old session ${replyFor.uploadSessionId}, current session: ${device.uploadSessionId}`);
+                            } else if (!replyFor?.uploadSessionId && device.uploadSessionId) {
+                                logger.info(`ignoring RUN/STEP reply without session while upload session ${device.uploadSessionId} is active`);
+                            } else {
+                                this.stopApplicationUpload(mac, 'RUN/STEP reply');
+                            }
                         }
                     }
                     break;
@@ -579,8 +607,13 @@ export class TIDEProxy {
                     if (replyFor === undefined) {
                         return;
                     }
+                    // Check if this reply belongs to the current upload session
+                    if (replyFor.uploadSessionId && replyFor.uploadSessionId !== device.uploadSessionId) {
+                        logger.info(`ignoring stale UPLOAD reply for old session ${replyFor.uploadSessionId}, current session: ${device.uploadSessionId}`);
+                        return;
+                    }
                     if (reply !== REPLY_OK) {
-                        console.log(`upload block ${device.fileIndex} failed for ${mac}`);
+                        logger.info(`upload block ${device.fileIndex} failed for ${mac}`);
                         this.clearDeviceMessageQueue(mac);
                         this.sendBlock(mac, device.fileIndex);
                         return;
@@ -594,16 +627,18 @@ export class TIDEProxy {
                             // if (device.fileIndex % 10 == 0 || device.fileIndex == device.fileBlocksTotal) {
                             this.emit(TIBBO_PROXY_MESSAGE.UPLOAD, {
                                 'data': device.fileIndex / device.fileBlocksTotal,
-                                'mac': mac
+                                'mac': mac,
+                                'sessionId': device.uploadSessionId
                             });
                         }
                     }
                     else {
                         this.emit(TIBBO_PROXY_MESSAGE.UPLOAD, {
                             'data': 1,
-                            'mac': mac
+                            'mac': mac,
+                            'sessionId': device.uploadSessionId
                         });
-                        logger.info(`finished upload to ${mac}`);
+                        logger.info(`finished upload to ${mac}, session ${device.uploadSessionId}`);
                         this.clearDeviceMessageQueue(mac);
                         // if is app upload, send app upload finish (starts with TBIN)
                         if (device.file?.toString('binary').indexOf('TBIN') == 0) {
@@ -613,7 +648,8 @@ export class TIDEProxy {
                             this.sendToDevice(mac, 'N', '', true);
                             this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
                                 'nonce': identifier,
-                                'mac': mac
+                                'mac': mac,
+                                'sessionId': device.uploadSessionId
                             });
                         }
                     }
@@ -623,6 +659,11 @@ export class TIDEProxy {
                     this.sendToDevice(mac, PCODE_COMMANDS.REBOOT, '', false);
                     break;
                 case PCODE_COMMANDS.APPUPLOADFINISH:
+                    // Check if this reply belongs to the current upload session
+                    if (replyFor?.uploadSessionId && replyFor.uploadSessionId !== device.uploadSessionId) {
+                        logger.info(`ignoring stale APPUPLOADFINISH reply for old session ${replyFor.uploadSessionId}, current session: ${device.uploadSessionId}`);
+                        break;
+                    }
                     // verify binary on device is what we sent
                     let count = 0;
                     logger.info(`${mac}, resetting...`);
@@ -631,12 +672,14 @@ export class TIDEProxy {
                         const device = this.getDevice(mac);
                         if (device.appVersion != '' && device.file) {
                             if (device.file?.toString('binary').indexOf(device.appVersion) >= 0) {
-                                this.stopApplicationUpload(mac);
+                                const completedSessionId = device.uploadSessionId;
+                                this.stopApplicationUpload(mac, 'APPUPLOADFINISH verified');
                                 clearInterval(deviceStatusTimer);
-                                logger.info(`${mac}, upload complete`);
+                                logger.info(`${mac}, upload complete, session ${completedSessionId}`);
                                 this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
                                     'nonce': identifier,
-                                    'mac': mac
+                                    'mac': mac,
+                                    'sessionId': completedSessionId
                                 });
                                 return;
                             }
@@ -657,11 +700,22 @@ export class TIDEProxy {
                 case PCODE_COMMANDS.RESET_PROGRAMMING:
 
                     logger.info(`response ${mac} for reset_programming ${reply}`);
+                    logger.info(`RESET_PROGRAMMING reply received: reply=${reply}, replyFor.session=${replyFor?.uploadSessionId}, device.session=${device.uploadSessionId}, hasFile=${!!device.file}`);
+                    // Check if this reply belongs to the current upload session
+                    if (replyFor?.uploadSessionId && replyFor.uploadSessionId !== device.uploadSessionId) {
+                        logger.info(`ignoring stale RESET_PROGRAMMING reply for old session ${replyFor.uploadSessionId}, current session: ${device.uploadSessionId}`);
+                        break;
+                    }
                     if (reply == REPLY_OK) {
                         device.blockSize = 1;
                         if (device.file != null) {
+                            logger.info(`starting block upload for session ${device.uploadSessionId}`);
                             this.sendBlock(mac, 0);
+                        } else {
+                            logger.info(`WARNING: RESET_PROGRAMMING OK but no file to upload for ${mac}`);
                         }
+                    } else {
+                        logger.info(`RESET_PROGRAMMING failed with reply: ${reply}`);
                     }
                     break;
                 default:
@@ -762,16 +816,42 @@ export class TIDEProxy {
         device.messageQueue = [];
     }
 
-    stopApplicationUpload(address: string) {
+    stopApplicationUpload(address: string, reason: string = 'unknown') {
         const device = this.getDevice(address);
-        if (device && device.file) {
+        if (device) {
+            if (device.uploadSessionId) {
+                logger.info(`stopping upload session ${device.uploadSessionId} for ${address}, reason: ${reason}`);
+            }
             device.file = undefined;
             device.fileIndex = 0;
             device.fileBlocksTotal = 0;
+            device.uploadSessionId = undefined;  // Clear session to reject any stale replies
+            device.lastCancelTime = Date.now();  // Record when we cancelled
         }
     }
 
-    startApplicationUpload(mac: string, fileString: string, deviceDefinition?: any, method?: string, files?: any[], baudRate = 115200): void {
+    // Clear all pending messages for a specific device from the global retry queue
+    clearPendingMessagesForDevice(mac: string) {
+        const parts = mac.split('.');
+        for (let i = 0; i < parts.length; i++) {
+            parts[i] = parts[i].padStart(3, '0');
+        }
+        const normalizedMac = parts.join('.');
+        
+        let removedCount = 0;
+        for (let i = this.pendingMessages.length - 1; i >= 0; i--) {
+            if (this.pendingMessages[i].message.includes(normalizedMac) || 
+                this.pendingMessages[i].message.includes(mac)) {
+                this.pendingMessages.splice(i, 1);
+                removedCount++;
+            }
+        }
+        if (removedCount > 0) {
+            logger.info(`cleared ${removedCount} pending messages for device ${mac}`);
+        }
+    }
+
+    async startApplicationUpload(mac: string, fileString: string, deviceDefinition?: any, method?: string, files?: any[], baudRate = 115200): Promise<void> {
         if (!mac && !deviceDefinition) {
             return;
         }
@@ -800,9 +880,47 @@ export class TIDEProxy {
                 return;
             }
         } else {
+            // If empty data, this is a cancellation request - don't start a new upload
+            if (!fileString || bytes.length === 0) {
+                logger.info('cancelling application upload for ' + mac);
+                // Send PAUSE to device to stop it from processing any in-flight data
+                this.sendToDevice(mac, PCODE_COMMANDS.PAUSE, '', false);  // Don't wait for reply
+                this.stopApplicationUpload(mac, 'cancel request (empty data)');
+                this.clearDeviceMessageQueue(mac);
+                // Also clear any pending messages for this device from the global queue
+                this.clearPendingMessagesForDevice(mac);
+                return;
+            }
+
             logger.info('starting application upload for ' + mac);
             let device: TibboDevice = this.getDevice(mac);
+            
+            // If there's already an upload in progress, cancel it first
+            if (device.file) {
+                logger.info(`WARNING: starting new upload while previous upload still in progress for ${mac}`);
+                this.sendToDevice(mac, PCODE_COMMANDS.PAUSE, '', false);
+                this.stopApplicationUpload(mac, 'new upload starting while previous in progress');
+                this.clearDeviceMessageQueue(mac);
+                this.clearPendingMessagesForDevice(mac);
+            }
+            
+            // Check if we recently cancelled an upload - if so, wait for device to settle
+            const CANCEL_SETTLE_TIME_MS = 200;  // Wait 200ms after a cancel
+            if (device.lastCancelTime) {
+                const timeSinceCancel = Date.now() - device.lastCancelTime;
+                if (timeSinceCancel < CANCEL_SETTLE_TIME_MS) {
+                    const waitTime = CANCEL_SETTLE_TIME_MS - timeSinceCancel;
+                    logger.info(`waiting ${waitTime}ms for device to settle after recent cancel`);
+                    await new Promise(resolve => setTimeout(resolve, waitTime));
+                }
+                device.lastCancelTime = undefined;  // Clear after settling
+            }
+            
             device.fileIndex = 0;
+
+            // Generate new upload session ID to track this upload and reject stale replies
+            device.uploadSessionId = this.makeid(8);
+            logger.info(`starting upload session ${device.uploadSessionId} for ${mac}`);
 
             device.file = bytes;
 
@@ -816,6 +934,7 @@ export class TIDEProxy {
                 }
             }
             this.clearDeviceMessageQueue(mac);
+            logger.info(`sending RESET_PROGRAMMING for session ${device.uploadSessionId} to ${mac}`);
             this.sendToDevice(mac, PCODE_COMMANDS.RESET_PROGRAMMING, '', true);
         }
     }
@@ -1250,6 +1369,12 @@ export class TIDEProxy {
     sendBlock(mac: string, blockIndex: number): void {
         const device = this.getDevice(mac);
         if (!device.file) {
+            logger.info(`sendBlock: no file for device ${mac}, aborting`);
+            return;
+        }
+        // Check if upload session is still valid
+        if (!device.uploadSessionId) {
+            logger.info(`sendBlock: no upload session for device ${mac}, aborting block ${blockIndex}`);
             return;
         }
         const remainder = device.file.length % BLOCK_SIZE;
@@ -1260,6 +1385,12 @@ export class TIDEProxy {
             device.fileBlocksTotal = (device.file.length - remainder) / BLOCK_SIZE + 1;
         }
         device.fileIndex = blockIndex;
+        
+        // Log first block and every 50th block to track progress
+        if (blockIndex === 0 || blockIndex % 50 === 0) {
+            logger.info(`sendBlock: session ${device.uploadSessionId}, block ${blockIndex}/${device.fileBlocksTotal} for ${mac}`);
+        }
+        
         for (let i = 0; i < device.blockSize; i++) {
             let currentBlock = blockIndex + i;
             let fileBlock = device.file.slice((device.fileIndex + i) * BLOCK_SIZE, (device.fileIndex + i) * BLOCK_SIZE + BLOCK_SIZE);
@@ -1299,6 +1430,15 @@ export class TIDEProxy {
             }
             mac = parts.join('.');
             const message = `_[${mac}]${command}${data}`;
+            // Exclude RUN/STEP from session tracking - these are debug commands that can be
+            // resent during DEBUG_PRINT_AND_CONTINUE and should not interfere with uploads
+            const excludeFromSessionTracking = [
+                PCODE_COMMANDS.RUN,
+                PCODE_COMMANDS.STEP,
+            ];
+            const sessionIdForMessage = excludeFromSessionTracking.includes(command as PCODE_COMMANDS) 
+                ? undefined 
+                : device.uploadSessionId;
             if (reply) {
                 this.pendingMessages.push({
                     deviceInterface: device.deviceInterface,
@@ -1307,6 +1447,9 @@ export class TIDEProxy {
                     tries: 0,
                     timestamp: new Date().getTime(),
                     timeout: RETRY_TIMEOUT + this.pendingMessages.length * 10,
+                    command: command as PCODE_COMMANDS,
+                    mac: mac,
+                    uploadSessionId: sessionIdForMessage,
                 });
                 device.messageQueue.push({
                     mac: mac,
@@ -1314,6 +1457,7 @@ export class TIDEProxy {
                     data: data,
                     nonce: pnum,
                     timestamp: new Date().getTime(),
+                    uploadSessionId: sessionIdForMessage,
                 });
             }
             if (command === PCODE_COMMANDS.BREAKPOINT || command === PCODE_COMMANDS.RUN) {
@@ -1347,7 +1491,13 @@ export class TIDEProxy {
             if (elapsed > pendingMessage.timeout) {
                 // Check if we should retry or discard
                 if (pendingMessage.tries > 10) {
-                    logger.warn(`Discarding message after ${pendingMessage.tries} attempts: ${pendingMessage.message}`);
+                    if (pendingMessage.command === PCODE_COMMANDS.UPLOAD || 
+                        pendingMessage.command === PCODE_COMMANDS.RESET_PROGRAMMING ||
+                        pendingMessage.command === PCODE_COMMANDS.APPUPLOADFINISH) {
+                        logger.info(`[PACKET LOST] Giving up on ${pendingMessage.command} after ${pendingMessage.tries} attempts - session: ${pendingMessage.uploadSessionId}, mac: ${pendingMessage.mac}`);
+                    } else {
+                        logger.warn(`Discarding message after ${pendingMessage.tries} attempts: ${pendingMessage.message}`);
+                    }
                     this.pendingMessages.splice(i, 1);
                     // Don't increment i since we removed an item
                     continue;
@@ -1374,7 +1524,16 @@ export class TIDEProxy {
                     const pnum = pendingMessage.nonce;
                     const newMessage = Buffer.from(`${message}|${pnum}`, 'binary');
                     
-                    logger.info(`Retrying message (attempt ${pendingMessage.tries}): ${pendingMessage.message}`);
+                    // Enhanced logging for upload-related retries
+                    if (pendingMessage.command === PCODE_COMMANDS.UPLOAD) {
+                        logger.info(`[RETRY] UPLOAD packet lost - session: ${pendingMessage.uploadSessionId}, attempt ${pendingMessage.tries}, timeout was ${pendingMessage.timeout/2}ms, mac: ${pendingMessage.mac}`);
+                    } else if (pendingMessage.command === PCODE_COMMANDS.RESET_PROGRAMMING) {
+                        logger.info(`[RETRY] RESET_PROGRAMMING packet lost - session: ${pendingMessage.uploadSessionId}, attempt ${pendingMessage.tries}, mac: ${pendingMessage.mac}`);
+                    } else if (pendingMessage.command === PCODE_COMMANDS.APPUPLOADFINISH) {
+                        logger.info(`[RETRY] APPUPLOADFINISH packet lost - session: ${pendingMessage.uploadSessionId}, attempt ${pendingMessage.tries}, mac: ${pendingMessage.mac}`);
+                    } else {
+                        logger.info(`Retrying message (attempt ${pendingMessage.tries}): ${pendingMessage.message}`);
+                    }
                     this.send(newMessage, pendingMessage.deviceInterface);
                 } catch (err: any) {
                     logger.error(`Error retrying message: ${err.message}`);
@@ -1462,7 +1621,7 @@ export class TIDEProxy {
     }
 
     send(message: Buffer, netInterface?: any, targetIP?: string): void {
-        logger.info(`${new Date().toLocaleTimeString()} sent: ${message}`);
+        // logger.info(`${new Date().toLocaleTimeString()} sent: ${message}`);
         
         let targetInterface = this.currentInterface;
         if (netInterface != undefined) {
@@ -1820,6 +1979,8 @@ export interface TibboDevice {
     lastPoll?: number;
     breakpoints?: string;
     streamURL?: string;
+    uploadSessionId?: string;  // Track current upload session to reject stale replies
+    lastCancelTime?: number;    // Track when last upload was cancelled
 }
 
 export enum PCODEMachineState {
@@ -1842,6 +2003,7 @@ export interface TaikoMessage {
     data: string;
     nonce?: string;
     timestamp: number;
+    uploadSessionId?: string;  // Track which upload session this message belongs to
 }
 
 export interface HTTPMessage {

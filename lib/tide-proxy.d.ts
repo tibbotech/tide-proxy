@@ -8,6 +8,9 @@ interface UDPMessage {
     tries: number;
     timestamp: number;
     timeout: number;
+    command?: PCODE_COMMANDS;
+    mac?: string;
+    uploadSessionId?: string;
 }
 interface TBNetworkInterface {
     socket: dgram.Socket;
@@ -53,8 +56,9 @@ export declare class TIDEProxy {
     handleDebugPrint(device: TibboDevice, state: string): Promise<void>;
     removeDeviceMessage(mac: string, nonce: string): void;
     clearDeviceMessageQueue(mac: string): void;
-    stopApplicationUpload(address: string): void;
-    startApplicationUpload(mac: string, fileString: string, deviceDefinition?: any, method?: string, files?: any[], baudRate?: number): void;
+    stopApplicationUpload(address: string, reason?: string): void;
+    clearPendingMessagesForDevice(mac: string): void;
+    startApplicationUpload(mac: string, fileString: string, deviceDefinition?: any, method?: string, files?: any[], baudRate?: number): Promise<void>;
     uploadESP32(mac: string, bytes: Buffer, deviceDefinition: any, baudRate: number): void;
     uploadBossac(mac: string, bytes: Buffer, deviceDefinition: any): void;
     uploadOpenOCD(mac: string, bytes: Buffer, deviceDefinition: any): void;
@@ -105,6 +109,8 @@ export interface TibboDevice {
     lastPoll?: number;
     breakpoints?: string;
     streamURL?: string;
+    uploadSessionId?: string;
+    lastCancelTime?: number;
 }
 export declare enum PCODEMachineState {
     STOPPED = "***",
@@ -124,6 +130,7 @@ export interface TaikoMessage {
     data: string;
     nonce?: string;
     timestamp: number;
+    uploadSessionId?: string;
 }
 export interface HTTPMessage {
     url: string;
