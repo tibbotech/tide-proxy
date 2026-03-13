@@ -9,7 +9,9 @@ const port = process.env.TIDE_PROXY_SERVER_PORT || 3005;
 const cors = require('cors');
 const os = require('os');
 
-const socket = io('http://localhost:3535/tide');
+const PROXY_PORT = 3535;
+
+const socket = io(`http://localhost:${PROXY_PORT}/tide`);
 socket.on('connect', () => {
     console.log('connected');
 });
@@ -54,7 +56,7 @@ const setProxy = async (name: string, url: string) => {
     if (proxy) {
         await proxy.stop();
     }
-    proxy = new TIDEProxy(proxyURL, proxyName !== '' ? proxyName : 'remotenet', 3535);
+    proxy = new TIDEProxy(proxyURL, proxyName !== '' ? proxyName : 'remotenet', PROXY_PORT);
 };
 
 const readADKs = async () => {

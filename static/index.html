@@ -5,87 +5,651 @@
 <head>
     <meta charset="utf-8">
     <title>Remote Debugger</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Outfit:wght@400;500;600&display=swap" rel="stylesheet">
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <style>
+        :root {
+            --bg-primary: #0f1419;
+            --bg-secondary: #1a1f26;
+            --bg-tertiary: #232a33;
+            --accent: #00d9ff;
+            --accent-dim: #00a8c6;
+            --text-primary: #e6edf3;
+            --text-secondary: #8b949e;
+            --text-muted: #6e7681;
+            --border: #30363d;
+            --success: #3fb950;
+            --warning: #d29922;
+            --error: #f85149;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
         body {
-            font-family: sans-serif;
+            font-family: 'Outfit', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            padding: 2rem;
+            background-image: 
+                radial-gradient(ellipse at top left, rgba(0, 217, 255, 0.08) 0%, transparent 50%),
+                radial-gradient(ellipse at bottom right, rgba(0, 168, 198, 0.05) 0%, transparent 50%);
+        }
+
+        h1 {
+            font-size: 1.75rem;
+            font-weight: 600;
+            margin-bottom: 1.5rem;
+            color: var(--accent);
+            letter-spacing: -0.02em;
+        }
+
+        h2 {
+            font-size: 1rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+            margin-bottom: 1rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+            margin-bottom: 2rem;
+        }
+
+        .card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+        }
+
+        .card-full {
+            grid-column: 1 / -1;
+        }
+
+        label {
+            display: block;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+        }
+
+        input, select, textarea {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 0.95rem;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(0, 217, 255, 0.15);
+        }
+
+        input:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+
+        button {
+            padding: 0.75rem 1.5rem;
+            background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dim) 100%);
+            border: none;
+            border-radius: 8px;
+            color: var(--bg-primary);
+            font-family: inherit;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.15s, box-shadow 0.15s;
+        }
+
+        button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 20px rgba(0, 217, 255, 0.3);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        .btn-secondary {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+        }
+
+        .btn-secondary:hover {
+            background: var(--border);
+            box-shadow: none;
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, var(--error) 0%, #d73a49 100%);
+        }
+
+        .form-row {
+            margin-bottom: 1rem;
+        }
+
+        .form-actions {
+            display: flex;
+            gap: 0.75rem;
+            margin-top: 1rem;
         }
 
         table {
+            width: 100%;
             border-collapse: collapse;
+            font-size: 0.9rem;
         }
 
-        table,
-        th,
-        td {
-            border: 1px solid black;
-        }
-
-        th,
-        td {
-            padding: 5px;
+        th, td {
+            padding: 0.875rem 1rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
         }
 
         th {
-            text-align: left;
+            color: var(--text-secondary);
+            font-weight: 500;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        tbody tr {
+            transition: background 0.15s;
+        }
+
+        tbody tr:hover {
+            background: var(--bg-tertiary);
+        }
+
+        tbody tr.selected {
+            background: rgba(0, 217, 255, 0.1);
+            border-left: 3px solid var(--accent);
+        }
+
+        tbody tr.clickable {
+            cursor: pointer;
+        }
+
+        .mac-cell {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            color: var(--accent);
+        }
+
+        /* Debug Console */
+        .debug-console {
+            display: flex;
+            flex-direction: column;
+            height: 400px;
+        }
+
+        .debug-header {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .debug-header .device-input {
+            flex: 1;
+            min-width: 200px;
+            max-width: 300px;
+        }
+
+        .debug-header .connection-status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--text-muted);
+        }
+
+        .status-dot.connected {
+            background: var(--success);
+            box-shadow: 0 0 8px rgba(63, 185, 80, 0.5);
+        }
+
+        .debug-output {
+            flex: 1;
+            background: #0d1117;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            line-height: 1.6;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .debug-output::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .debug-output::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .debug-output::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 4px;
+        }
+
+        .debug-line {
+            padding: 2px 0;
+        }
+
+        .debug-line .timestamp {
+            color: var(--text-muted);
+            margin-right: 1rem;
+        }
+
+        .debug-line .mac {
+            color: var(--accent);
+            margin-right: 1rem;
+        }
+
+        .debug-line .data {
+            color: var(--text-primary);
+        }
+
+        .debug-line.system {
+            color: var(--warning);
+            font-style: italic;
+        }
+
+        .message-count {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            background: var(--bg-tertiary);
+            border-radius: 6px;
+            font-size: 0.85rem;
+        }
+
+        .message-count .count {
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--accent);
+            font-weight: 500;
+        }
+
+        a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        .polling-status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            padding: 0.5rem 1rem;
+            background: var(--bg-tertiary);
+            border-radius: 6px;
+        }
+
+        .polling-status.active {
+            color: var(--success);
+        }
+
+        .polling-status .pulse {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--text-muted);
+        }
+
+        .polling-status.active .pulse {
+            background: var(--success);
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(1.2); }
+        }
+
+        @media (max-width: 900px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
 
 <body>
+    <div class="container">
+        <h1>⚡ TIDE Remote Debugger</h1>
 
-    <form onsubmit="return setInterface(event)">
-        <label for="interfaceSelect">Network Interface</label>
-        <select id="interfaceSelect" style="width:400px;"></select>
-        <button type="submit">Set Interface</button>
-    </form>
-    <br />
+        <div class="grid">
+            <!-- Network Interface -->
+            <div class="card">
+                <h2>Network Interface</h2>
+                <form onsubmit="return setInterface(event)">
+                    <div class="form-row">
+                        <label for="interfaceSelect">Select Interface</label>
+                        <select id="interfaceSelect"></select>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit">Set Interface</button>
+                    </div>
+                </form>
+            </div>
 
-    <form onsubmit="return setProxy(event)">
-        <label for="proxyName">Name</label>
-        <input type="text" id="proxyName" style="width:400px;" />
-        <br />
-        <label for="proxyURL">URL</label>
-        <textarea id="proxyURL" style="width:400px;">
-            </textarea>
-        <br />
-        <button type="submit">Set Proxy</button>
-    </form>
-    <br />
-    <br />
-    <!-- <button onclick="getDevices()">Get Devices</button> -->
+            <!-- Proxy Config -->
+            <div class="card">
+                <h2>Proxy Configuration</h2>
+                <form onsubmit="return setProxy(event)">
+                    <div class="form-row">
+                        <label for="proxyName">Name</label>
+                        <input type="text" id="proxyName" placeholder="remotenet" />
+                    </div>
+                    <div class="form-row">
+                        <label for="proxyURL">URL</label>
+                        <textarea id="proxyURL" placeholder="Enter proxy URL..."></textarea>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit">Set Proxy</button>
+                    </div>
+                </form>
+            </div>
 
-    <button onclick="refresh()">Refresh</button>
-    <label for="pendingMessages">Messages</label>
-    <input type="text" id="pendingMessages" style="width:400px;" disabled />
+            <!-- Devices Table -->
+            <div class="card card-full">
+                <h2>Discovered Devices</h2>
+                <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
+                    <button onclick="refresh()">Refresh</button>
+                    <div class="message-count">
+                        Pending: <span class="count" id="pendingMessages">0</span>
+                    </div>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>MAC Address</th>
+                            <th>IP</th>
+                            <th>Application</th>
+                            <th>TIOS</th>
+                            <th>File Blocks</th>
+                            <th>State</th>
+                        </tr>
+                    </thead>
+                    <tbody id="devices">
+                    </tbody>
+                </table>
+            </div>
 
-    <table>
-        <thead>
-            <tr>
-                <th>MAC</th>
-                <th>IP</th>
-                <th>App</th>
-                <th>tios</th>
-                <th>fileBlocksTotal</th>
-                <th>state</th>
-            </tr>
-        </thead>
-        <tbody id="devices">
-        </tbody>
-    </table>
-    <br />
-    <table>
-        <thead>
-            <tr>
-                <th>Name</th>
-                <th>Address</th>
-                <th>Controller IP</th>
-            </tr>
-        </thead>
-        <tbody id="adks">
-        </tbody>
-    </table>
+            <!-- Debug Console -->
+            <div class="card card-full">
+                <h2>Debug Console</h2>
+                <div class="debug-console">
+                    <div class="debug-header">
+                        <div class="device-input">
+                            <label for="targetDevice">Target Device (MAC) - polls every 3s</label>
+                            <input type="text" id="targetDevice" placeholder="Enter MAC to start polling" />
+                        </div>
+                        <div class="connection-status">
+                            <span class="status-dot" id="socketStatus"></span>
+                            <span id="socketStatusText">Disconnected</span>
+                        </div>
+                        <div class="polling-status" id="pollingStatus">
+                            <span class="pulse"></span>
+                            <span id="pollingStatusText">Not polling</span>
+                        </div>
+                        <button class="btn-secondary" onclick="clearDebugOutput()">Clear</button>
+                        <label style="display: flex; align-items: center; gap: 0.5rem; margin: 0; cursor: pointer;">
+                            <input type="checkbox" id="autoScroll" checked style="width: auto;" />
+                            Auto-scroll
+                        </label>
+                    </div>
+                    <div class="debug-output" id="debugOutput">
+                        <div class="debug-line system">Connecting to debug socket...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ADKs Table -->
+            <div class="card card-full">
+                <h2>ADK Controllers</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Address</th>
+                            <th>Controller IP</th>
+                        </tr>
+                    </thead>
+                    <tbody id="adks">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
 
     <script>
+        // Socket.io connection for debug prints
+        let socket = null;
+        let selectedDevice = null;
+        let pollInterval = null;
+
+        function startPolling(mac) {
+            stopPolling();
+            if (mac && socket && socket.connected) {
+                appendDebugLine(`Started polling device: ${mac}`, null, true);
+                updatePollingStatus(true, mac);
+                // Poll immediately
+                socket.emit('poll_device', { mac: mac });
+                // Then poll every 3 seconds
+                pollInterval = setInterval(() => {
+                    if (socket && socket.connected) {
+                        socket.emit('poll_device', { mac: mac });
+                    }
+                }, 3000);
+            }
+        }
+
+        function stopPolling() {
+            if (pollInterval) {
+                clearInterval(pollInterval);
+                pollInterval = null;
+                updatePollingStatus(false);
+            }
+        }
+
+        function updatePollingStatus(active, mac = '') {
+            const status = document.getElementById('pollingStatus');
+            const text = document.getElementById('pollingStatusText');
+            if (active) {
+                status.classList.add('active');
+                text.textContent = `Polling ${mac}`;
+            } else {
+                status.classList.remove('active');
+                text.textContent = 'Not polling';
+            }
+        }
+
+        function initSocket() {
+            const host = window.location.hostname;
+            const socketUrl = `http://${host}:3535/tide`;
+            
+            socket = io(socketUrl);
+            
+            socket.on('connect', () => {
+                updateSocketStatus(true);
+                appendDebugLine('Connected to debug socket', null, true);
+            });
+
+            socket.on('disconnect', () => {
+                updateSocketStatus(false);
+                appendDebugLine('Disconnected from debug socket', null, true);
+            });
+
+            socket.on('connect_error', (error) => {
+                updateSocketStatus(false);
+                appendDebugLine(`Connection error: ${error.message}`, null, true);
+            });
+
+            socket.on('debug_print', (data) => {
+                handleDebugPrint(data);
+            });
+        }
+
+        function updateSocketStatus(connected) {
+            const dot = document.getElementById('socketStatus');
+            const text = document.getElementById('socketStatusText');
+            if (connected) {
+                dot.classList.add('connected');
+                text.textContent = 'Connected';
+            } else {
+                dot.classList.remove('connected');
+                text.textContent = 'Disconnected';
+            }
+        }
+
+        function handleDebugPrint(data) {
+            const targetDevice = document.getElementById('targetDevice').value.trim().toLowerCase();
+            const mac = data.mac || 'unknown';
+            
+            // Filter by target device if specified
+            if (targetDevice && !mac.toLowerCase().includes(targetDevice)) {
+                return;
+            }
+
+            let printData = data.data;
+            try {
+                const parsed = JSON.parse(printData);
+                printData = parsed.data || printData;
+            } catch (e) {
+                // Not JSON, use as-is
+            }
+
+            appendDebugLine(printData, mac, false);
+        }
+
+        function appendDebugLine(text, mac, isSystem) {
+            const output = document.getElementById('debugOutput');
+            const line = document.createElement('div');
+            line.className = 'debug-line' + (isSystem ? ' system' : '');
+            
+            const timestamp = new Date().toLocaleTimeString('en-US', { 
+                hour12: false, 
+                hour: '2-digit', 
+                minute: '2-digit', 
+                second: '2-digit',
+                fractionalSecondDigits: 3
+            });
+
+            if (isSystem) {
+                line.innerHTML = `<span class="timestamp">[${timestamp}]</span>${escapeHtml(text)}`;
+            } else {
+                line.innerHTML = `<span class="timestamp">[${timestamp}]</span><span class="mac">${escapeHtml(mac)}</span><span class="data">${escapeHtml(text)}</span>`;
+            }
+
+            output.appendChild(line);
+
+            // Auto-scroll if enabled
+            if (document.getElementById('autoScroll').checked) {
+                output.scrollTop = output.scrollHeight;
+            }
+
+            // Limit lines to prevent memory issues
+            const maxLines = 1000;
+            while (output.children.length > maxLines) {
+                output.removeChild(output.firstChild);
+            }
+        }
+
+        function escapeHtml(text) {
+            if (text === null || text === undefined) return '';
+            const div = document.createElement('div');
+            div.textContent = String(text);
+            return div.innerHTML;
+        }
+
+        function clearDebugOutput() {
+            const output = document.getElementById('debugOutput');
+            output.innerHTML = '';
+            appendDebugLine('Console cleared', null, true);
+        }
+
+        function selectDevice(mac) {
+            document.getElementById('targetDevice').value = mac;
+            // Update UI to show selected device
+            document.querySelectorAll('#devices tr').forEach(tr => {
+                tr.classList.remove('selected');
+                if (tr.dataset.mac === mac) {
+                    tr.classList.add('selected');
+                }
+            });
+            appendDebugLine(`Filter set to device: ${mac}`, null, true);
+            // Start polling the device
+            startPolling(mac);
+        }
+
+        function handleTargetDeviceChange() {
+            const mac = document.getElementById('targetDevice').value.trim();
+            // Update selected row in table
+            document.querySelectorAll('#devices tr').forEach(tr => {
+                tr.classList.remove('selected');
+                if (mac && tr.dataset.mac && tr.dataset.mac.toLowerCase().includes(mac.toLowerCase())) {
+                    tr.classList.add('selected');
+                }
+            });
+            // Start or stop polling based on input
+            if (mac) {
+                startPolling(mac);
+            } else {
+                stopPolling();
+                appendDebugLine('Polling stopped - no device selected', null, true);
+            }
+        }
+
         async function setProxy(e) {
             e.preventDefault();
             await fetch('/debug', {
@@ -97,7 +661,7 @@
                     name: document.getElementById("proxyName").value,
                     url: document.getElementById("proxyURL").value
                 })
-            })
+            });
             return false;
         }
 
@@ -111,7 +675,7 @@
         async function getPendingMessages() {
             const response = await fetch("/pendingMessages");
             const pendingMessages = await response.json();
-            document.getElementById("pendingMessages").value = pendingMessages;
+            document.getElementById("pendingMessages").textContent = pendingMessages;
         }
 
         async function refresh() {
@@ -149,9 +713,20 @@
             tbody.innerHTML = "";
             const response = await fetch("/devices");
             const devices = await response.json();
+            const currentTarget = document.getElementById('targetDevice').value.trim().toLowerCase();
+            
             devices.forEach(device => {
                 const tr = document.createElement("tr");
+                tr.className = 'clickable';
+                tr.dataset.mac = device.mac;
+                tr.onclick = () => selectDevice(device.mac);
+                
+                if (currentTarget && device.mac.toLowerCase().includes(currentTarget)) {
+                    tr.classList.add('selected');
+                }
+
                 const tdMAC = document.createElement("td");
+                tdMAC.className = 'mac-cell';
                 tdMAC.innerText = device.mac;
                 const tdIP = document.createElement("td");
                 tdIP.innerText = device.ip;
@@ -208,10 +783,21 @@
             return false;
         }
 
+        // Initialize
+        initSocket();
         getProxy();
         getInterfaces();
         refresh();
         getADKs();
+
+        // Add event listener for target device input
+        document.getElementById('targetDevice').addEventListener('change', handleTargetDeviceChange);
+        // Also handle when user presses Enter
+        document.getElementById('targetDevice').addEventListener('keyup', (e) => {
+            if (e.key === 'Enter') {
+                handleTargetDeviceChange();
+            }
+        });
 
         setInterval(() => {
             getPendingMessages();
