@@ -407,6 +407,17 @@ export class TIDEProxy {
                 }
             }
         });
+
+        socket.on(TIBBO_PROXY_MESSAGE.POLL_DEVICE, (message: any) => {
+            const { mac } = message;
+            if (mac) {
+                const device = this.getDevice(mac);
+                if (device) {
+                    device.lastPoll = new Date().getTime();
+                    this.sendToDevice(mac, PCODE_COMMANDS.STATE, '');
+                }
+            }
+        });
     }
 
     setServer(serverAddress: string, proxyName: string) {
@@ -760,7 +771,14 @@ export class TIDEProxy {
             return;
         }
         device.printing = true;
+        device.pdbStorageAddress = 0;
         const address = device.pdbStorageAddress;
+        device.lastRunCommand = {
+            mac: device.mac,
+            command: PCODE_COMMANDS.RUN,
+            data: '',
+            timestamp: new Date().getTime(),
+        };
         if (address != undefined && device.lastRunCommand != undefined) {
             const start = performance.now();
             const val = await this.getVariable(address, device.mac);
@@ -1572,9 +1590,9 @@ export class TIDEProxy {
         const COMMAND_WAIT_TIME = 3000;
         const READ_BLOCK_SIZE = 16;
         const TRIES = 3;
+        let outputString = '';
         for (let t = 0; t < TRIES; t++) {
             try {
-                let outputString = '';
                 let tmpAddress = address.toString(16).padStart(4, '0');
                 this.memoryCalls[tmpAddress] = new Subject();
                 this.sendToDevice(mac, PCODE_COMMANDS.GET_MEMORY, tmpAddress + ',02', true);
@@ -1628,7 +1646,7 @@ export class TIDEProxy {
                 logger.error(ex);
             }
         }
-        return '';
+        return outputString;
     }
 
     getDevice(mac: string): TibboDevice {
@@ -1947,4 +1965,5 @@ export enum TIBBO_PROXY_MESSAGE {
     WIEGAND_SEND = 'wiegand_send',
     UPLOAD_ERROR = 'upload_error',
     MESSAGE = 'message',
+    POLL_DEVICE = 'poll_device',
 }
