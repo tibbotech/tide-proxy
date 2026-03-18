@@ -27,6 +27,8 @@ const NOTIFICATION_OK = "J";
 const ERROR_SEQUENCE = 'S';
 
 const BLOCK_SIZE = 128;
+const MAX_UPLOAD_RETRIES = 5;
+const UPLOAD_STALL_TIMEOUT_MS = 9000;
 
 interface UDPMessage {
     deviceInterface: any,
@@ -650,6 +652,7 @@ export class TIDEProxy {
                         this.sendBlock(mac, device.fileIndex);
                         return;
                     }
+                    device.uploadRetries = 0;
                     const oldProgress = Math.round(device.fileIndex / device.fileBlocksTotal * 100);
                     device.fileIndex += device.blockSize;
                     const newProgress = Math.round(device.fileIndex / device.fileBlocksTotal * 100);
@@ -836,10 +839,17 @@ export class TIDEProxy {
 
     stopApplicationUpload(address: string) {
         const device = this.getDevice(address);
-        if (device && device.file) {
-            device.file = undefined;
-            device.fileIndex = 0;
-            device.fileBlocksTotal = 0;
+        if (device) {
+            if (device.uploadWatchdog) {
+                clearInterval(device.uploadWatchdog);
+                device.uploadWatchdog = undefined;
+            }
+            device.uploadRetries = 0;
+            if (device.file) {
+                device.file = undefined;
+                device.fileIndex = 0;
+                device.fileBlocksTotal = 0;
+            }
         }
     }
 
@@ -875,8 +885,44 @@ export class TIDEProxy {
             logger.info('starting application upload for ' + mac);
             let device: TibboDevice = this.getDevice(mac);
             device.fileIndex = 0;
+            device.uploadRetries = 0;
 
             device.file = bytes;
+
+            if (device.uploadWatchdog) {
+                clearInterval(device.uploadWatchdog);
+            }
+            let lastFileIndex = -1;
+            let stallCount = 0;
+            device.uploadWatchdog = setInterval(() => {
+                const dev = this.getDevice(mac);
+                if (!dev.file || dev.fileBlocksTotal === 0) {
+                    if (dev.uploadWatchdog) {
+                        clearInterval(dev.uploadWatchdog);
+                        dev.uploadWatchdog = undefined;
+                    }
+                    return;
+                }
+                if (dev.fileIndex === lastFileIndex) {
+                    stallCount++;
+                } else {
+                    stallCount = 0;
+                    lastFileIndex = dev.fileIndex;
+                }
+                if (stallCount >= 3) {
+                    logger.error(`Upload stalled for ${mac} at block ${dev.fileIndex} for ${stallCount * (UPLOAD_STALL_TIMEOUT_MS / 3)}ms`);
+                    this.stopApplicationUpload(mac);
+                    this.clearDeviceMessageQueue(mac);
+                    this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, {
+                        mac: mac,
+                        method: 'tios',
+                    });
+                    this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
+                        data: `Upload failed: device ${mac} stopped responding`,
+                        mac: mac,
+                    });
+                }
+            }, UPLOAD_STALL_TIMEOUT_MS / 3);
 
             for (let i = 0; i < this.pendingMessages.length; i++) {
                 for (let j = 0; j < device.messageQueue.length; j++) {
@@ -1412,7 +1458,7 @@ export class TIDEProxy {
                 if (pendingMessage.tries > 10) {
                     logger.warn(`Discarding message after ${pendingMessage.tries} attempts: ${pendingMessage.message}`);
                     this.pendingMessages.splice(i, 1);
-                    // Don't increment i since we removed an item
+                    this.handleUploadMessageTimeout(pendingMessage);
                     continue;
                 }
                 
@@ -1461,6 +1507,59 @@ export class TIDEProxy {
         // Check if this interface still exists in our current interfaces
         return this.interfaces.some(int => int === deviceInterface) && 
                this.isSocketActive(deviceInterface.socket);
+    }
+
+    private handleUploadMessageTimeout(pendingMessage: UDPMessage): void {
+        const macMatch = pendingMessage.message.match(/\[([^\]]+)\]/);
+        if (!macMatch) return;
+
+        const mac = macMatch[1];
+        const device = this.getDevice(mac);
+        if (!device.file) return;
+
+        const commandStart = pendingMessage.message.indexOf(']') + 1;
+        const msgAfterBracket = pendingMessage.message.substring(commandStart);
+
+        const isUploadBlock = msgAfterBracket.startsWith(PCODE_COMMANDS.UPLOAD);
+        const isResetProgramming = msgAfterBracket.startsWith(PCODE_COMMANDS.RESET_PROGRAMMING);
+        const isAppUploadFinish = msgAfterBracket.startsWith(PCODE_COMMANDS.APPUPLOADFINISH);
+
+        if (!isUploadBlock && !isResetProgramming && !isAppUploadFinish) return;
+
+        for (let i = 0; i < device.messageQueue.length; i++) {
+            if (device.messageQueue[i].nonce === pendingMessage.nonce) {
+                device.messageQueue.splice(i, 1);
+                break;
+            }
+        }
+
+        device.uploadRetries = (device.uploadRetries || 0) + 1;
+
+        if (device.uploadRetries > MAX_UPLOAD_RETRIES) {
+            logger.error(`Upload failed for ${mac} after ${device.uploadRetries} block-level retries`);
+            this.stopApplicationUpload(mac);
+            this.clearDeviceMessageQueue(mac);
+            this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, {
+                mac: mac,
+                method: 'tios',
+            });
+            this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
+                data: `Upload failed: device ${mac} not responding`,
+                mac: mac,
+            });
+            return;
+        }
+
+        logger.info(`Upload message timed out for ${mac}, retrying (attempt ${device.uploadRetries}/${MAX_UPLOAD_RETRIES})`);
+        this.clearDeviceMessageQueue(mac);
+
+        if (isResetProgramming) {
+            this.sendToDevice(mac, PCODE_COMMANDS.RESET_PROGRAMMING, '', true);
+        } else if (isAppUploadFinish) {
+            this.sendToDevice(mac, PCODE_COMMANDS.APPUPLOADFINISH, '', true);
+        } else {
+            this.sendBlock(mac, device.fileIndex);
+        }
     }
 
     makeid(length: number): string {
@@ -1883,6 +1982,8 @@ export interface TibboDevice {
     lastPoll?: number;
     breakpoints?: string;
     streamURL?: string;
+    uploadRetries?: number;
+    uploadWatchdog?: NodeJS.Timeout;
 }
 
 export enum PCODEMachineState {

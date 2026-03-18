@@ -9,6 +9,18 @@ interface UDPMessage {
     timestamp: number;
     timeout: number;
 }
+export interface TIDEProxyToolPaths {
+    openocd?: string;
+    bossac?: string;
+    jlink?: string;
+}
+export interface TIDEProxyOptions {
+    serverAddress?: string;
+    proxyName?: string;
+    port?: number;
+    targetInterface?: string;
+    toolPaths?: TIDEProxyToolPaths;
+}
 interface TBNetworkInterface {
     socket: dgram.Socket;
     netInterface: any;
@@ -36,7 +48,9 @@ export declare class TIDEProxy {
     adks: any[];
     networkWatcherTimer?: NodeJS.Timeout;
     lastInterfaceState: string;
-    constructor(serverAddress: string | undefined, proxyName: string, port?: number, targetInterface?: string);
+    toolPaths: TIDEProxyToolPaths;
+    constructor(serverAddress: string, proxyName: string, port?: number, targetInterface?: string, options?: TIDEProxyOptions);
+    constructor(options: TIDEProxyOptions);
     initInterfaces(targetInterface?: any): void;
     private clearPendingOperations;
     private cleanupOldInterfaces;
@@ -66,6 +80,7 @@ export declare class TIDEProxy {
     sendToDevice(mac: string, command: string, data: string, reply?: boolean, nonce?: string | undefined): void;
     checkMessageQueue(): void;
     private isValidInterface;
+    private handleUploadMessageTimeout;
     makeid(length: number): string;
     private getBroadcastAddress;
     private isSocketActive;
@@ -105,6 +120,8 @@ export interface TibboDevice {
     lastPoll?: number;
     breakpoints?: string;
     streamURL?: string;
+    uploadRetries?: number;
+    uploadWatchdog?: NodeJS.Timeout;
 }
 export declare enum PCODEMachineState {
     STOPPED = "***",
@@ -179,6 +196,7 @@ export declare enum TIBBO_PROXY_MESSAGE {
     GPIO_SET = "gpio_set",
     WIEGAND_SEND = "wiegand_send",
     UPLOAD_ERROR = "upload_error",
-    MESSAGE = "message"
+    MESSAGE = "message",
+    POLL_DEVICE = "poll_device"
 }
 export {};
