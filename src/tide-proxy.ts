@@ -70,7 +70,7 @@ const logger = winston.createLogger({
     ]
 });
 
-const PROJECT_OUTPUT_FOLDER = process.env.TIDE_PROXY_OUTPUT_DIR 
+const PROJECT_OUTPUT_FOLDER = process.env.TIDE_PROXY_OUTPUT_DIR
     || path.join(os.tmpdir(), 'tide-proxy', 'project_output');
 
 function openocdFirmwareExtension(buf: Buffer): 'elf' | 'hex' {
@@ -96,6 +96,11 @@ function openocdFirmwareExtension(buf: Buffer): 'elf' | 'hex' {
     return 'elf';
 }
 
+/** `{projectRoot}/platforms`, where project root is `process.cwd()`. Expects `Platforms/<id>/firmware/` under that. */
+function resolveAtPlatformsPackageRoot(): string {
+    return path.join(process.cwd(), 'platforms');
+}
+
 export class TIDEProxy {
     devices: Array<TibboDevice> = [];
     pendingMessages: Array<UDPMessage> = [];
@@ -118,9 +123,9 @@ export class TIDEProxy {
     constructor(serverAddress: string, proxyName: string, port?: number, targetInterface?: string, options?: TIDEProxyOptions);
     constructor(options: TIDEProxyOptions);
     constructor(
-        serverAddressOrOptions: string | TIDEProxyOptions = '', 
-        proxyName?: string, 
-        port: number = 3535, 
+        serverAddressOrOptions: string | TIDEProxyOptions = '',
+        proxyName?: string,
+        port: number = 3535,
         targetInterface?: string,
         options?: TIDEProxyOptions
     ) {
@@ -180,14 +185,14 @@ export class TIDEProxy {
 
     initInterfaces(targetInterface: any = '') {
         const ifaces = os.networkInterfaces();
-        
+
         // Clear pending operations that might use old interfaces
         this.clearPendingOperations();
-        
+
         // Store old interfaces for cleanup
         const oldInterfaces = [...this.interfaces];
         this.interfaces = [];
-        
+
         // Create new interfaces first
         for (const key in ifaces) {
             const iface = ifaces[key];
@@ -196,7 +201,7 @@ export class TIDEProxy {
                 if (tmp.family == 'IPv4' && !tmp.internal) {
                     try {
                         const socket = dgram.createSocket({ type: 'udp4', reuseAddr: true });
-                        
+
                         socket.on('close', () => {
                             logger.info('Socket closed for ' + tmp.address);
                         });
@@ -205,7 +210,7 @@ export class TIDEProxy {
                             logger.error(`UDP server error on ${tmp.address}:\n${err.stack}`);
                             socket.close();
                         });
-                        
+
                         socket.on('message', (msg: Buffer, info) => {
                             this.handleMessage(msg, info, int);
                         });
@@ -238,7 +243,7 @@ export class TIDEProxy {
                 }
             }
         }
-        
+
         // Clean up old interfaces after new ones are ready
         this.cleanupOldInterfaces(oldInterfaces);
     }
@@ -249,7 +254,7 @@ export class TIDEProxy {
             clearInterval(this.timer);
             this.timer = undefined;
         }
-        
+
         // Clear pending messages to prevent retries on closed sockets
         this.pendingMessages = [];
     }
@@ -746,13 +751,10 @@ export class TIDEProxy {
                     }, 1000);
                     break;
                 case PCODE_COMMANDS.RESET_PROGRAMMING:
-
-                    logger.info(`response ${mac} for reset_programming ${reply}`);
-                    if (reply == REPLY_OK) {
-                        device.blockSize = 1;
-                        if (device.file != null) {
-                            this.sendBlock(mac, 0);
-                        }
+                case PCODE_COMMANDS.RESET_PROGRAMMING_FIRMWARE:
+                    if (device.resetProgrammingToken) {
+                        device.resetProgrammingToken.message = reply;
+                        device.resetProgrammingToken.notify();
                     }
                     break;
                 default:
@@ -869,7 +871,64 @@ export class TIDEProxy {
         }
     }
 
-    startApplicationUpload(mac: string, fileString: string, deviceDefinition?: any, method?: string, files?: any[], baudRate = 115200): void {
+    private resolveTiosFirmwarePath(deviceDefinition: any): string | undefined {
+        if (!deviceDefinition) {
+            return undefined;
+        }
+        if (typeof deviceDefinition.tiosFirmwarePath === 'string'
+            && fs.existsSync(deviceDefinition.tiosFirmwarePath)) {
+            return deviceDefinition.tiosFirmwarePath;
+        }
+        
+        const root = deviceDefinition.platformsDir
+            || process.env.TIDE_PLATFORMS_DIR
+            || resolveAtPlatformsPackageRoot();
+        const platform = deviceDefinition.platform || deviceDefinition.id;
+        if (!root || !platform) {
+            return undefined;
+        }
+
+        const firmwareDir = path.join(root, 'Platforms', platform, 'firmware');
+        if (fs.existsSync(firmwareDir) && fs.statSync(firmwareDir).isDirectory()) {
+            const explicit = deviceDefinition.tiosFirmware || deviceDefinition.firmwareFile;
+            if (explicit) {
+                const exact = path.join(firmwareDir, explicit);
+                if (fs.existsSync(exact) && fs.statSync(exact).isFile()) {
+                    return exact;
+                }
+            }
+            let entries: string[];
+            try {
+                entries = fs.readdirSync(firmwareDir);
+            } catch {
+                return undefined;
+            }
+            const bins = entries.filter((f) => f.toLowerCase().endsWith('.bin'));
+            if (bins.length === 1) {
+                return path.join(firmwareDir, bins[0]);
+            }
+            if (bins.length > 1) {
+                const byLower = new Map(bins.map((b) => [b.toLowerCase(), b] as const));
+                for (const preferred of ['firmware.bin', 'tios.bin']) {
+                    const hit = byLower.get(preferred);
+                    if (hit) {
+                        return path.join(firmwareDir, hit);
+                    }
+                }
+                bins.sort((a, b) => a.localeCompare(b));
+                return path.join(firmwareDir, bins[0]);
+            }
+        }
+
+        const legacyName = deviceDefinition.tiosFirmware || deviceDefinition.firmwareFile || 'firmware.bin';
+        const legacy = path.join(root, platform, 'firmware', legacyName);
+        if (fs.existsSync(legacy)) {
+            return legacy;
+        }
+        return undefined;
+    }
+
+    async startApplicationUpload(mac: string, fileString: string, deviceDefinition?: any, method?: string, files?: any[], baudRate = 115200): Promise<void> {
         if (!mac && !deviceDefinition) {
             return;
         }
@@ -904,6 +963,53 @@ export class TIDEProxy {
             device.uploadRetries = 0;
 
             device.file = bytes;
+
+
+
+            this.clearDeviceMessageQueue(mac);
+            device.resetProgrammingToken = new Subject();
+            this.sendToDevice(mac, PCODE_COMMANDS.RESET_PROGRAMMING, '', true);
+            await device.resetProgrammingToken.wait(5000);
+            if (!device.resetProgrammingToken.message
+                || device.resetProgrammingToken.message !== REPLY_OK
+                || device.tios.indexOf('TiOS-32 Loader') >= 0
+            ) {
+                const firmwarePath = this.resolveTiosFirmwarePath(deviceDefinition);
+                if (!deviceDefinition || !firmwarePath) {
+                    this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
+                        data: 'Device did not enter programming mode. Provide deviceDefinition with a resolvable TIOS firmware path (tiosFirmwarePath), install @platforms (Platforms/<id>/firmware/*.bin), or set platformsDir / TIDE_PLATFORMS_DIR.',
+                        mac,
+                    });
+                    this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, {
+                        mac,
+                        method: 'tios',
+                        code: 'no_programming_mode',
+                    });
+                    return;
+                }
+                let firmwareBytes: Buffer;
+                try {
+                    firmwareBytes = fs.readFileSync(firmwarePath);
+                } catch (e: any) {
+                    this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
+                        data: `Could not read TIOS firmware: ${firmwarePath}: ${e?.message ?? e}`,
+                        mac,
+                    });
+                    this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, {
+                        mac,
+                        method: 'tios',
+                        code: 'firmware_read_error',
+                    });
+                    return;
+                }
+                // combine firmwareBytes and bytes
+                device.file = Buffer.concat([firmwareBytes, bytes]);
+                device.fileIndex = 0;
+                device.resetProgrammingToken = new Subject();
+                this.sendToDevice(mac, PCODE_COMMANDS.RESET_PROGRAMMING_FIRMWARE, '', true);
+                await device.resetProgrammingToken.wait(5000);
+            }
+
 
             if (device.uploadWatchdog) {
                 clearInterval(device.uploadWatchdog);
@@ -949,8 +1055,10 @@ export class TIDEProxy {
                     }
                 }
             }
-            this.clearDeviceMessageQueue(mac);
-            this.sendToDevice(mac, PCODE_COMMANDS.RESET_PROGRAMMING, '', true);
+            device.blockSize = 1;
+            if (device.file != null) {
+                this.sendBlock(mac, 0);
+            }
         }
     }
 
@@ -1464,13 +1572,13 @@ export class TIDEProxy {
 
     checkMessageQueue(): void {
         const currentDate = new Date().getTime();
-        
+
         // Process messages from oldest to newest (FIFO), but safely handle removals
         let i = 0;
         while (i < this.pendingMessages.length) {
             const pendingMessage = this.pendingMessages[i];
             const elapsed = currentDate - pendingMessage.timestamp;
-            
+
             if (elapsed > pendingMessage.timeout) {
                 // Check if we should retry or discard
                 if (pendingMessage.tries > 10) {
@@ -1479,7 +1587,7 @@ export class TIDEProxy {
                     this.handleUploadMessageTimeout(pendingMessage);
                     continue;
                 }
-                
+
                 // Check if the interface is still valid before retrying
                 if (!this.isValidInterface(pendingMessage.deviceInterface)) {
                     logger.warn(`Interface no longer valid, discarding message: ${pendingMessage.message}`);
@@ -1487,20 +1595,20 @@ export class TIDEProxy {
                     // Don't increment i since we removed an item
                     continue;
                 }
-                
+
                 // Update retry parameters
                 if (pendingMessage.timeout < 1024) {
                     pendingMessage.timeout *= 2;
                 }
                 pendingMessage.tries++;
                 pendingMessage.timestamp = currentDate;
-                
+
                 // Retry sending the message
                 try {
                     const message = pendingMessage.message;
                     const pnum = pendingMessage.nonce;
                     const newMessage = Buffer.from(`${message}|${pnum}`, 'binary');
-                    
+
                     logger.info(`Retrying message (attempt ${pendingMessage.tries}): ${pendingMessage.message}`);
                     this.send(newMessage, pendingMessage.deviceInterface);
                 } catch (err: any) {
@@ -1511,7 +1619,7 @@ export class TIDEProxy {
                     continue;
                 }
             }
-            
+
             // Only increment if we didn't remove an item
             i++;
         }
@@ -1521,10 +1629,10 @@ export class TIDEProxy {
         if (!deviceInterface || !deviceInterface.socket) {
             return false;
         }
-        
+
         // Check if this interface still exists in our current interfaces
-        return this.interfaces.some(int => int === deviceInterface) && 
-               this.isSocketActive(deviceInterface.socket);
+        return this.interfaces.some(int => int === deviceInterface) &&
+            this.isSocketActive(deviceInterface.socket);
     }
 
     private handleUploadMessageTimeout(pendingMessage: UDPMessage): void {
@@ -1625,7 +1733,7 @@ export class TIDEProxy {
                     reject(new Error('Socket is not active'));
                     return;
                 }
-                
+
                 // Convert Buffer to Uint8Array to satisfy TypeScript types
                 const messageArray = new Uint8Array(message);
                 socket.send(messageArray, 0, messageArray.length, port, address, (err) => {
@@ -1643,7 +1751,7 @@ export class TIDEProxy {
 
     send(message: Buffer, netInterface?: any, targetIP?: string): void {
         logger.info(`${new Date().toLocaleTimeString()} sent: ${message}`);
-        
+
         let targetInterface = this.currentInterface;
         if (netInterface != undefined) {
             targetInterface = netInterface;
@@ -1667,7 +1775,7 @@ export class TIDEProxy {
                 targetInterface.netInterface.address,
                 targetInterface.netInterface.netmask
             );
-            
+
             this.sendToSocket(targetInterface.socket, message, broadcastAddress, PORT)
                 .catch(err => {
                     logger.error('Error sending to specific interface:', err.message);
@@ -1680,7 +1788,7 @@ export class TIDEProxy {
     private sendToAllInterfaces(message: Buffer): void {
         // Create a snapshot of interfaces to avoid race conditions
         const interfaceSnapshot = [...this.interfaces];
-        
+
         interfaceSnapshot.forEach((interfaceItem, index) => {
             if (!this.isSocketActive(interfaceItem.socket)) {
                 logger.warn(`Interface ${index} socket is not active, skipping`);
@@ -1692,7 +1800,7 @@ export class TIDEProxy {
                     interfaceItem.netInterface.address,
                     interfaceItem.netInterface.netmask
                 );
-                
+
                 this.sendToSocket(interfaceItem.socket, message, broadcastAddress, PORT)
                     .catch(err => {
                         logger.error(`Error sending to interface ${index}:`, err.message);
@@ -1833,29 +1941,29 @@ export class TIDEProxy {
 
     close() {
         logger.info('Closing TIDEProxy...');
-        
+
         // Stop network watcher
         this.stopNetworkWatcher();
-        
+
         // Stop all pending operations first
         this.clearPendingOperations();
-        
+
         // Close socket.io connection
         if (this.socket) {
             this.socket.removeAllListeners();
             this.socket.close();
             this.socket = undefined;
         }
-        
+
         // Close all UDP interfaces
         this.cleanupOldInterfaces([...this.interfaces]);
         this.interfaces = [];
         this.currentInterface = undefined;
-        
+
         // Clear device states
         this.devices = [];
         this.discoveredDevices = {};
-        
+
         logger.info('TIDEProxy closed successfully');
     }
 
@@ -2002,6 +2110,7 @@ export interface TibboDevice {
     streamURL?: string;
     uploadRetries?: number;
     uploadWatchdog?: NodeJS.Timeout;
+    resetProgrammingToken?: any;
 }
 
 export enum PCODEMachineState {
@@ -2056,6 +2165,7 @@ export enum PCODE_COMMANDS {
     DISCOVER = '_?',
     INFO = 'X',
     RESET_PROGRAMMING = 'Q',
+    RESET_PROGRAMMING_FIRMWARE = 'QF',
     UPLOAD = 'D',
     APPUPLOADFINISH = "T",
     BUZZ = 'B',
