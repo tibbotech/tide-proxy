@@ -73,6 +73,29 @@ const logger = winston.createLogger({
 const PROJECT_OUTPUT_FOLDER = process.env.TIDE_PROXY_OUTPUT_DIR 
     || path.join(os.tmpdir(), 'tide-proxy', 'project_output');
 
+function openocdFirmwareExtension(buf: Buffer): 'elf' | 'hex' {
+    if (buf.length >= 4 && buf[0] === 0x7f && buf[1] === 0x45 && buf[2] === 0x4c && buf[3] === 0x46) {
+        return 'elf';
+    }
+    let i = 0;
+    while (i < buf.length) {
+        const b = buf[i];
+        if (b === 0x20 || b === 0x09 || b === 0x0d || b === 0x0a) {
+            i++;
+            continue;
+        }
+        if (i + 2 < buf.length && buf[i] === 0xef && buf[i + 1] === 0xbb && buf[i + 2] === 0xbf) {
+            i += 3;
+            continue;
+        }
+        break;
+    }
+    if (i < buf.length && buf[i] === 0x3a) {
+        return 'hex';
+    }
+    return 'elf';
+}
+
 export class TIDEProxy {
     devices: Array<TibboDevice> = [];
     pendingMessages: Array<UDPMessage> = [];
@@ -1072,8 +1095,10 @@ export class TIDEProxy {
             if (openocdMethod.options.length > 0) {
                 openocdOptions = openocdMethod.options[0];
             }
+            const uploadFileName = `${fileBase}.${openocdFirmwareExtension(bytes)}`;
+
             fs.writeFileSync(scriptPath, openocdOptions);
-            fs.writeFileSync(path.join(PROJECT_OUTPUT_FOLDER, fileBase, `zephyr.elf`), bytes);
+            fs.writeFileSync(path.join(PROJECT_OUTPUT_FOLDER, fileBase, uploadFileName), bytes);
             const cleanup = () => {
                 if (fileBase && fs.existsSync(path.join(PROJECT_OUTPUT_FOLDER, fileBase))) {
                     fs.rmdirSync(path.join(PROJECT_OUTPUT_FOLDER, fileBase), { recursive: true });
@@ -1081,7 +1106,7 @@ export class TIDEProxy {
             }
             let cmdOutput = '';
 
-            const ccmd = `${openocdPath} -f ${scriptPath} -c 'program ${path.join(PROJECT_OUTPUT_FOLDER, fileBase, 'zephyr.elf')} verify reset exit'`;
+            const ccmd = `${openocdPath} -f ${scriptPath} -c 'program ${path.join(PROJECT_OUTPUT_FOLDER, fileBase, uploadFileName)} verify reset exit'`;
             console.log(ccmd);
             const exec = cp.spawn(ccmd, [], { env: { ...process.env, NODE_OPTIONS: '' }, timeout: 60000, shell: true });
             if (!exec.pid) {
