@@ -963,8 +963,11 @@ export class TIDEProxy {
             device.uploadRetries = 0;
 
             device.file = bytes;
-
-
+            //determine if is tpc file
+            let isTpcFile = false;
+            if (device.file?.toString('binary').indexOf('TBIN') == 0) {
+                isTpcFile = true;
+            }
 
             this.clearDeviceMessageQueue(mac);
             device.resetProgrammingToken = new Subject();
@@ -972,7 +975,7 @@ export class TIDEProxy {
             await device.resetProgrammingToken.wait(5000);
             if (!device.resetProgrammingToken.message
                 || device.resetProgrammingToken.message !== REPLY_OK
-                || device.tios.indexOf('TiOS-32 Loader') >= 0
+                || (device.tios.indexOf('TiOS-32 Loader') >= 0 && isTpcFile)
             ) {
                 const firmwarePath = this.resolveTiosFirmwarePath(deviceDefinition);
                 if (!deviceDefinition || !firmwarePath) {
