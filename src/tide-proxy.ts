@@ -774,14 +774,7 @@ export class TIDEProxy {
             return;
         }
         device.printing = true;
-        device.pdbStorageAddress = 0;
         const address = device.pdbStorageAddress;
-        device.lastRunCommand = {
-            mac: device.mac,
-            command: PCODE_COMMANDS.RUN,
-            data: '',
-            timestamp: new Date().getTime(),
-        };
         if (address != undefined && device.lastRunCommand != undefined) {
             const start = performance.now();
             const val = await this.getVariable(address, device.mac);
