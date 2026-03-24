@@ -974,7 +974,7 @@ export class TIDEProxy {
             this.sendToDevice(mac, PCODE_COMMANDS.RESET_PROGRAMMING, '', true);
             await device.resetProgrammingToken.wait(5000);
             if (!device.resetProgrammingToken.message
-                || device.resetProgrammingToken.message !== REPLY_OK
+                || device.resetProgrammingToken.message === 'F'
                 || (device.tios.indexOf('TiOS-32 Loader') >= 0 && isTpcFile)
             ) {
                 const firmwarePath = this.resolveTiosFirmwarePath(deviceDefinition);
@@ -1012,6 +1012,7 @@ export class TIDEProxy {
                 this.sendToDevice(mac, PCODE_COMMANDS.RESET_PROGRAMMING_FIRMWARE, '', true);
                 await device.resetProgrammingToken.wait(5000);
             }
+            device.resetProgrammingToken = undefined;
 
 
             if (device.uploadWatchdog) {
