@@ -1395,10 +1395,20 @@ export class TIDEProxy {
             }
             // random file name
             let fileName = `${fileBase}.bin`;
+            const isHexFile = openocdFirmwareExtension(bytes) === 'hex';
+            if (isHexFile) {
+                fileName = `${fileBase}.hex`;
+            }
             filePath = path.join(PROJECT_OUTPUT_FOLDER, fileName);
             scriptPath = path.join(PROJECT_OUTPUT_FOLDER, `${fileBase}.jlink`);
             fs.writeFileSync(filePath, bytes);
-            fs.writeFileSync(scriptPath, `loadbin ${filePath} ${flashAddress}\nR\nG\nExit`);
+            
+            if (isHexFile) {
+                fs.writeFileSync(scriptPath, `loadfile ${filePath}\nR\nG\nExit`);
+            } else {
+                fs.writeFileSync(scriptPath, `loadbin ${filePath} ${flashAddress}\nR\nG\nExit`);
+            }
+            
             const cleanup = () => {
                 if (scriptPath && fs.existsSync(scriptPath)) {
                     fs.unlinkSync(scriptPath);
