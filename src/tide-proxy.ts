@@ -28,7 +28,10 @@ const ERROR_SEQUENCE = 'S';
 
 const BLOCK_SIZE = 128;
 const MAX_UPLOAD_RETRIES = 5;
+const MAX_UPLOAD_ATTEMPTS = 3;
+const MAX_FILE_SIZE = 65535 * BLOCK_SIZE; // 16-bit block index cap
 const UPLOAD_STALL_TIMEOUT_MS = 9000;
+const UPLOAD_BLOCK_TIMEOUT = 200;
 
 interface UDPMessage {
     deviceInterface: any,
@@ -718,18 +721,31 @@ export class TIDEProxy {
                 case 'N': // tios firmware upload
                     this.sendToDevice(mac, PCODE_COMMANDS.REBOOT, '', false);
                     break;
-                case PCODE_COMMANDS.APPUPLOADFINISH:
-                    // verify binary on device is what we sent
-                    let count = 0;
+                case PCODE_COMMANDS.APPUPLOADFINISH: {
+                    let verifyCount = 0;
                     logger.info(`${mac}, resetting...`);
-                    const deviceStatusTimer = setInterval(() => {
+                    const verifyDevice = this.getDevice(mac);
+
+                    // Pause the stall watchdog during verification
+                    if (verifyDevice.uploadWatchdog) {
+                        clearInterval(verifyDevice.uploadWatchdog);
+                        verifyDevice.uploadWatchdog = undefined;
+                    }
+
+                    // Clear any previous verification timer
+                    if (verifyDevice.verificationTimer) {
+                        clearInterval(verifyDevice.verificationTimer);
+                    }
+
+                    verifyDevice.uploadAttempts = (verifyDevice.uploadAttempts || 0) + 1;
+
+                    verifyDevice.verificationTimer = setInterval(() => {
                         this.sendToDevice(mac, PCODE_COMMANDS.INFO, '');
-                        const device = this.getDevice(mac);
-                        if (device.appVersion != '' && device.file) {
-                            if (device.file?.toString('binary').indexOf(device.appVersion) >= 0) {
-                                this.stopApplicationUpload(mac);
-                                clearInterval(deviceStatusTimer);
+                        const dev = this.getDevice(mac);
+                        if (dev.appVersion != '' && dev.file) {
+                            if (dev.file?.toString('binary').indexOf(dev.appVersion) >= 0) {
                                 logger.info(`${mac}, upload complete`);
+                                this.stopApplicationUpload(mac);
                                 this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
                                     'nonce': identifier,
                                     'mac': mac
@@ -737,19 +753,34 @@ export class TIDEProxy {
                                 return;
                             }
                         }
-                        count++;
-                        if (count > 10) {
-                            clearInterval(deviceStatusTimer);
-                            // device is not responding or not programmed
-                            if (device.file) {
-                                // retry the upload
-                                console.log(`retrying upload for ${mac}`);
+                        verifyCount++;
+                        if (verifyCount > 10) {
+                            if (dev.verificationTimer) {
+                                clearInterval(dev.verificationTimer);
+                                dev.verificationTimer = undefined;
+                            }
+                            if (dev.file && (dev.uploadAttempts || 0) < MAX_UPLOAD_ATTEMPTS) {
+                                logger.warn(`Retrying upload for ${mac} (attempt ${dev.uploadAttempts}/${MAX_UPLOAD_ATTEMPTS})`);
                                 this.clearDeviceMessageQueue(mac);
-                                this.startApplicationUpload(mac, device.file.toString('binary'));
+                                this.startApplicationUpload(mac, dev.file.toString('binary'), dev.deviceDefinition);
+                            } else {
+                                logger.error(`Upload verification failed for ${mac} after ${dev.uploadAttempts} attempts`);
+                                this.stopApplicationUpload(mac);
+                                this.clearDeviceMessageQueue(mac);
+                                this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, {
+                                    mac: mac,
+                                    method: 'tios',
+                                    code: 'verification_failed',
+                                });
+                                this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
+                                    data: `Upload verification failed for ${mac} after ${dev.uploadAttempts} attempts`,
+                                    mac: mac,
+                                });
                             }
                         }
                     }, 1000);
                     break;
+                }
                 case PCODE_COMMANDS.RESET_PROGRAMMING:
                 case PCODE_COMMANDS.RESET_PROGRAMMING_FIRMWARE:
                     if (device.resetProgrammingToken) {
@@ -862,6 +893,10 @@ export class TIDEProxy {
                 clearInterval(device.uploadWatchdog);
                 device.uploadWatchdog = undefined;
             }
+            if (device.verificationTimer) {
+                clearInterval(device.verificationTimer);
+                device.verificationTimer = undefined;
+            }
             device.uploadRetries = 0;
             if (device.file) {
                 device.file = undefined;
@@ -936,6 +971,12 @@ export class TIDEProxy {
         fileString = fileString || '';
         const bytes = Buffer.from(fileString, 'binary');
 
+        // Reset upload attempt counter on a fresh upload from the client
+        if (method) {
+            const dev = this.getDevice(mac);
+            dev.uploadAttempts = 0;
+        }
+
         if (deviceDefinition && method) {
             if (method === 'micropython' && files) {
                 this.startUploadMicropython(mac, files, baudRate);
@@ -959,17 +1000,36 @@ export class TIDEProxy {
         } else {
             logger.info('starting application upload for ' + mac);
             let device: TibboDevice = this.getDevice(mac);
+
+            // Guard against concurrent uploads: cancel any in-progress upload first
+            this.stopApplicationUpload(mac);
+            this.clearDeviceMessageQueue(mac);
+
             device.fileIndex = 0;
             device.uploadRetries = 0;
+            device.deviceDefinition = deviceDefinition;
 
             device.file = bytes;
-            //determine if is tpc file
             let isTpcFile = false;
             if (device.file?.toString('binary').indexOf('TBIN') == 0) {
                 isTpcFile = true;
             }
 
-            this.clearDeviceMessageQueue(mac);
+            // Validate file size against 16-bit block index limit
+            if (device.file.length > MAX_FILE_SIZE) {
+                this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
+                    data: `File too large (${device.file.length} bytes). Maximum supported size is ${MAX_FILE_SIZE} bytes.`,
+                    mac,
+                });
+                this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, {
+                    mac,
+                    method: 'tios',
+                    code: 'file_too_large',
+                });
+                device.file = undefined;
+                return;
+            }
+
             device.resetProgrammingToken = new Subject();
             this.sendToDevice(mac, PCODE_COMMANDS.RESET_PROGRAMMING, '', true);
             await device.resetProgrammingToken.wait(5000);
@@ -988,6 +1048,7 @@ export class TIDEProxy {
                         method: 'tios',
                         code: 'no_programming_mode',
                     });
+                    device.file = undefined;
                     return;
                 }
                 let firmwareBytes: Buffer;
@@ -1003,21 +1064,48 @@ export class TIDEProxy {
                         method: 'tios',
                         code: 'firmware_read_error',
                     });
+                    device.file = undefined;
                     return;
                 }
-                // combine firmwareBytes and bytes
                 device.file = Buffer.concat([firmwareBytes, bytes]);
                 device.fileIndex = 0;
+
+                // Recheck combined size against limit
+                if (device.file.length > MAX_FILE_SIZE) {
+                    this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
+                        data: `Combined firmware + app too large (${device.file.length} bytes). Maximum supported size is ${MAX_FILE_SIZE} bytes.`,
+                        mac,
+                    });
+                    this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, {
+                        mac,
+                        method: 'tios',
+                        code: 'file_too_large',
+                    });
+                    device.file = undefined;
+                    return;
+                }
+
                 device.resetProgrammingToken = new Subject();
                 this.sendToDevice(mac, PCODE_COMMANDS.RESET_PROGRAMMING_FIRMWARE, '', true);
                 await device.resetProgrammingToken.wait(5000);
+
+                if (!device.resetProgrammingToken.message || device.resetProgrammingToken.message === 'F') {
+                    this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
+                        data: `Device ${mac} did not acknowledge firmware programming mode (QF).`,
+                        mac,
+                    });
+                    this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, {
+                        mac,
+                        method: 'tios',
+                        code: 'qf_failed',
+                    });
+                    device.file = undefined;
+                    device.resetProgrammingToken = undefined;
+                    return;
+                }
             }
             device.resetProgrammingToken = undefined;
 
-
-            if (device.uploadWatchdog) {
-                clearInterval(device.uploadWatchdog);
-            }
             let lastFileIndex = -1;
             let stallCount = 0;
             device.uploadWatchdog = setInterval(() => {
@@ -1053,7 +1141,7 @@ export class TIDEProxy {
             for (let i = 0; i < this.pendingMessages.length; i++) {
                 for (let j = 0; j < device.messageQueue.length; j++) {
                     if (this.pendingMessages[i].nonce == device.messageQueue[j].nonce) {
-                        this.pendingMessages.splice(i);
+                        this.pendingMessages.splice(i, 1);
                         i--;
                         break;
                     }
@@ -1506,9 +1594,9 @@ export class TIDEProxy {
             const buf = Buffer.from([(0xff00 & currentBlock) >> 8, (0x00ff & currentBlock)]);
             // const buf = new Buffer([(0xff00 & blockIndex) >> 8, (0x00ff & blockIndex)]);
             fileBlock = Buffer.concat([buf, fileBlock]);
-            if (fileBlock.length < BLOCK_SIZE) {
-                const filler = Buffer.alloc(BLOCK_SIZE - fileBlock.length);
-                // const filler = new Buffer(BLOCK_SIZE - fileBlock.length);
+            const fullBlockSize = BLOCK_SIZE + 2;
+            if (fileBlock.length < fullBlockSize) {
+                const filler = Buffer.alloc(fullBlockSize - fileBlock.length);
                 fileBlock = Buffer.concat([fileBlock, filler]);
             }
 
@@ -1545,7 +1633,9 @@ export class TIDEProxy {
                     nonce: pnum,
                     tries: 0,
                     timestamp: new Date().getTime(),
-                    timeout: RETRY_TIMEOUT + this.pendingMessages.length * 10,
+                    timeout: command === PCODE_COMMANDS.UPLOAD
+                        ? UPLOAD_BLOCK_TIMEOUT
+                        : RETRY_TIMEOUT + this.pendingMessages.length * 10,
                 });
                 device.messageQueue.push({
                     mac: mac,
@@ -2114,6 +2204,9 @@ export interface TibboDevice {
     streamURL?: string;
     uploadRetries?: number;
     uploadWatchdog?: NodeJS.Timeout;
+    verificationTimer?: NodeJS.Timeout;
+    uploadAttempts?: number;
+    deviceDefinition?: any;
     resetProgrammingToken?: any;
 }
 

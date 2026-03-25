@@ -123,6 +123,9 @@ export interface TibboDevice {
     streamURL?: string;
     uploadRetries?: number;
     uploadWatchdog?: NodeJS.Timeout;
+    verificationTimer?: NodeJS.Timeout;
+    uploadAttempts?: number;
+    deviceDefinition?: any;
     resetProgrammingToken?: any;
 }
 export declare enum PCODEMachineState {
