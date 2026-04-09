@@ -599,8 +599,11 @@ export class TIDEProxy {
                         device.app = parts[2];
                         device.appVersion = parts[1];
                         device.type = 'tios';
+                        if (device.infoToken) {
+                            device.infoToken.message = true;
+                            device.infoToken.notify();
+                        }
                         this.sendToDevice(mac, PCODE_COMMANDS.STATE, '');
-                        // let newMessage = Buffer.from(`_[${mac}]${P_PCODESTATE}|a`);
                     }
                     break;
                 case PCODE_COMMANDS.PAUSE:
@@ -1029,10 +1032,16 @@ export class TIDEProxy {
                 device.file = undefined;
                 return;
             }
-
-            device.resetProgrammingToken = new Subject();
-            this.sendToDevice(mac, PCODE_COMMANDS.RESET_PROGRAMMING, '', true);
-            await device.resetProgrammingToken.wait(5000);
+            // first get device info, if already in 'TiOS-32 Loader' mode, skip the reset programming mode  
+            const deviceInfo = await this.getDeviceInfo(mac);
+            if (deviceInfo.tios.indexOf('TiOS-32 Loader') >= 0) {
+                device.resetProgrammingToken = new Subject();
+                device.resetProgrammingToken.message = 'A';
+            } else {
+                device.resetProgrammingToken = new Subject();
+                this.sendToDevice(mac, PCODE_COMMANDS.RESET_PROGRAMMING, '', true);
+                await device.resetProgrammingToken.wait(5000);
+            }
             if (!device.resetProgrammingToken
                 || !device.resetProgrammingToken.message
                 || device.resetProgrammingToken.message === 'F'
@@ -1983,6 +1992,15 @@ export class TIDEProxy {
         return outputString;
     }
 
+    async getDeviceInfo(mac: string): Promise<TibboDevice> {
+        const device = this.getDevice(mac);
+        device.infoToken = new Subject();
+        this.sendToDevice(mac, PCODE_COMMANDS.INFO, '', true);
+        await device.infoToken.wait(5000);
+        device.infoToken = undefined;
+        return device;
+    }
+
     getDevice(mac: string): TibboDevice {
         const parts = mac.split('.');
         for (let i = 0; i < parts.length; i++) {
@@ -2223,6 +2241,7 @@ export interface TibboDevice {
     uploadAttempts?: number;
     deviceDefinition?: any;
     resetProgrammingToken?: any;
+    infoToken?: any;
 }
 
 export enum PCODEMachineState {

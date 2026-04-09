@@ -90,6 +90,7 @@ export declare class TIDEProxy {
     private sendToSingleInterface;
     private sendToAllInterfaces;
     private getVariable;
+    getDeviceInfo(mac: string): Promise<TibboDevice>;
     getDevice(mac: string): TibboDevice;
     handleHTTPProxy(message: HTTPMessage): Promise<void>;
     emit(channel: string, content: any): void;
@@ -127,6 +128,7 @@ export interface TibboDevice {
     uploadAttempts?: number;
     deviceDefinition?: any;
     resetProgrammingToken?: any;
+    infoToken?: any;
 }
 export declare enum PCODEMachineState {
     STOPPED = "***",
