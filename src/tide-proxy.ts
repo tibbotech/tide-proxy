@@ -880,10 +880,15 @@ export class TIDEProxy {
 
     clearDeviceMessageQueue(mac: string) {
         const device = this.getDevice(mac);
-        for (let i = 0; i < device.messageQueue.length; i++) {
-            const nonce = device.messageQueue[i].nonce;
-            if (nonce) {
-                this.removeDeviceMessage(mac, nonce);
+        const nonces = new Set<string>();
+        for (const msg of device.messageQueue) {
+            if (msg.nonce) {
+                nonces.add(msg.nonce);
+            }
+        }
+        for (let j = this.pendingMessages.length - 1; j >= 0; j--) {
+            if (nonces.has(this.pendingMessages[j].nonce)) {
+                this.pendingMessages.splice(j, 1);
             }
         }
         device.messageQueue = [];
