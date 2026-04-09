@@ -914,7 +914,7 @@ export class TIDEProxy {
             && fs.existsSync(deviceDefinition.tiosFirmwarePath)) {
             return deviceDefinition.tiosFirmwarePath;
         }
-        
+
         const root = deviceDefinition.platformsDir
             || process.env.TIDE_PLATFORMS_DIR
             || resolveAtPlatformsPackageRoot();
@@ -1033,7 +1033,8 @@ export class TIDEProxy {
             device.resetProgrammingToken = new Subject();
             this.sendToDevice(mac, PCODE_COMMANDS.RESET_PROGRAMMING, '', true);
             await device.resetProgrammingToken.wait(5000);
-            if (!device.resetProgrammingToken.message
+            if (!device.resetProgrammingToken
+                || !device.resetProgrammingToken.message
                 || device.resetProgrammingToken.message === 'F'
                 || (device.tios.indexOf('TiOS-32 Loader') >= 0 && isTpcFile)
             ) {
@@ -1089,7 +1090,9 @@ export class TIDEProxy {
                 this.sendToDevice(mac, PCODE_COMMANDS.RESET_PROGRAMMING_FIRMWARE, '', true);
                 await device.resetProgrammingToken.wait(5000);
 
-                if (!device.resetProgrammingToken.message || device.resetProgrammingToken.message === 'F') {
+                if (!device.resetProgrammingToken
+                    || !device.resetProgrammingToken.message
+                    || device.resetProgrammingToken.message === 'F') {
                     this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
                         data: `Device ${mac} did not acknowledge firmware programming mode (QF).`,
                         mac,
@@ -1402,13 +1405,13 @@ export class TIDEProxy {
             filePath = path.join(PROJECT_OUTPUT_FOLDER, fileName);
             scriptPath = path.join(PROJECT_OUTPUT_FOLDER, `${fileBase}.jlink`);
             fs.writeFileSync(filePath, bytes);
-            
+
             if (isHexFile) {
                 fs.writeFileSync(scriptPath, `loadfile ${filePath}\nR\nG\nExit`);
             } else {
                 fs.writeFileSync(scriptPath, `loadbin ${filePath} ${flashAddress}\nR\nG\nExit`);
             }
-            
+
             const cleanup = () => {
                 if (scriptPath && fs.existsSync(scriptPath)) {
                     fs.unlinkSync(scriptPath);
