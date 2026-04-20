@@ -46,6 +46,7 @@ export interface TIDEProxyToolPaths {
     openocd?: string;
     bossac?: string;
     jlink?: string;
+    dfuUtil?: string;
 }
 
 export interface TIDEProxyOptions {
@@ -161,6 +162,7 @@ export class TIDEProxy {
             openocd: toolPaths.openocd || (isWindows ? 'openocd.exe' : 'openocd'),
             bossac: toolPaths.bossac || (isWindows ? 'bossac.exe' : 'bossac'),
             jlink: toolPaths.jlink || (isWindows ? 'JLinkExe.exe' : 'JLinkExe'),
+            dfuUtil: toolPaths.dfuUtil || (isWindows ? 'dfu-util.exe' : 'dfu-util'),
         };
 
         this.id = new Date().getTime().toString();
@@ -484,6 +486,7 @@ export class TIDEProxy {
         this.discoveredDevices = {};
         this.send(msg);
         this.getSerialPorts();
+        this.getDFUDevices();
     }
 
     setPDBAddress(message: TaikoMessage): void {
@@ -1001,6 +1004,9 @@ export class TIDEProxy {
             } else if (method === 'jlink') {
                 this.uploadJLink(mac, bytes, deviceDefinition);
                 return;
+            } else if (method === 'dfu-util') {
+                this.uploadDfuUtil(mac, bytes, deviceDefinition, files);
+                return;
             } else if (method === 'teensy') {
                 this.uploadTeensy(mac, bytes, deviceDefinition);
                 return;
@@ -1461,6 +1467,136 @@ export class TIDEProxy {
             });
         } catch (ex) {
             console.log(ex);
+        }
+    }
+
+    uploadDfuUtil(mac: string, bytes: Buffer, deviceDefinition: any, files?: any[]): void {
+        const dfuUtilMethod = deviceDefinition.uploadMethods.find((method: any) => method.name === 'dfu-util');
+        let pid = '';
+        let alt = '';
+        let dfuse = false;
+        let dfuseAddress = '0x08000000';
+        const addressFromFiles = files?.[0]?.address;
+        if (addressFromFiles !== undefined) {
+            dfuseAddress = typeof addressFromFiles === 'number'
+                ? '0x' + addressFromFiles.toString(16)
+                : String(addressFromFiles);
+        }
+        const fileBase = this.makeid(8);
+        let filePath = '';
+        const dfuUtilPath = this.toolPaths.dfuUtil!;
+        try {
+            const dfuUtil = cp.spawnSync(dfuUtilPath, ['--version'], { shell: true });
+            if (dfuUtil.error) {
+                this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
+                    data: `${dfuUtilPath} not found`,
+                    format: 'markdown',
+                    mac: mac,
+                });
+                return this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, {
+                    method: 'dfu-util',
+                    code: 'not_found',
+                    mac,
+                });
+            }
+            for (let i = 0; i < dfuUtilMethod.options.length; i++) {
+                let option = dfuUtilMethod.options[i];
+                if (option.indexOf('"') === 0) {
+                    option = option.substring(1, option.length - 1);
+                }
+                if (option.indexOf('--pid=') === 0) {
+                    pid = option.split('=')[1];
+                }
+                if (option.indexOf('--alt=') === 0) {
+                    alt = option.split('=')[1];
+                }
+                if (option === '--dfuse') {
+                    dfuse = true;
+                }
+            }
+
+            const fileName = `${fileBase}.bin`;
+            filePath = path.join(PROJECT_OUTPUT_FOLDER, fileName);
+            fs.mkdirSync(PROJECT_OUTPUT_FOLDER, { recursive: true });
+            fs.writeFileSync(filePath, bytes);
+
+            const cleanup = () => {
+                if (filePath && fs.existsSync(filePath)) {
+                    fs.unlinkSync(filePath);
+                }
+            };
+
+            const args: string[] = [];
+            if (pid) {
+                args.push(`-d ${pid}`);
+            }
+            if (mac) {
+                args.push(`-S ${mac}`);
+            }
+            if (alt) {
+                args.push(`-a ${alt}`);
+            }
+            if (dfuse) {
+                args.push(`-s ${dfuseAddress}:leave`);
+            }
+            args.push(`-D ${filePath}`);
+
+            const ccmd = `${dfuUtilPath} ${args.join(' ')}`;
+            console.log(ccmd);
+            let cmdOutput = '';
+            const exec = cp.spawn(ccmd, [], { env: { ...process.env, NODE_OPTIONS: '' }, timeout: 60000, shell: true });
+            if (!exec.pid) {
+                cleanup();
+                return;
+            }
+            const handleProgress = (data: any) => {
+                const text = data.toString();
+                cmdOutput += text;
+                const match = text.match(/(\d+)%/);
+                if (match) {
+                    const progress = Number(match[1]) / 100;
+                    this.emit(TIBBO_PROXY_MESSAGE.UPLOAD, {
+                        'data': progress,
+                        'mac': mac,
+                    });
+                }
+            };
+            exec.stdout.on('data', handleProgress);
+            exec.stderr.on('data', handleProgress);
+            exec.on('error', () => {
+                cleanup();
+                this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, {
+                    method: 'dfu-util',
+                    mac,
+                });
+            });
+            exec.on('exit', (code: Number) => {
+                cleanup();
+                if (code !== 0) {
+                    this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
+                        data: `dfu-util exited with code ${code}\n${cmdOutput}`,
+                        mac: mac,
+                    });
+                    return this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, {
+                        method: 'dfu-util',
+                        code: 'error',
+                        mac,
+                    });
+                }
+                this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
+                    method: 'dfu-util',
+                    mac,
+                });
+            });
+        } catch (ex: any) {
+            this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
+                data: ex.toString(),
+                mac,
+            });
+            this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, {
+                method: 'dfu-util',
+                mac,
+            });
         }
     }
 
@@ -2153,6 +2289,67 @@ export class TIDEProxy {
             if (!found) {
                 this.devices.push(device);
             }
+        }
+    }
+
+    getDFUDevices(): void {
+        const dfuUtilPath = this.toolPaths.dfuUtil!;
+        let result: any;
+        try {
+            result = cp.spawnSync(dfuUtilPath, ['-l'], { shell: true, timeout: 5000 });
+        } catch {
+            return;
+        }
+        if (!result || result.error || result.status !== 0) {
+            return;
+        }
+        const output = `${result.stdout?.toString() ?? ''}\n${result.stderr?.toString() ?? ''}`;
+        const regex = /Found DFU:\s*\[([0-9a-f]{4}:[0-9a-f]{4})\][^\n]*?path="([^"]+)"[^\n]*?alt=(\d+)[^\n]*?serial="([^"]*)"/gi;
+        const seen = new Set<string>();
+        let match: RegExpExecArray | null;
+        while ((match = regex.exec(output)) !== null) {
+            const vidpid = match[1];
+            const devPath = match[2];
+            const serial = match[4];
+            const identifier = serial || `${vidpid}@${devPath}`;
+            if (seen.has(identifier)) {
+                continue;
+            }
+            seen.add(identifier);
+
+            let existing: TibboDevice | undefined;
+            for (let j = 0; j < this.devices.length; j++) {
+                if (this.devices[j].mac === identifier) {
+                    existing = this.devices[j];
+                    break;
+                }
+            }
+            const device: TibboDevice = existing || {
+                ip: '',
+                mac: identifier,
+                messageQueue: [],
+                tios: '',
+                app: '',
+                appVersion: '',
+                fileIndex: 0,
+                fileBlocksTotal: 0,
+                type: 'dfu',
+                pcode: PCODE_STATE.STOPPED,
+                blockSize: 1,
+                state: PCODEMachineState.STOPPED,
+            };
+            if (!existing) {
+                this.devices.push(device);
+            }
+            this.emit(TIBBO_PROXY_MESSAGE.DEVICE, {
+                ip: device.ip,
+                mac: device.mac,
+                tios: device.tios,
+                app: device.app,
+                pcode: device.pcode,
+                appVersion: device.appVersion,
+                type: device.type,
+            });
         }
     }
 

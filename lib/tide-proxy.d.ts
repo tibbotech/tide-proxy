@@ -13,6 +13,7 @@ export interface TIDEProxyToolPaths {
     openocd?: string;
     bossac?: string;
     jlink?: string;
+    dfuUtil?: string;
 }
 export interface TIDEProxyOptions {
     serverAddress?: string;
@@ -74,6 +75,7 @@ export declare class TIDEProxy {
     uploadBossac(mac: string, bytes: Buffer, deviceDefinition: any): void;
     uploadOpenOCD(mac: string, bytes: Buffer, deviceDefinition: any): void;
     uploadJLink(mac: string, bytes: Buffer, deviceDefinition: any): void;
+    uploadDfuUtil(mac: string, bytes: Buffer, deviceDefinition: any, files?: any[]): void;
     uploadTeensy(mac: string, bytes: Buffer, deviceDefinition: any): void;
     startUploadMicropython(mac: string, files: any[], baudRate: number): Promise<void>;
     startUploadEsp32(mac: string, files: any[], baudRate: number): Promise<void>;
@@ -98,6 +100,7 @@ export declare class TIDEProxy {
     getDevices(): Array<TibboDevice>;
     stop(): Promise<void>;
     getSerialPorts(): Promise<void>;
+    getDFUDevices(): void;
     attachSerial(port: string, baudRate?: number, reset?: boolean): Promise<boolean>;
     detachSerial(port: string): Promise<void>;
 }
