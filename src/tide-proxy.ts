@@ -487,6 +487,7 @@ export class TIDEProxy {
         this.send(msg);
         this.getSerialPorts();
         this.getDFUDevices();
+        this.getUF2Devices();
     }
 
     setPDBAddress(message: TaikoMessage): void {
@@ -1006,6 +1007,9 @@ export class TIDEProxy {
                 return;
             } else if (method === 'dfu-util') {
                 this.uploadDfuUtil(mac, bytes, deviceDefinition, files);
+                return;
+            } else if (method === 'uf2') {
+                this.uploadUF2(mac, bytes, deviceDefinition, files);
                 return;
             } else if (method === 'teensy') {
                 this.uploadTeensy(mac, bytes, deviceDefinition);
@@ -1597,6 +1601,239 @@ export class TIDEProxy {
                 method: 'dfu-util',
                 mac,
             });
+        }
+    }
+
+    parseUF2Options(options: string[]): { volume?: string; noTouch: boolean; touchBaud: number } {
+        let volume: string | undefined;
+        let noTouch = false;
+        let touchBaud = 1200;
+        for (let i = 0; i < options.length; i++) {
+            let option = options[i];
+            if (option.indexOf('"') === 0) {
+                option = option.substring(1, option.length - 1);
+            }
+            if (option.indexOf('--volume=') === 0) {
+                volume = option.split('=')[1];
+            } else if (option === '--no-touch') {
+                noTouch = true;
+            } else if (option.indexOf('--touch-baud=') === 0) {
+                const n = Number(option.split('=')[1]);
+                if (Number.isFinite(n) && n > 0) {
+                    touchBaud = n;
+                }
+            }
+        }
+        return { volume, noTouch, touchBaud };
+    }
+
+    touch1200(portPath: string, baud: number = 1200): Promise<{ ok: boolean; error?: string }> {
+        return new Promise((resolve) => {
+            let settled = false;
+            const done = (result: { ok: boolean; error?: string }) => {
+                if (!settled) {
+                    settled = true;
+                    resolve(result);
+                }
+            };
+            const hardCap = setTimeout(() => done({ ok: false, error: 'touch timed out' }), 1500);
+            try {
+                const sp = new SerialPort({ path: portPath, baudRate: baud, autoOpen: false });
+                sp.on('error', () => { /* port vanishing after open is expected — that's the touch working */ });
+                sp.open((err: any) => {
+                    if (err) {
+                        clearTimeout(hardCap);
+                        return done({ ok: false, error: err.message || String(err) });
+                    }
+                    setTimeout(() => {
+                        sp.close(() => {
+                            clearTimeout(hardCap);
+                            done({ ok: true });
+                        });
+                    }, 100);
+                });
+            } catch (ex: any) {
+                clearTimeout(hardCap);
+                done({ ok: false, error: ex?.message || String(ex) });
+            }
+        });
+    }
+
+    async waitForUF2Mount(labelFilter: string | undefined, timeoutMs: number = 10000, pollMs: number = 250): Promise<string | null> {
+        const deadline = Date.now() + timeoutMs;
+        const caseFold = process.platform === 'darwin' || process.platform === 'win32';
+        const want = labelFilter && caseFold ? labelFilter.toLowerCase() : labelFilter;
+        while (Date.now() < deadline) {
+            const mounts = this.listCandidateMountPaths();
+            for (const mount of mounts) {
+                let isUF2 = false;
+                try {
+                    isUF2 = fs.existsSync(path.join(mount.path, 'INFO_UF2.TXT'));
+                } catch { /* ignore */ }
+                if (!isUF2) continue;
+                if (want) {
+                    const have = caseFold ? (mount.label || '').toLowerCase() : (mount.label || '');
+                    if (have !== want) continue;
+                }
+                return mount.path;
+            }
+            await new Promise<void>((res) => setTimeout(res, pollMs));
+        }
+        return null;
+    }
+
+    async copyUF2(mountPath: string, bytes: Buffer, mac: string): Promise<void> {
+        const TAIL_FORGIVE_THRESHOLD = 0.95;
+        const CHUNK = 64 * 1024;
+        const fileBase = this.makeid(8);
+        const target = path.join(mountPath, `${fileBase}.uf2`);
+        const total = bytes.length;
+        let written = 0;
+
+        const stream = fs.createWriteStream(target);
+        stream.on('error', () => { /* handled via write callbacks + final classification */ });
+
+        const writeChunk = (): Promise<boolean> => new Promise((resolveChunk) => {
+            if (written >= total) return resolveChunk(true);
+            const end = Math.min(written + CHUNK, total);
+            const slice = bytes.subarray(written, end);
+            const onWritten = (err: any) => {
+                if (err) return resolveChunk(false);
+                written = end;
+                this.emit(TIBBO_PROXY_MESSAGE.UPLOAD, { data: written / total, mac });
+                resolveChunk(true);
+            };
+            const ok = stream.write(slice, onWritten);
+            if (!ok) {
+                stream.once('drain', () => { /* next call proceeds via onWritten */ });
+            }
+        });
+
+        try {
+            while (written < total) {
+                const ok = await writeChunk();
+                if (!ok) break;
+            }
+            await new Promise<void>((res) => {
+                stream.end(() => res());
+            });
+        } catch {
+            /* swallow — fraction-based classification below decides */
+        }
+
+        const fraction = total > 0 ? written / total : 1;
+        if (fraction >= 1 || fraction >= TAIL_FORGIVE_THRESHOLD) {
+            this.emit(TIBBO_PROXY_MESSAGE.UPLOAD, { data: 1, mac });
+            this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, { method: 'uf2', mac });
+        } else {
+            this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
+                data: `UF2 copy interrupted at ${Math.floor(fraction * 100)}%`,
+                mac,
+            });
+            this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, { method: 'uf2', code: 'error', mac });
+        }
+    }
+
+    uploadUF2(mac: string, bytes: Buffer, deviceDefinition: any, files?: any[]): void {
+        try {
+            const uf2Method = deviceDefinition?.uploadMethods?.find((m: any) => m.name === 'uf2');
+            const opts = this.parseUF2Options(uf2Method?.options ?? []);
+            const caseFold = process.platform === 'darwin' || process.platform === 'win32';
+
+            (async () => {
+                const device = this.devices.find((d) => d.mac === mac);
+                const kind = device?.type;
+                let mountPath: string | null = null;
+
+                if (kind === 'uf2') {
+                    mountPath = mac;
+                } else {
+                    const looksLikeSerial = /^\/dev\//.test(mac) || /^COM\d+$/i.test(mac);
+                    if (!device && !looksLikeSerial) {
+                        this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
+                            data: `UF2 upload: '${mac}' is neither a UF2 mount nor a serial port. The UF2 volume may not be mounted — is the device in BOOTSEL mode?`,
+                            mac,
+                        });
+                        return this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, {
+                            method: 'uf2',
+                            code: 'not_found',
+                            mac,
+                        });
+                    }
+                    if (this.serialDevices[mac]) {
+                        try {
+                            await this.detachSerial(mac);
+                        } catch { /* fine */ }
+                    }
+                    if (!opts.noTouch) {
+                        this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
+                            data: `Triggering BOOTSEL via ${opts.touchBaud}bps touch on ${mac}`,
+                            mac,
+                        });
+                        const touchResult = await this.touch1200(mac, opts.touchBaud);
+                        if (!touchResult.ok) {
+                            this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
+                                data: `USB CDC device ${mac} did not respond to ${opts.touchBaud}bps touch: ${touchResult.error ?? 'unknown error'}. Verify USB-CDC is enabled on the running firmware, or put the device in BOOTSEL manually.`,
+                                mac,
+                            });
+                            return this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, {
+                                method: 'uf2',
+                                code: 'not_found',
+                                mac,
+                            });
+                        }
+                    }
+                    mountPath = await this.waitForUF2Mount(opts.volume);
+                    if (!mountPath) {
+                        const expected = opts.volume ? ` matching label '${opts.volume}'` : '';
+                        this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
+                            data: `UF2 volume${expected} did not appear within 10s. Is the device in BOOTSEL?`,
+                            mac,
+                        });
+                        return this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, {
+                            method: 'uf2',
+                            code: 'timeout',
+                            mac,
+                        });
+                    }
+                }
+
+                if (opts.volume) {
+                    const base = path.basename(mountPath) || mountPath;
+                    const have = caseFold ? base.toLowerCase() : base;
+                    const want = caseFold ? opts.volume.toLowerCase() : opts.volume;
+                    if (have !== want) {
+                        this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
+                            data: `Warning: mount ${mountPath} does not match expected label ${opts.volume}`,
+                            mac,
+                        });
+                    }
+                }
+
+                let hasInfo = false;
+                try {
+                    hasInfo = fs.existsSync(path.join(mountPath, 'INFO_UF2.TXT'));
+                } catch { /* ignore */ }
+                if (!hasInfo) {
+                    this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
+                        data: `${mountPath} is not a UF2 volume (INFO_UF2.TXT missing)`,
+                        mac,
+                    });
+                    return this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, {
+                        method: 'uf2',
+                        code: 'not_found',
+                        mac,
+                    });
+                }
+
+                await this.copyUF2(mountPath, bytes, mac);
+            })().catch((ex: any) => {
+                this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, { data: ex.toString(), mac });
+                this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, { method: 'uf2', mac });
+            });
+        } catch (ex: any) {
+            this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, { data: ex.toString(), mac });
+            this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, { method: 'uf2', mac });
         }
     }
 
@@ -2334,6 +2571,122 @@ export class TIDEProxy {
                 fileIndex: 0,
                 fileBlocksTotal: 0,
                 type: 'dfu',
+                pcode: PCODE_STATE.STOPPED,
+                blockSize: 1,
+                state: PCODEMachineState.STOPPED,
+            };
+            if (!existing) {
+                this.devices.push(device);
+            }
+            this.emit(TIBBO_PROXY_MESSAGE.DEVICE, {
+                ip: device.ip,
+                mac: device.mac,
+                tios: device.tios,
+                app: device.app,
+                pcode: device.pcode,
+                appVersion: device.appVersion,
+                type: device.type,
+            });
+        }
+    }
+
+    listCandidateMountPaths(): { path: string; label: string }[] {
+        const results: { path: string; label: string }[] = [];
+        try {
+            if (process.platform === 'darwin') {
+                for (const entry of fs.readdirSync('/Volumes')) {
+                    results.push({ path: path.join('/Volumes', entry), label: entry });
+                }
+            } else if (process.platform === 'linux') {
+                const username = os.userInfo().username;
+                const roots = [`/media/${username}`, `/run/media/${username}`];
+                for (const root of roots) {
+                    try {
+                        for (const entry of fs.readdirSync(root)) {
+                            results.push({ path: path.join(root, entry), label: entry });
+                        }
+                    } catch { /* root absent */ }
+                }
+                try {
+                    const mounts = fs.readFileSync('/proc/mounts', 'utf8').split('\n');
+                    for (const line of mounts) {
+                        const parts = line.split(/\s+/);
+                        if (parts.length < 2) continue;
+                        const dev = parts[0];
+                        const mount = parts[1];
+                        if (/^\/dev\/(sd|nvme|mmcblk|disk\/by-)/.test(dev)) {
+                            results.push({ path: mount, label: path.basename(mount) });
+                        }
+                    }
+                } catch { /* /proc/mounts unavailable */ }
+            } else if (process.platform === 'win32') {
+                let parsed = false;
+                try {
+                    const out = cp.execSync(
+                        'powershell.exe -NoProfile -Command "Get-Volume | Where-Object DriveLetter | Select-Object DriveLetter,FileSystemLabel | ConvertTo-Json -Compress"',
+                        { timeout: 5000 },
+                    ).toString();
+                    const data = JSON.parse(out);
+                    const volumes = Array.isArray(data) ? data : [data];
+                    for (const v of volumes) {
+                        if (!v || !v.DriveLetter) continue;
+                        results.push({ path: `${v.DriveLetter}:\\`, label: v.FileSystemLabel || '' });
+                    }
+                    parsed = true;
+                } catch { /* fall back below */ }
+                if (!parsed) {
+                    for (let c = 'D'.charCodeAt(0); c <= 'Z'.charCodeAt(0); c++) {
+                        const drive = `${String.fromCharCode(c)}:\\`;
+                        try {
+                            if (fs.existsSync(drive)) {
+                                results.push({ path: drive, label: '' });
+                            }
+                        } catch { /* drive not ready */ }
+                    }
+                }
+            }
+        } catch { /* swallow */ }
+        // De-dup by path
+        const seen = new Set<string>();
+        return results.filter((m) => {
+            if (seen.has(m.path)) return false;
+            seen.add(m.path);
+            return true;
+        });
+    }
+
+    getUF2Devices(): void {
+        let mounts: { path: string; label: string }[];
+        try {
+            mounts = this.listCandidateMountPaths();
+        } catch {
+            return;
+        }
+        for (const mount of mounts) {
+            let isUF2 = false;
+            try {
+                isUF2 = fs.existsSync(path.join(mount.path, 'INFO_UF2.TXT'));
+            } catch { /* ejecting drive etc. */ }
+            if (!isUF2) continue;
+
+            const identifier = mount.path;
+            let existing: TibboDevice | undefined;
+            for (let j = 0; j < this.devices.length; j++) {
+                if (this.devices[j].mac === identifier) {
+                    existing = this.devices[j];
+                    break;
+                }
+            }
+            const device: TibboDevice = existing || {
+                ip: '',
+                mac: identifier,
+                messageQueue: [],
+                tios: '',
+                app: '',
+                appVersion: '',
+                fileIndex: 0,
+                fileBlocksTotal: 0,
+                type: 'uf2',
                 pcode: PCODE_STATE.STOPPED,
                 blockSize: 1,
                 state: PCODEMachineState.STOPPED,

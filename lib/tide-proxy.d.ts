@@ -76,6 +76,18 @@ export declare class TIDEProxy {
     uploadOpenOCD(mac: string, bytes: Buffer, deviceDefinition: any): void;
     uploadJLink(mac: string, bytes: Buffer, deviceDefinition: any): void;
     uploadDfuUtil(mac: string, bytes: Buffer, deviceDefinition: any, files?: any[]): void;
+    parseUF2Options(options: string[]): {
+        volume?: string;
+        noTouch: boolean;
+        touchBaud: number;
+    };
+    touch1200(portPath: string, baud?: number): Promise<{
+        ok: boolean;
+        error?: string;
+    }>;
+    waitForUF2Mount(labelFilter: string | undefined, timeoutMs?: number, pollMs?: number): Promise<string | null>;
+    copyUF2(mountPath: string, bytes: Buffer, mac: string): Promise<void>;
+    uploadUF2(mac: string, bytes: Buffer, deviceDefinition: any, files?: any[]): void;
     uploadTeensy(mac: string, bytes: Buffer, deviceDefinition: any): void;
     startUploadMicropython(mac: string, files: any[], baudRate: number): Promise<void>;
     startUploadEsp32(mac: string, files: any[], baudRate: number): Promise<void>;
@@ -101,6 +113,11 @@ export declare class TIDEProxy {
     stop(): Promise<void>;
     getSerialPorts(): Promise<void>;
     getDFUDevices(): void;
+    listCandidateMountPaths(): {
+        path: string;
+        label: string;
+    }[];
+    getUF2Devices(): void;
     attachSerial(port: string, baudRate?: number, reset?: boolean): Promise<boolean>;
     detachSerial(port: string): Promise<void>;
 }
