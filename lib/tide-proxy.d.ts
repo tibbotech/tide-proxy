@@ -70,10 +70,10 @@ export declare class TIDEProxy {
     clearDeviceMessageQueue(mac: string): void;
     stopApplicationUpload(address: string): void;
     private resolveTiosFirmwarePath;
-    startApplicationUpload(mac: string, fileString: string, deviceDefinition?: any, method?: string, files?: any[], baudRate?: number): Promise<void>;
+    startApplicationUpload(mac: string, fileString: string, deviceDefinition?: any, method?: string, files?: any[], baudRate?: number, options?: string[]): Promise<void>;
     uploadESP32(mac: string, bytes: Buffer, deviceDefinition: any, baudRate: number): void;
     uploadBossac(mac: string, bytes: Buffer, deviceDefinition: any): void;
-    uploadOpenOCD(mac: string, bytes: Buffer, deviceDefinition: any): void;
+    uploadOpenOCD(mac: string, bytes: Buffer, deviceDefinition: any, options?: string[]): void;
     uploadJLink(mac: string, bytes: Buffer, deviceDefinition: any): void;
     uploadDfuUtil(mac: string, bytes: Buffer, deviceDefinition: any, files?: any[]): void;
     parseUF2Options(options: string[]): {

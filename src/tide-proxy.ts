@@ -100,6 +100,10 @@ function openocdFirmwareExtension(buf: Buffer): 'elf' | 'hex' {
     return 'elf';
 }
 
+function shellQuote(value: string): string {
+    return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
 /** `{projectRoot}/platforms`, where project root is `process.cwd()`. Expects `Platforms/<id>/firmware/` under that. */
 function resolveAtPlatformsPackageRoot(): string {
     return path.join(process.cwd(), 'platforms');
@@ -370,7 +374,7 @@ export class TIDEProxy {
             this.sendToDevice(message.mac, PCODE_COMMANDS.REBOOT, '', false);
         });
         socket.on(TIBBO_PROXY_MESSAGE.APPLICATION_UPLOAD, (message: any) => {
-            this.startApplicationUpload(message.mac, message.data, message.deviceDefinition, message.method, message.files, message.baudRate);
+            this.startApplicationUpload(message.mac, message.data, message.deviceDefinition, message.method, message.files, message.baudRate, message.options);
         });
         socket.on(TIBBO_PROXY_MESSAGE.COMMAND, (message: TaikoMessage) => {
             this.sendToDevice(message.mac, message.command, message.data, true, message.nonce);
@@ -975,7 +979,7 @@ export class TIDEProxy {
         return undefined;
     }
 
-    async startApplicationUpload(mac: string, fileString: string, deviceDefinition?: any, method?: string, files?: any[], baudRate = 115200): Promise<void> {
+    async startApplicationUpload(mac: string, fileString: string, deviceDefinition?: any, method?: string, files?: any[], baudRate = 115200, options?: string[]): Promise<void> {
         if (!mac && !deviceDefinition) {
             return;
         }
@@ -1000,7 +1004,7 @@ export class TIDEProxy {
                 this.uploadBossac(mac, bytes, deviceDefinition);
                 return;
             } else if (method === 'openocd') {
-                this.uploadOpenOCD(mac, bytes, deviceDefinition);
+                this.uploadOpenOCD(mac, bytes, deviceDefinition, options);
                 return;
             } else if (method === 'jlink') {
                 this.uploadJLink(mac, bytes, deviceDefinition);
@@ -1291,7 +1295,10 @@ export class TIDEProxy {
         }
     }
 
-    uploadOpenOCD(mac: string, bytes: Buffer, deviceDefinition: any): void {
+    uploadOpenOCD(mac: string, bytes: Buffer, deviceDefinition: any, options?: string[]): void {
+        if (!options) {
+            options = [];
+        }
         const openocdMethod = deviceDefinition.uploadMethods.find((method: any) => method.name === 'openocd');
         let jlinkDevice = deviceDefinition.id;
         const fileBase = this.makeid(8);
@@ -1333,7 +1340,28 @@ export class TIDEProxy {
             }
             let cmdOutput = '';
 
-            const ccmd = `${openocdPath} -f ${scriptPath} -c 'program ${path.join(PROJECT_OUTPUT_FOLDER, fileBase, uploadFileName)} verify reset exit'`;
+            // Options come from runners.yaml as flag/value pairs. Translate
+            // --cmd-pre-init into openocd's `-c <value>`. --cmd-load / --cmd-verify
+            // are skipped — the `program ... verify reset exit` below already covers
+            // flashing and verification.
+            const extraArgs: string[] = [];
+            // Target a specific debug adapter by its serial number so multiple
+            // probes on the same host don't collide. Must be set before `init`.
+            if (mac) {
+                extraArgs.push('-c', shellQuote(`adapter serial ${mac}`));
+            }
+            if (options) {
+                for (let i = 0; i < options.length - 1; i += 2) {
+                    const flag = options[i];
+                    const value = options[i + 1];
+                    if (flag === '--cmd-pre-init') {
+                        extraArgs.push('-c', shellQuote(value));
+                    }
+                }
+            }
+            const extraArgsStr = extraArgs.length ? ` ${extraArgs.join(' ')}` : '';
+
+            const ccmd = `${openocdPath} -f ${scriptPath}${extraArgsStr} -c 'program ${path.join(PROJECT_OUTPUT_FOLDER, fileBase, uploadFileName)} verify reset exit'`;
             console.log(ccmd);
             const exec = cp.spawn(ccmd, [], { env: { ...process.env, NODE_OPTIONS: '' }, timeout: 60000, shell: true });
             if (!exec.pid) {
