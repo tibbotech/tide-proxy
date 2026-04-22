@@ -1155,13 +1155,11 @@ export class TIDEProxy {
                 }
             }, UPLOAD_STALL_TIMEOUT_MS / 3);
 
-            for (let i = 0; i < this.pendingMessages.length; i++) {
-                for (let j = 0; j < device.messageQueue.length; j++) {
-                    if (this.pendingMessages[i].nonce == device.messageQueue[j].nonce) {
-                        this.pendingMessages.splice(i, 1);
-                        i--;
-                        break;
-                    }
+            const paddedParts = mac.split('.').map(p => p.padStart(3, '0'));
+            const paddedMac = paddedParts.join('.');
+            for (let i = this.pendingMessages.length - 1; i >= 0; i--) {
+                if (this.pendingMessages[i].message.indexOf(`[${paddedMac}]`) !== -1) {
+                    this.pendingMessages.splice(i, 1);
                 }
             }
             device.blockSize = 1;
