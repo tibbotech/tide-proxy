@@ -786,7 +786,8 @@ export class TIDEProxy {
                 }
                 case PCODE_COMMANDS.RESET_PROGRAMMING:
                 case PCODE_COMMANDS.RESET_PROGRAMMING_FIRMWARE:
-                    if (device.resetProgrammingToken) {
+                    if (device.resetProgrammingToken
+                        && device.resetProgrammingToken.command === replyForCommand) {
                         device.resetProgrammingToken.message = reply;
                         device.resetProgrammingToken.notify();
                     }
@@ -1037,13 +1038,18 @@ export class TIDEProxy {
                 device.file = undefined;
                 return;
             }
-            // first get device info, if already in 'TiOS-32 Loader' mode, skip the reset programming mode  
+            // Get current device state. We can only skip Q when we know QF is going to
+            // run immediately after (loader + TBIN app upload); otherwise Q is needed
+            // to reset the device's upload state before streaming D blocks.
             const deviceInfo = await this.getDeviceInfo(mac);
-            if (deviceInfo.tios.indexOf('TiOS-32 Loader') >= 0) {
+            const inLoader = deviceInfo.tios.indexOf('TiOS-32 Loader') >= 0;
+            if (inLoader && isTpcFile) {
                 device.resetProgrammingToken = new Subject();
+                device.resetProgrammingToken.command = PCODE_COMMANDS.RESET_PROGRAMMING;
                 device.resetProgrammingToken.message = 'A';
             } else {
                 device.resetProgrammingToken = new Subject();
+                device.resetProgrammingToken.command = PCODE_COMMANDS.RESET_PROGRAMMING;
                 this.sendToDevice(mac, PCODE_COMMANDS.RESET_PROGRAMMING, '', true);
                 await device.resetProgrammingToken.wait(5000);
             }
@@ -1100,7 +1106,11 @@ export class TIDEProxy {
                     return;
                 }
 
+                // Drop any leftover Q retries so a late Q reply can't poison QF's wait
+                this.clearDeviceMessageQueue(mac);
+
                 device.resetProgrammingToken = new Subject();
+                device.resetProgrammingToken.command = PCODE_COMMANDS.RESET_PROGRAMMING_FIRMWARE;
                 this.sendToDevice(mac, PCODE_COMMANDS.RESET_PROGRAMMING_FIRMWARE, '', true);
                 await device.resetProgrammingToken.wait(5000);
 
