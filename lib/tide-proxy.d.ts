@@ -70,6 +70,7 @@ export declare class TIDEProxy {
     stopApplicationUpload(address: string): void;
     private resolveTiosFirmwarePath;
     startApplicationUpload(mac: string, fileString: string, deviceDefinition?: any, method?: string, files?: any[], baudRate?: number): Promise<void>;
+    startFirmwareUpload(mac: string, fileString: string, deviceDefinition?: any): Promise<void>;
     uploadESP32(mac: string, bytes: Buffer, deviceDefinition: any, baudRate: number): void;
     uploadBossac(mac: string, bytes: Buffer, deviceDefinition: any): void;
     uploadOpenOCD(mac: string, bytes: Buffer, deviceDefinition: any): void;
@@ -191,6 +192,7 @@ export declare enum TIBBO_PROXY_MESSAGE {
     UPLOAD = "upload",
     REGISTER = "register",
     APPLICATION_UPLOAD = "application",
+    FIRMWARE_UPLOAD = "firmware",
     UPLOAD_COMPLETE = "upload_complete",
     STATE = "state",
     COMMAND = "command",
