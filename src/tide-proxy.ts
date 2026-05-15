@@ -233,6 +233,12 @@ export class TIDEProxy {
                         }, () => {
                             logger.info('Socket bound for ' + tmp.address);
                             socket.setBroadcast(true);
+                            try {
+                                // socket.setSendBufferSize(1 << 20);
+                                logger.info(`Send buffer size for ${tmp.address}: ${socket.getSendBufferSize()}`);
+                            } catch (err: any) {
+                                logger.warn(`Could not raise send buffer for ${tmp.address}: ${err && err.message}`);
+                            }
                         });
 
                         this.interfaces.push(int);
@@ -705,6 +711,12 @@ export class TIDEProxy {
                             'data': 1,
                             'mac': mac
                         });
+                        if (device.uploadStreamStartTime != null && device.uploadStreamDurationMs == null) {
+                            device.uploadStreamDurationMs = performance.now() - device.uploadStreamStartTime;
+                            const bytes = device.file?.length ?? 0;
+                            const throughput = bytes / (device.uploadStreamDurationMs / 1000);
+                            logger.info(`upload stream done for ${mac}: ${bytes} bytes in ${device.uploadStreamDurationMs.toFixed(1)}ms = ${(throughput / 1024).toFixed(1)} KiB/s, blockRetries=${device.uploadStreamRetries ?? 0}`);
+                        }
                         logger.info(`finished upload to ${mac}`);
                         this.clearDeviceMessageQueue(mac);
                         // if is app upload, send app upload finish (starts with TBIN)
@@ -1164,6 +1176,9 @@ export class TIDEProxy {
             }
             device.blockSize = 1;
             if (device.file != null) {
+                device.uploadStreamStartTime = performance.now();
+                device.uploadStreamDurationMs = undefined;
+                device.uploadStreamRetries = 0;
                 this.sendBlock(mac, 0);
             }
         }
@@ -1781,6 +1796,7 @@ export class TIDEProxy {
         }
 
         device.uploadRetries = (device.uploadRetries || 0) + 1;
+        device.uploadStreamRetries = (device.uploadStreamRetries || 0) + 1;
 
         if (device.uploadRetries > MAX_UPLOAD_RETRIES) {
             logger.error(`Upload failed for ${mac} after ${device.uploadRetries} block-level retries`);
@@ -2242,6 +2258,9 @@ export interface TibboDevice {
     uploadWatchdog?: NodeJS.Timeout;
     verificationTimer?: NodeJS.Timeout;
     uploadAttempts?: number;
+    uploadStreamStartTime?: number;
+    uploadStreamDurationMs?: number;
+    uploadStreamRetries?: number;
     deviceDefinition?: any;
     resetProgrammingToken?: any;
     infoToken?: any;

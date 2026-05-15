@@ -126,6 +126,9 @@ export interface TibboDevice {
     uploadWatchdog?: NodeJS.Timeout;
     verificationTimer?: NodeJS.Timeout;
     uploadAttempts?: number;
+    uploadStreamStartTime?: number;
+    uploadStreamDurationMs?: number;
+    uploadStreamRetries?: number;
     deviceDefinition?: any;
     resetProgrammingToken?: any;
     infoToken?: any;
