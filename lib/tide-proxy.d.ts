@@ -71,6 +71,7 @@ export declare class TIDEProxy {
     private resolveTiosFirmwarePath;
     startApplicationUpload(mac: string, fileString: string, deviceDefinition?: any, method?: string, files?: any[], baudRate?: number): Promise<void>;
     startFirmwareUpload(mac: string, fileString: string, deviceDefinition?: any): Promise<void>;
+    private beginUploadStream;
     uploadESP32(mac: string, bytes: Buffer, deviceDefinition: any, baudRate: number): void;
     uploadBossac(mac: string, bytes: Buffer, deviceDefinition: any): void;
     uploadOpenOCD(mac: string, bytes: Buffer, deviceDefinition: any): void;
