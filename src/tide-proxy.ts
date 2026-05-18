@@ -101,7 +101,7 @@ function openocdFirmwareExtension(buf: Buffer): 'elf' | 'hex' {
 
 /** `{projectRoot}/platforms`, where project root is `process.cwd()`. Expects `Platforms/<id>/firmware/` under that. */
 function resolveAtPlatformsPackageRoot(): string {
-    return path.join(process.cwd(), 'platforms');
+    return path.join(__dirname, '..', 'platforms');
 }
 
 export class TIDEProxy {
@@ -369,6 +369,9 @@ export class TIDEProxy {
         });
         socket.on(TIBBO_PROXY_MESSAGE.APPLICATION_UPLOAD, (message: any) => {
             this.startApplicationUpload(message.mac, message.data, message.deviceDefinition, message.method, message.files, message.baudRate);
+        });
+        socket.on(TIBBO_PROXY_MESSAGE.FIRMWARE_UPLOAD, (message: any) => {
+            this.startFirmwareUpload(message.mac, message.data, message.deviceDefinition);
         });
         socket.on(TIBBO_PROXY_MESSAGE.COMMAND, (message: TaikoMessage) => {
             this.sendToDevice(message.mac, message.command, message.data, true, message.nonce);
@@ -786,7 +789,8 @@ export class TIDEProxy {
                 }
                 case PCODE_COMMANDS.RESET_PROGRAMMING:
                 case PCODE_COMMANDS.RESET_PROGRAMMING_FIRMWARE:
-                    if (device.resetProgrammingToken) {
+                    if (device.resetProgrammingToken
+                        && device.resetProgrammingToken.command === replyForCommand) {
                         device.resetProgrammingToken.message = reply;
                         device.resetProgrammingToken.notify();
                     }
@@ -1006,24 +1010,23 @@ export class TIDEProxy {
                 return;
             }
         } else {
-            logger.info('starting application upload for ' + mac);
-            let device: TibboDevice = this.getDevice(mac);
+            const isPlainTpc = bytes.length >= 12
+                && bytes.slice(0, 4).toString('binary') === 'TBIN'
+                && bytes.slice(-4).toString('binary') === 'TBIN';
 
-            // Guard against concurrent uploads: cancel any in-progress upload first
+            if (!isPlainTpc) {
+                await this.startFirmwareUpload(mac, fileString, deviceDefinition);
+                return;
+            }
+
+            const device = this.getDevice(mac);
             this.stopApplicationUpload(mac);
             this.clearDeviceMessageQueue(mac);
-
             device.fileIndex = 0;
             device.uploadRetries = 0;
             device.deviceDefinition = deviceDefinition;
-
             device.file = bytes;
-            let isTpcFile = false;
-            if (device.file?.toString('binary').indexOf('TBIN') == 0) {
-                isTpcFile = true;
-            }
 
-            // Validate file size against 16-bit block index limit
             if (device.file.length > MAX_FILE_SIZE) {
                 this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
                     data: `File too large (${device.file.length} bytes). Maximum supported size is ${MAX_FILE_SIZE} bytes.`,
@@ -1037,135 +1040,184 @@ export class TIDEProxy {
                 device.file = undefined;
                 return;
             }
-            // first get device info, if already in 'TiOS-32 Loader' mode, skip the reset programming mode  
+
+            // We can only skip Q when QF is going to run immediately after (loader
+            // case below); otherwise Q is needed to reset the device's upload state
+            // before streaming D blocks.
             const deviceInfo = await this.getDeviceInfo(mac);
-            if (deviceInfo.tios.indexOf('TiOS-32 Loader') >= 0) {
+            const inLoader = deviceInfo.tios.indexOf('TiOS-32 Loader') >= 0;
+            let qAcked = false;
+            if (!inLoader) {
                 device.resetProgrammingToken = new Subject();
-                device.resetProgrammingToken.message = 'A';
-            } else {
-                device.resetProgrammingToken = new Subject();
+                device.resetProgrammingToken.command = PCODE_COMMANDS.RESET_PROGRAMMING;
                 this.sendToDevice(mac, PCODE_COMMANDS.RESET_PROGRAMMING, '', true);
                 await device.resetProgrammingToken.wait(5000);
+                qAcked = !!device.resetProgrammingToken
+                    && device.resetProgrammingToken.message === REPLY_OK;
+                device.resetProgrammingToken = undefined;
             }
+
+            if (qAcked) {
+                // Running TIOS accepted Q — stream the TPC alone, no firmware reflash.
+                this.beginUploadStream(mac);
+                return;
+            }
+
+            // Loader or Q refused: reflash firmware + TPC via QF.
+            const firmwarePath = this.resolveTiosFirmwarePath(deviceDefinition);
+            if (!deviceDefinition || !firmwarePath) {
+                this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
+                    data: 'Device did not enter programming mode. Provide deviceDefinition with a resolvable TIOS firmware path (tiosFirmwarePath), install @platforms (Platforms/<id>/firmware/*.bin), or set platformsDir / TIDE_PLATFORMS_DIR.',
+                    mac,
+                });
+                this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, {
+                    mac,
+                    method: 'tios',
+                    code: 'no_programming_mode',
+                });
+                device.file = undefined;
+                return;
+            }
+            let firmwareBytes: Buffer;
+            try {
+                firmwareBytes = fs.readFileSync(firmwarePath);
+            } catch (e: any) {
+                this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
+                    data: `Could not read TIOS firmware: ${firmwarePath}: ${e?.message ?? e}`,
+                    mac,
+                });
+                this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, {
+                    mac,
+                    method: 'tios',
+                    code: 'firmware_read_error',
+                });
+                device.file = undefined;
+                return;
+            }
+            const combined = Buffer.concat([firmwareBytes, bytes] as unknown as Uint8Array[]);
+            await this.startFirmwareUpload(mac, combined.toString('binary'), deviceDefinition);
+        }
+    }
+
+    async startFirmwareUpload(mac: string, fileString: string, deviceDefinition?: any): Promise<void> {
+        fileString = fileString || '';
+        const bytes = Buffer.from(fileString, 'binary');
+
+        logger.info('starting firmware upload for ' + mac);
+        let device: TibboDevice = this.getDevice(mac);
+
+        const isZephyr = !(bytes.length >= 8
+            && bytes.slice(-4).toString('binary') === 'TBIN');
+
+        // Guard against concurrent uploads: cancel any in-progress upload first
+        this.stopApplicationUpload(mac);
+        this.clearDeviceMessageQueue(mac);
+
+        device.fileIndex = 0;
+        device.uploadRetries = 0;
+        device.deviceDefinition = deviceDefinition;
+        device.file = bytes;
+
+        if (device.file.length > MAX_FILE_SIZE) {
+            this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
+                data: `File too large (${device.file.length} bytes). Maximum supported size is ${MAX_FILE_SIZE} bytes.`,
+                mac,
+            });
+            this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, {
+                mac,
+                method: 'tios',
+                code: 'file_too_large',
+            });
+            device.file = undefined;
+            return;
+        }
+
+        // Skip QF when the device is already in the loader — it's ready for firmware blocks.
+        const deviceInfo = await this.getDeviceInfo(mac);
+        const inLoader = deviceInfo.tios.indexOf('TiOS-32 Loader') >= 0;
+        if (!inLoader) {
+            device.resetProgrammingToken = new Subject();
+            device.resetProgrammingToken.command = PCODE_COMMANDS.RESET_PROGRAMMING_FIRMWARE;
+            this.sendToDevice(mac, PCODE_COMMANDS.RESET_PROGRAMMING_FIRMWARE, '', true);
+
+            let qfRetry: NodeJS.Timeout | undefined;
+            if (isZephyr) {
+                qfRetry = setTimeout(() => {
+                    if (device.resetProgrammingToken
+                        && device.resetProgrammingToken.message !== REPLY_OK) {
+                        this.sendToDevice(mac, PCODE_COMMANDS.RESET_PROGRAMMING_FIRMWARE, '', true);
+                    }
+                }, 3000);
+            }
+            await device.resetProgrammingToken.wait(10000);
+            if (qfRetry) clearTimeout(qfRetry);
+
             if (!device.resetProgrammingToken
                 || !device.resetProgrammingToken.message
-                || device.resetProgrammingToken.message === 'F'
-                || (device.tios.indexOf('TiOS-32 Loader') >= 0 && isTpcFile)
-            ) {
-                const firmwarePath = this.resolveTiosFirmwarePath(deviceDefinition);
-                if (!deviceDefinition || !firmwarePath) {
-                    this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
-                        data: 'Device did not enter programming mode. Provide deviceDefinition with a resolvable TIOS firmware path (tiosFirmwarePath), install @platforms (Platforms/<id>/firmware/*.bin), or set platformsDir / TIDE_PLATFORMS_DIR.',
-                        mac,
-                    });
-                    this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, {
-                        mac,
-                        method: 'tios',
-                        code: 'no_programming_mode',
-                    });
-                    device.file = undefined;
-                    return;
-                }
-                let firmwareBytes: Buffer;
-                try {
-                    firmwareBytes = fs.readFileSync(firmwarePath);
-                } catch (e: any) {
-                    this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
-                        data: `Could not read TIOS firmware: ${firmwarePath}: ${e?.message ?? e}`,
-                        mac,
-                    });
-                    this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, {
-                        mac,
-                        method: 'tios',
-                        code: 'firmware_read_error',
-                    });
-                    device.file = undefined;
-                    return;
-                }
-                device.file = Buffer.concat([firmwareBytes, bytes]);
-                device.fileIndex = 0;
-
-                // Recheck combined size against limit
-                if (device.file.length > MAX_FILE_SIZE) {
-                    this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
-                        data: `Combined firmware + app too large (${device.file.length} bytes). Maximum supported size is ${MAX_FILE_SIZE} bytes.`,
-                        mac,
-                    });
-                    this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, {
-                        mac,
-                        method: 'tios',
-                        code: 'file_too_large',
-                    });
-                    device.file = undefined;
-                    return;
-                }
-
-                device.resetProgrammingToken = new Subject();
-                this.sendToDevice(mac, PCODE_COMMANDS.RESET_PROGRAMMING_FIRMWARE, '', true);
-                await device.resetProgrammingToken.wait(5000);
-
-                if (!device.resetProgrammingToken
-                    || !device.resetProgrammingToken.message
-                    || device.resetProgrammingToken.message === 'F') {
-                    this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
-                        data: `Device ${mac} did not acknowledge firmware programming mode (QF).`,
-                        mac,
-                    });
-                    this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, {
-                        mac,
-                        method: 'tios',
-                        code: 'qf_failed',
-                    });
-                    device.file = undefined;
-                    device.resetProgrammingToken = undefined;
-                    return;
-                }
+                || device.resetProgrammingToken.message === 'F') {
+                this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
+                    data: `Device ${mac} did not acknowledge firmware programming mode (QF).`,
+                    mac,
+                });
+                this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, {
+                    mac,
+                    method: 'tios',
+                    code: 'qf_failed',
+                });
+                device.file = undefined;
+                device.resetProgrammingToken = undefined;
+                return;
             }
-            device.resetProgrammingToken = undefined;
+        }
+        device.resetProgrammingToken = undefined;
 
-            let lastFileIndex = -1;
-            let stallCount = 0;
-            device.uploadWatchdog = setInterval(() => {
-                const dev = this.getDevice(mac);
-                if (!dev.file || dev.fileBlocksTotal === 0) {
-                    if (dev.uploadWatchdog) {
-                        clearInterval(dev.uploadWatchdog);
-                        dev.uploadWatchdog = undefined;
-                    }
-                    return;
-                }
-                if (dev.fileIndex === lastFileIndex) {
-                    stallCount++;
-                } else {
-                    stallCount = 0;
-                    lastFileIndex = dev.fileIndex;
-                }
-                if (stallCount >= 3) {
-                    logger.error(`Upload stalled for ${mac} at block ${dev.fileIndex} for ${stallCount * (UPLOAD_STALL_TIMEOUT_MS / 3)}ms`);
-                    this.stopApplicationUpload(mac);
-                    this.clearDeviceMessageQueue(mac);
-                    this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, {
-                        mac: mac,
-                        method: 'tios',
-                    });
-                    this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
-                        data: `Upload failed: device ${mac} stopped responding`,
-                        mac: mac,
-                    });
-                }
-            }, UPLOAD_STALL_TIMEOUT_MS / 3);
+        this.beginUploadStream(mac);
+    }
 
-            const paddedParts = mac.split('.').map(p => p.padStart(3, '0'));
-            const paddedMac = paddedParts.join('.');
-            for (let i = this.pendingMessages.length - 1; i >= 0; i--) {
-                if (this.pendingMessages[i].message.indexOf(`[${paddedMac}]`) !== -1) {
-                    this.pendingMessages.splice(i, 1);
+    private beginUploadStream(mac: string): void {
+        const device = this.getDevice(mac);
+        let lastFileIndex = -1;
+        let stallCount = 0;
+        device.uploadWatchdog = setInterval(() => {
+            const dev = this.getDevice(mac);
+            if (!dev.file || dev.fileBlocksTotal === 0) {
+                if (dev.uploadWatchdog) {
+                    clearInterval(dev.uploadWatchdog);
+                    dev.uploadWatchdog = undefined;
                 }
+                return;
             }
-            device.blockSize = 1;
-            if (device.file != null) {
-                this.sendBlock(mac, 0);
+            if (dev.fileIndex === lastFileIndex) {
+                stallCount++;
+            } else {
+                stallCount = 0;
+                lastFileIndex = dev.fileIndex;
             }
+            if (stallCount >= 3) {
+                logger.error(`Upload stalled for ${mac} at block ${dev.fileIndex} for ${stallCount * (UPLOAD_STALL_TIMEOUT_MS / 3)}ms`);
+                this.stopApplicationUpload(mac);
+                this.clearDeviceMessageQueue(mac);
+                this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, {
+                    mac: mac,
+                    method: 'tios',
+                });
+                this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
+                    data: `Upload failed: device ${mac} stopped responding`,
+                    mac: mac,
+                });
+            }
+        }, UPLOAD_STALL_TIMEOUT_MS / 3);
+
+        const paddedParts = mac.split('.').map(p => p.padStart(3, '0'));
+        const paddedMac = paddedParts.join('.');
+        for (let i = this.pendingMessages.length - 1; i >= 0; i--) {
+            if (this.pendingMessages[i].message.indexOf(`[${paddedMac}]`) !== -1) {
+                this.pendingMessages.splice(i, 1);
+            }
+        }
+        device.blockSize = 1;
+        if (device.file != null) {
+            this.sendBlock(mac, 0);
         }
     }
 
@@ -1768,10 +1820,13 @@ export class TIDEProxy {
         const msgAfterBracket = pendingMessage.message.substring(commandStart);
 
         const isUploadBlock = msgAfterBracket.startsWith(PCODE_COMMANDS.UPLOAD);
-        const isResetProgramming = msgAfterBracket.startsWith(PCODE_COMMANDS.RESET_PROGRAMMING);
+        // QF starts with 'Q' so test it first; otherwise it'd be misclassified as plain Q.
+        const isResetProgrammingFirmware = msgAfterBracket.startsWith(PCODE_COMMANDS.RESET_PROGRAMMING_FIRMWARE);
+        const isResetProgramming = !isResetProgrammingFirmware
+            && msgAfterBracket.startsWith(PCODE_COMMANDS.RESET_PROGRAMMING);
         const isAppUploadFinish = msgAfterBracket.startsWith(PCODE_COMMANDS.APPUPLOADFINISH);
 
-        if (!isUploadBlock && !isResetProgramming && !isAppUploadFinish) return;
+        if (!isUploadBlock && !isResetProgramming && !isResetProgrammingFirmware && !isAppUploadFinish) return;
 
         for (let i = 0; i < device.messageQueue.length; i++) {
             if (device.messageQueue[i].nonce === pendingMessage.nonce) {
@@ -1800,7 +1855,9 @@ export class TIDEProxy {
         logger.info(`Upload message timed out for ${mac}, retrying (attempt ${device.uploadRetries}/${MAX_UPLOAD_RETRIES})`);
         this.clearDeviceMessageQueue(mac);
 
-        if (isResetProgramming) {
+        if (isResetProgrammingFirmware) {
+            this.sendToDevice(mac, PCODE_COMMANDS.RESET_PROGRAMMING_FIRMWARE, '', true);
+        } else if (isResetProgramming) {
             this.sendToDevice(mac, PCODE_COMMANDS.RESET_PROGRAMMING, '', true);
         } else if (isAppUploadFinish) {
             this.sendToDevice(mac, PCODE_COMMANDS.APPUPLOADFINISH, '', true);
@@ -2314,6 +2371,7 @@ export enum TIBBO_PROXY_MESSAGE {
     UPLOAD = 'upload',
     REGISTER = 'register',
     APPLICATION_UPLOAD = 'application',
+    FIRMWARE_UPLOAD = 'firmware',
     UPLOAD_COMPLETE = 'upload_complete',
     STATE = 'state',
     COMMAND = 'command',
