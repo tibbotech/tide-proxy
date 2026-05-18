@@ -101,7 +101,7 @@ function openocdFirmwareExtension(buf: Buffer): 'elf' | 'hex' {
 
 /** `{projectRoot}/platforms`, where project root is `process.cwd()`. Expects `Platforms/<id>/firmware/` under that. */
 function resolveAtPlatformsPackageRoot(): string {
-    return path.join(process.cwd(), 'platforms');
+    return path.join(__dirname, '..', 'platforms');
 }
 
 export class TIDEProxy {
