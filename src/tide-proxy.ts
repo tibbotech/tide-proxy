@@ -565,7 +565,11 @@ export class TIDEProxy {
                 replyForCommand = replyFor.command;
             }
             else {
-                if (!identifier && device.fileBlocksTotal > 0 && device.file) {
+                // Device's UPLOAD ACKs come back without a nonce. Treat any nonceless
+                // reply as an UPLOAD ack when there's a pending UPLOAD in the queue —
+                // this is resilient to stopApplicationUpload having reset fileBlocksTotal
+                // mid-stream while in-flight blocks are still being retried.
+                if (!identifier && device.messageQueue.some(m => m.command === PCODE_COMMANDS.UPLOAD)) {
                     replyForCommand = PCODE_COMMANDS.UPLOAD;
                 }
             }
@@ -622,9 +626,6 @@ export class TIDEProxy {
                         || replyForCommand == PCODE_COMMANDS.STEP
                     ) {
                         device.lastRunCommand = replyFor;
-                        if (device.file) {
-                            this.stopApplicationUpload(mac);
-                        }
                     }
                     break;
                 case PCODE_COMMANDS.STATE:
@@ -681,6 +682,13 @@ export class TIDEProxy {
                         }
                     }
                     if (replyFor === undefined) {
+                        return;
+                    }
+                    // If state was reset (file cleared) while in-flight blocks were still
+                    // being retried, drain the matched pending entries quietly and stop —
+                    // don't emit a bogus completion or send the firmware-finish ('N').
+                    if (!device.file || device.fileBlocksTotal === 0) {
+                        logger.warn(`Ignoring stale UPLOAD ack for ${mac} (block ${fileIndex}): file/state was reset mid-stream`);
                         return;
                     }
                     if (reply !== REPLY_OK) {
