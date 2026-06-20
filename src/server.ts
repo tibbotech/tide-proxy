@@ -115,9 +115,21 @@ app.get('/devices', async (req: any, res: any) => {
     const devices = proxy.getDevices();
     // remove file from devices
     const devicesResult = devices.map((device: any) => {
+        // Strip non-serializable fields: Buffers and NodeJS.Timeout/token
+        // objects hold circular references (_idlePrev/_idleNext) that break
+        // JSON.stringify.
+        const {
+            file,
+            uploadWatchdog,
+            verificationTimer,
+            resetProgrammingToken,
+            infoToken,
+            deviceInterface,
+            deviceDefinition,
+            ...rest
+        } = device;
         return {
-            ...device,
-            file: undefined,
+            ...rest,
             messageQueue: device.messageQueue.length,
         };
     });
