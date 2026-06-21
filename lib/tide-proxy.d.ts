@@ -68,6 +68,7 @@ export declare class TIDEProxy {
     removeDeviceMessage(mac: string, nonce: string): void;
     clearDeviceMessageQueue(mac: string): void;
     stopApplicationUpload(address: string): void;
+    private extractDeviceIdFromBinary;
     private resolveTiosFirmwarePath;
     startApplicationUpload(mac: string, fileString: string, deviceDefinition?: any, method?: string, files?: any[], baudRate?: number): Promise<void>;
     startFirmwareUpload(mac: string, fileString: string, deviceDefinition?: any): Promise<void>;
@@ -129,6 +130,7 @@ export interface TibboDevice {
     verificationTimer?: NodeJS.Timeout;
     uploadAttempts?: number;
     deviceDefinition?: any;
+    deviceId?: string;
     resetProgrammingToken?: any;
     infoToken?: any;
 }

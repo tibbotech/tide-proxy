@@ -918,26 +918,69 @@ export class TIDEProxy {
         }
     }
 
-    private resolveTiosFirmwarePath(deviceDefinition: any): string | undefined {
-        if (!deviceDefinition) {
+    /**
+     * Extract the device id from a TPC/firmware binary.
+     *
+     * After the `<FD>` marker the binary carries a sequence of
+     * null-terminated strings, e.g.
+     *   <FD>\0 tibbo_self_updater \0 e46d138b-...-aa6838203f63 \0 TPP2W(G2)-4.02 \0
+     * (shown space-separated for readability — the real separator is NUL).
+     *
+     * The third field is the part-number with a trailing "-<version>", so
+     * "TPP2W(G2)-4.02" yields the device id "TPP2W(G2)".
+     */
+    private extractDeviceIdFromBinary(bytes: Buffer): string | undefined {
+        const marker = bytes.indexOf('<FD>', 0, 'binary');
+        if (marker < 0) {
             return undefined;
         }
-        if (typeof deviceDefinition.tiosFirmwarePath === 'string'
+
+        let pos = marker + 4; // skip past the "<FD>" marker itself
+        const fields: string[] = [];
+        while (pos < bytes.length && fields.length < 8) {
+            // Skip NUL/whitespace separators between sections.
+            while (pos < bytes.length && (bytes[pos] === 0 || bytes[pos] === 0x20)) {
+                pos++;
+            }
+            const end = bytes.indexOf(0, pos);
+            if (end < 0) {
+                break;
+            }
+            const field = bytes.slice(pos, end).toString('binary').trim();
+            if (field) {
+                fields.push(field);
+            }
+            pos = end + 1;
+        }
+
+        // fields: [updater tag, uuid, part-number-version, ...]
+        const partVersion = fields[2];
+        if (!partVersion) {
+            return undefined;
+        }
+
+        // Strip the trailing "-<version>" (e.g. "TPP2W(G2)-4.02" -> "TPP2W(G2)").
+        const dash = partVersion.lastIndexOf('-');
+        return dash > 0 ? partVersion.slice(0, dash) : partVersion;
+    }
+
+    private resolveTiosFirmwarePath(deviceDefinition: any, deviceId?: string): string | undefined {
+        if (typeof deviceDefinition?.tiosFirmwarePath === 'string'
             && fs.existsSync(deviceDefinition.tiosFirmwarePath)) {
             return deviceDefinition.tiosFirmwarePath;
         }
 
-        const root = deviceDefinition.platformsDir
+        const root = deviceDefinition?.platformsDir
             || process.env.TIDE_PLATFORMS_DIR
             || resolveAtPlatformsPackageRoot();
-        const platform = deviceDefinition.platform || deviceDefinition.id;
+        const platform = deviceId || deviceDefinition?.platform || deviceDefinition?.id;
         if (!root || !platform) {
             return undefined;
         }
 
         const firmwareDir = path.join(root, 'Platforms', platform, 'firmware');
         if (fs.existsSync(firmwareDir) && fs.statSync(firmwareDir).isDirectory()) {
-            const explicit = deviceDefinition.tiosFirmware || deviceDefinition.firmwareFile;
+            const explicit = deviceDefinition?.tiosFirmware || deviceDefinition?.firmwareFile;
             if (explicit) {
                 const exact = path.join(firmwareDir, explicit);
                 if (fs.existsSync(exact) && fs.statSync(exact).isFile()) {
@@ -967,7 +1010,7 @@ export class TIDEProxy {
             }
         }
 
-        const legacyName = deviceDefinition.tiosFirmware || deviceDefinition.firmwareFile || 'firmware.bin';
+        const legacyName = deviceDefinition?.tiosFirmware || deviceDefinition?.firmwareFile || 'firmware.bin';
         const legacy = path.join(root, platform, 'firmware', legacyName);
         if (fs.existsSync(legacy)) {
             return legacy;
@@ -1019,6 +1062,7 @@ export class TIDEProxy {
                 return;
             }
 
+            // is tpc, find device id
             const device = this.getDevice(mac);
             this.stopApplicationUpload(mac);
             this.clearDeviceMessageQueue(mac);
@@ -1044,6 +1088,15 @@ export class TIDEProxy {
             // We can only skip Q when QF is going to run immediately after (loader
             // case below); otherwise Q is needed to reset the device's upload state
             // before streaming D blocks.
+
+            // Derive the device id straight from the binary's <FD> marker
+            // (e.g. "TPP2W(G2)") rather than trusting the passed-in device info.
+            const deviceId = this.extractDeviceIdFromBinary(bytes);
+            if (deviceId) {
+                device.deviceId = deviceId;
+                logger.info(`extracted device id "${deviceId}" from binary for ${mac}`);
+            }
+
             const deviceInfo = await this.getDeviceInfo(mac);
             const inLoader = deviceInfo.tios.indexOf('TiOS-32 Loader') >= 0;
             let qAcked = false;
@@ -1064,8 +1117,8 @@ export class TIDEProxy {
             }
 
             // Loader or Q refused: reflash firmware + TPC via QF.
-            const firmwarePath = this.resolveTiosFirmwarePath(deviceDefinition);
-            if (!deviceDefinition || !firmwarePath) {
+            const firmwarePath = this.resolveTiosFirmwarePath(deviceDefinition, deviceId);
+            if (!firmwarePath) {
                 this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
                     data: 'Device did not enter programming mode. Provide deviceDefinition with a resolvable TIOS firmware path (tiosFirmwarePath), install @platforms (Platforms/<id>/firmware/*.bin), or set platformsDir / TIDE_PLATFORMS_DIR.',
                     mac,
@@ -2056,7 +2109,7 @@ export class TIDEProxy {
         const device = this.getDevice(mac);
         device.infoToken = new Subject();
         this.sendToDevice(mac, PCODE_COMMANDS.INFO, '', true);
-        await device.infoToken.wait(5000);
+        await device.infoToken.wait(10000);
         device.infoToken = undefined;
         return device;
     }
@@ -2300,6 +2353,7 @@ export interface TibboDevice {
     verificationTimer?: NodeJS.Timeout;
     uploadAttempts?: number;
     deviceDefinition?: any;
+    deviceId?: string;
     resetProgrammingToken?: any;
     infoToken?: any;
 }
