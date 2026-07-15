@@ -4,6 +4,7 @@ import { SerialPort } from 'serialport'
 import { MicropythonSerial } from './MicropythonSerial';
 import { NodeESP32Serial as ESP32Serial } from './ESP32Serial/node';
 import SerialDevice from './NodeSerialPort';
+import { GdbProxyServer } from './gdb-server';
 
 // import { TibboDevice, PCODE_STATE, TaikoMessage, TIBBO_PROXY_MESSAGE, TaikoReply, PCODEMachineState, PCODE_COMMANDS } from './types';
 import { io as socketIOClient } from 'socket.io-client';
@@ -122,6 +123,7 @@ export class TIDEProxy {
     networkWatcherTimer?: NodeJS.Timeout;
     lastInterfaceState: string = '';
     toolPaths: TIDEProxyToolPaths;
+    gdbProxyServer?: GdbProxyServer;
 
     constructor(serverAddress: string, proxyName: string, port?: number, targetInterface?: string, options?: TIDEProxyOptions);
     constructor(options: TIDEProxyOptions);
@@ -454,6 +456,55 @@ export class TIDEProxy {
                 }
             }
         });
+
+        socket.on(TIBBO_PROXY_MESSAGE.START_GDB, async (message: any, ack?: (response: any) => void) => {
+            try {
+                const port = await this.startGdbServer(message.mac, message.console);
+                if (typeof ack === 'function') {
+                    ack({ port });
+                }
+                this.emit(TIBBO_PROXY_MESSAGE.GDB_STARTED, { mac: message.mac, port });
+            } catch (ex: any) {
+                logger.error(`failed to start GDB server: ${ex?.message ?? ex}`);
+                if (typeof ack === 'function') {
+                    ack({ error: ex?.message ?? String(ex) });
+                }
+            }
+        });
+        socket.on(TIBBO_PROXY_MESSAGE.STOP_GDB, () => {
+            this.stopGdbServer();
+        });
+    }
+
+    /**
+     * Start (or reuse) the in-process GDB RSP server and point it at `mac`.
+     * Resolves with the local TCP port GDB should connect to
+     * (`target remote localhost:<port>`). When `withConsole` is set, device
+     * console output (printk, etc.) is forwarded to clients as GDB_CONSOLE
+     * messages.
+     */
+    async startGdbServer(mac: string, withConsole = false): Promise<number> {
+        if (this.gdbProxyServer === undefined) {
+            this.gdbProxyServer = new GdbProxyServer(this.listenPort);
+        }
+        const port = await this.gdbProxyServer.start();
+        this.gdbProxyServer.setTarget(mac);
+        if (withConsole) {
+            this.gdbProxyServer.onConsoleOutput((text: string) => {
+                this.emit(TIBBO_PROXY_MESSAGE.GDB_CONSOLE, { mac, data: text });
+            });
+        } else {
+            this.gdbProxyServer.detachConsoleOutput();
+        }
+        return port;
+    }
+
+    /** Tear down the GDB RSP server, if running. */
+    stopGdbServer(): void {
+        if (this.gdbProxyServer) {
+            this.gdbProxyServer.dispose();
+            this.gdbProxyServer = undefined;
+        }
     }
 
     setServer(serverAddress: string, proxyName: string) {
@@ -2182,6 +2233,9 @@ export class TIDEProxy {
     close() {
         logger.info('Closing TIDEProxy...');
 
+        // Tear down the GDB RSP server, if running
+        this.stopGdbServer();
+
         // Stop network watcher
         this.stopNetworkWatcher();
 
@@ -2441,4 +2495,8 @@ export enum TIBBO_PROXY_MESSAGE {
     UPLOAD_ERROR = 'upload_error',
     MESSAGE = 'message',
     POLL_DEVICE = 'poll_device',
+    START_GDB = 'start_gdb',
+    STOP_GDB = 'stop_gdb',
+    GDB_STARTED = 'gdb_started',
+    GDB_CONSOLE = 'gdb_console',
 }
