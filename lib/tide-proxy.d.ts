@@ -1,6 +1,7 @@
 /// <reference types="node" />
 import * as dgram from 'dgram';
 import SerialDevice from './NodeSerialPort';
+import { GdbProxyServer } from './gdb-server';
 interface UDPMessage {
     deviceInterface: any;
     message: string;
@@ -49,6 +50,7 @@ export declare class TIDEProxy {
     networkWatcherTimer?: NodeJS.Timeout;
     lastInterfaceState: string;
     toolPaths: TIDEProxyToolPaths;
+    gdbProxyServer?: GdbProxyServer;
     constructor(serverAddress: string, proxyName: string, port?: number, targetInterface?: string, options?: TIDEProxyOptions);
     constructor(options: TIDEProxyOptions);
     initInterfaces(targetInterface?: any): void;
@@ -59,6 +61,8 @@ export declare class TIDEProxy {
     private stopNetworkWatcher;
     setInterface(targetInterface: string): void;
     registerListeners(socket: any): void;
+    startGdbServer(mac: string, withConsole?: boolean): Promise<number>;
+    stopGdbServer(): void;
     setServer(serverAddress: string, proxyName: string): void;
     setADKS(adks: any[]): void;
     handleRefresh(): void;
@@ -208,6 +212,10 @@ export declare enum TIBBO_PROXY_MESSAGE {
     WIEGAND_SEND = "wiegand_send",
     UPLOAD_ERROR = "upload_error",
     MESSAGE = "message",
-    POLL_DEVICE = "poll_device"
+    POLL_DEVICE = "poll_device",
+    START_GDB = "start_gdb",
+    STOP_GDB = "stop_gdb",
+    GDB_STARTED = "gdb_started",
+    GDB_CONSOLE = "gdb_console"
 }
 export {};
