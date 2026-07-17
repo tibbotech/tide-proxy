@@ -41,11 +41,7 @@
     "serialport": "^12.0.0",
     "socket.io": "^4.4.0",
     "socket.io-client": "^4.4.0",
-    "winston": "3.3.3",
     "ws": "^7.3.0"
-  },
-  "peerDependencies": {
-    "@dabh/diagnostics": "2.0.2"
   },
   "devDependencies": {
     "@types/crypto-js": "^4.2.2",

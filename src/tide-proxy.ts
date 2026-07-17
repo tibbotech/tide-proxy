@@ -12,7 +12,6 @@ import axios, { Method } from 'axios';
 const cp = require('child_process');
 const fs = require('fs');
 const path = require('path');
-const winston = require('winston');
 const url = require('url');
 const io = require("socket.io")({ serveClient: false, cors: { origin: "*" }, maxHttpBufferSize: 1e10 });
 const os = require('os');
@@ -62,17 +61,12 @@ interface TBNetworkInterface {
     netInterface: any
 }
 
-const logger = winston.createLogger({
-    name: 'console.info',
-    level: 'info',
-    format: winston.format.simple(),
-    transports: [
-        new winston.transports.Console({
-            silent: process.env.TIDE_PROXY_VERBOSE ? false : true,
-        }),
-
-    ]
-});
+const LOG_SILENT = process.env.TIDE_PROXY_VERBOSE ? false : true;
+const logger = {
+    info: (...args: any[]) => { if (!LOG_SILENT) console.info('info:', ...args); },
+    warn: (...args: any[]) => { if (!LOG_SILENT) console.warn('warn:', ...args); },
+    error: (...args: any[]) => { if (!LOG_SILENT) console.error('error:', ...args); },
+};
 
 const PROJECT_OUTPUT_FOLDER = process.env.TIDE_PROXY_OUTPUT_DIR
     || path.join(os.tmpdir(), 'tide-proxy', 'project_output');
