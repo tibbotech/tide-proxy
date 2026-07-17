@@ -158,13 +158,7 @@ export class GdbProxyServer {
             handler,
             (mac, cmd, data) => {
                 this.socket.emit(TIBBO_PROXY_MESSAGE.COMMAND, { mac, command: cmd, data: data || '' });
-            },
-            // Console polling triggers print-buffer drains that share the
-            // device command channel with the RSP tunnel and can starve GDB
-            // exchanges past their timeout (a boot-spam drain can hog the
-            // channel for ~10s at attach); hold the poll while an exchange
-            // is waiting on the device.
-            () => this.pendingExchanges.size == 0
+            }
         );
         this.debugPrintListener.attach(this.targetMac);
     }
