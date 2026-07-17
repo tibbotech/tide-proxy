@@ -19,7 +19,13 @@ export class DebugPrintListener {
     constructor(
         private socket: any,
         private onOutput: (text: string) => void,
-        private sendCommand: (mac: string, command: string, data?: string) => void
+        private sendCommand: (mac: string, command: string, data?: string) => void,
+        /**
+         * Optional gate: when provided and returning false, the periodic
+         * STATE poll is skipped for that tick (e.g. while a GDB exchange is
+         * pending, so print-buffer drains don't starve the RSP tunnel).
+         */
+        private shouldPoll?: () => boolean
     ) { }
 
     public attach(mac: string): void {
@@ -47,7 +53,7 @@ export class DebugPrintListener {
         this.socket.on(TIBBO_PROXY_MESSAGE.DEBUG_PRINT, this.handler);
 
         this.pollInterval = setInterval(() => {
-            if (this.mac === mac) {
+            if (this.mac === mac && (this.shouldPoll == undefined || this.shouldPoll())) {
                 this.sendCommand(mac, PCODE_COMMANDS.STATE);
             }
         }, POLL_INTERVAL_MS);

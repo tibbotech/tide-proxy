@@ -1,3 +1,4 @@
+export declare function setGdbLogSink(fn: (msg: string) => void): void;
 export declare class GdbProxyServer {
     private socketPort;
     private server;

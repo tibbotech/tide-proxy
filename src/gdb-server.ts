@@ -27,7 +27,7 @@ const GDB_TUNNEL_COMMAND = 'R';
 /** Interval between stop-reply polls while the target is running. */
 const RUN_POLL_INTERVAL = 150;
 /** Per-exchange timeout. The proxy retries ~10 times with backoff below this. */
-const EXCHANGE_TIMEOUT = 4000;
+const EXCHANGE_TIMEOUT = 12000;
 /**
  * Maximum RSP packet body the tunnel can carry. Taiko frames are capped at
  * 256 bytes on the device and replies carry a 35-byte MAC/status/nonce
@@ -37,9 +37,31 @@ const EXCHANGE_TIMEOUT = 4000;
  */
 const TUNNEL_PACKET_SIZE = 0xc8;
 
+/**
+ * Diagnostic logging: every line is prefixed and timestamped so it can be
+ * correlated with GDB's own RSP trace ("set debug remote on"). The host
+ * application can redirect the lines into its own logging (e.g. a VS Code
+ * output channel) via setGdbLogSink(); default is the console.
+ */
+let gdbLogSink: (msg: string) => void = (msg) => console.log(msg);
+export function setGdbLogSink(fn: (msg: string) => void): void {
+    gdbLogSink = fn;
+}
+const glog = (msg: string): void => {
+    gdbLogSink(`[gdb-rsp ${new Date().toISOString().substring(11, 23)}] ${msg}`);
+};
+const gtrunc = (s: string | undefined): string => {
+    if (s == undefined) {
+        return '<undefined>';
+    }
+    return s.length > 96 ? `${s.substring(0, 96)}...(${s.length} chars)` : s;
+};
+
 interface PendingExchange {
     resolve: (data: string | undefined) => void;
     timer: NodeJS.Timeout;
+    started: number;
+    data: string;
 }
 
 interface RegisterInfo {
@@ -88,6 +110,8 @@ export class GdbProxyServer {
         }
         if (this.socket == undefined) {
             this.socket = io.connect(`http://localhost:${this.socketPort}/tide`);
+            this.socket.on('connect', () => glog('tunnel socket.io connected'));
+            this.socket.on('disconnect', (reason: string) => glog(`tunnel socket.io DISCONNECTED: ${reason}`));
             this.socket.on(TIBBO_PROXY_MESSAGE.REPLY, (message: any) => {
                 this.onReply(message);
             });
@@ -103,6 +127,7 @@ export class GdbProxyServer {
             server.listen(0, '127.0.0.1', () => {
                 this.server = server;
                 this.port = (<Net.AddressInfo>server.address()).port;
+                glog(`RSP server listening on 127.0.0.1:${this.port}`);
                 resolve(this.port);
             });
         });
@@ -110,6 +135,7 @@ export class GdbProxyServer {
 
     public setTarget(mac: string): void {
         if (mac != this.targetMac && this.client != undefined) {
+            glog(`setTarget ${this.targetMac} -> ${mac}: destroying current GDB connection`);
             this.client.destroy();
             this.client = undefined;
         }
@@ -132,7 +158,13 @@ export class GdbProxyServer {
             handler,
             (mac, cmd, data) => {
                 this.socket.emit(TIBBO_PROXY_MESSAGE.COMMAND, { mac, command: cmd, data: data || '' });
-            }
+            },
+            // Console polling triggers print-buffer drains that share the
+            // device command channel with the RSP tunnel and can starve GDB
+            // exchanges past their timeout (a boot-spam drain can hog the
+            // channel for ~10s at attach); hold the poll while an exchange
+            // is waiting on the device.
+            () => this.pendingExchanges.size == 0
         );
         this.debugPrintListener.attach(this.targetMac);
     }
@@ -146,7 +178,9 @@ export class GdbProxyServer {
     }
 
     public dispose(): void {
+        glog(`dispose called:\n${new Error().stack}`);
         if (this.client != undefined) {
+            glog('dispose: destroying GDB connection');
             this.client.destroy();
             this.client = undefined;
         }
@@ -167,8 +201,10 @@ export class GdbProxyServer {
     }
 
     private onClient(client: Net.Socket): void {
+        glog(`GDB connected from ${client.remoteAddress}:${client.remotePort} (target=${this.targetMac})`);
         // one debugger at a time; a new connection supersedes the old one
         if (this.client != undefined) {
+            glog('kicking previous GDB connection (a second client connected)');
             this.client.destroy();
         }
         this.client = client;
@@ -191,8 +227,14 @@ export class GdbProxyServer {
                 this.polling = false;
             }
         };
-        client.on('close', cleanup);
-        client.on('error', cleanup);
+        client.on('close', (hadError: boolean) => {
+            glog(`GDB connection closed (hadError=${hadError})`);
+            cleanup();
+        });
+        client.on('error', (err: Error) => {
+            glog(`GDB connection error: ${err && err.message}`);
+            cleanup();
+        });
     }
 
     private onClientData(client: Net.Socket, data: Buffer): void {
@@ -250,6 +292,7 @@ export class GdbProxyServer {
 
     private sendToGdb(client: Net.Socket, body: string): void {
         if (client.destroyed) {
+            glog(`sendToGdb DROPPED (connection already closed) body=${gtrunc(body)}`);
             return;
         }
         const cksum = this.checksum(body).toString(16).padStart(2, '0');
@@ -273,7 +316,8 @@ export class GdbProxyServer {
             try {
                 await this.handlePacket(client, body);
             }
-            catch (ex) {
+            catch (ex: any) {
+                glog(`handlePacket THREW for '${gtrunc(body)}': ${ex && ex.stack ? ex.stack : ex}`);
                 this.sendToGdb(client, 'E01');
             }
         });
@@ -289,7 +333,9 @@ export class GdbProxyServer {
         // Intercept 'g' (read all registers): the full response may exceed the
         // Taiko frame capacity; read registers individually with 'p' instead.
         if (body == 'g' && this.registers.length > 0) {
+            const gStarted = Date.now();
             const result = await this.readAllRegistersIndividually();
+            glog(`'g' expanded to ${this.registers.length} per-register reads in ${Date.now() - gStarted}ms (result=${result != undefined ? 'ok' : 'E01'})`);
             if (result != undefined) {
                 this.sendToGdb(client, result);
                 return;
@@ -441,15 +487,18 @@ export class GdbProxyServer {
     private exchange(data: string): Promise<string | undefined> {
         return new Promise((resolve) => {
             if (this.socket == undefined || this.targetMac == '') {
+                glog(`exchange refused (socket=${this.socket != undefined ? 'up' : 'down'}, targetMac='${this.targetMac}') data=${gtrunc(data)}`);
                 resolve(undefined);
                 return;
             }
             const nonce = this.makeid(8);
+            const started = Date.now();
             const timer = setTimeout(() => {
                 this.pendingExchanges.delete(nonce);
+                glog(`exchange TIMEOUT ${Date.now() - started}ms nonce=${nonce} sent=${gtrunc(data)}`);
                 resolve(undefined);
             }, EXCHANGE_TIMEOUT);
-            this.pendingExchanges.set(nonce, { resolve, timer });
+            this.pendingExchanges.set(nonce, { resolve, timer, started, data });
             this.socket.emit('command', {
                 mac: this.targetMac,
                 command: GDB_TUNNEL_COMMAND,
@@ -461,15 +510,23 @@ export class GdbProxyServer {
 
     private onReply(message: any): void {
         if (message.mac != this.targetMac || message.nonce == undefined) {
+            glog(`reply IGNORED (mac=${message.mac} vs target=${this.targetMac}, nonce=${message.nonce}) data=${gtrunc(message.data)}`);
             return;
         }
         const pending = this.pendingExchanges.get(message.nonce);
         if (pending == undefined) {
+            glog(`reply for unknown/expired nonce=${message.nonce} data=${gtrunc(message.data)}`);
             return;
         }
         this.pendingExchanges.delete(message.nonce);
         clearTimeout(pending.timer);
-        pending.resolve(message.data != undefined ? message.data : '');
+        const reply = message.data != undefined ? message.data : '';
+        // Don't log the quiet stop-polling heartbeats ('' -> ''), they fire
+        // every RUN_POLL_INTERVAL while the target runs and would flood the log.
+        if (pending.data != '' || reply != '') {
+            glog(`exchange ok ${Date.now() - pending.started}ms nonce=${message.nonce} sent=${gtrunc(pending.data)} reply=${gtrunc(reply)}`);
+        }
+        pending.resolve(reply);
     }
 
     private makeid(length: number): string {
