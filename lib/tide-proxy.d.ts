@@ -14,6 +14,7 @@ export interface TIDEProxyToolPaths {
     openocd?: string;
     bossac?: string;
     jlink?: string;
+    nrfutil?: string;
 }
 export interface TIDEProxyOptions {
     serverAddress?: string;
@@ -26,6 +27,25 @@ interface TBNetworkInterface {
     socket: dgram.Socket;
     netInterface: any;
 }
+export interface JLinkProbe {
+    index: number;
+    connection: string;
+    serialNumber: string;
+    productName: string;
+    nickname: string;
+    address: string;
+}
+export declare function parseJLinkEmuList(output: string): JLinkProbe[];
+export interface NrfutilDevice {
+    serialNumber: string;
+    boardVersion: string;
+    deviceFamily: string;
+    traits: string[];
+    serialPorts: string[];
+}
+export declare function parseNrfutilDeviceList(output: string): NrfutilDevice[];
+export declare function nrfutilProgressPercentage(event: any): number | undefined;
+export declare function binToIntelHex(bytes: Buffer, baseAddress?: number, recordLength?: number): string;
 export declare class TIDEProxy {
     devices: Array<TibboDevice>;
     pendingMessages: Array<UDPMessage>;
@@ -65,7 +85,7 @@ export declare class TIDEProxy {
     stopGdbServer(): void;
     setServer(serverAddress: string, proxyName: string): void;
     setADKS(adks: any[]): void;
-    handleRefresh(): void;
+    handleRefresh(debuggerType?: string): void;
     setPDBAddress(message: TaikoMessage): void;
     handleMessage(msg: Buffer, info: any, socket: TBNetworkInterface): void;
     handleDebugPrint(device: TibboDevice, state: string): Promise<void>;
@@ -105,6 +125,9 @@ export declare class TIDEProxy {
     getDevices(): Array<TibboDevice>;
     stop(): Promise<void>;
     getSerialPorts(): Promise<void>;
+    getJLinkDevices(): Promise<void>;
+    getNrfutilDevices(): Promise<void>;
+    uploadNrfutil(mac: string, bytes: Buffer, deviceDefinition: any): void;
     attachSerial(port: string, baudRate?: number, reset?: boolean): Promise<boolean>;
     detachSerial(port: string): Promise<void>;
 }

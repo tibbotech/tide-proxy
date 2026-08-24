@@ -46,6 +46,7 @@ export interface TIDEProxyToolPaths {
     openocd?: string;
     bossac?: string;
     jlink?: string;
+    nrfutil?: string;
 }
 
 export interface TIDEProxyOptions {
@@ -70,6 +71,167 @@ const logger = {
 
 const PROJECT_OUTPUT_FOLDER = process.env.TIDE_PROXY_OUTPUT_DIR
     || path.join(os.tmpdir(), 'tide-proxy', 'project_output');
+
+export interface JLinkProbe {
+    index: number;
+    connection: string;
+    serialNumber: string;
+    productName: string;
+    nickname: string;
+    address: string;
+}
+
+/**
+ * Parse the output of the J-Link Commander `ShowEmuList` command, e.g.
+ * `J-Link[0]: Connection: USB, Serial number: 260103158, ProductName: J-Link EDU Mini`
+ */
+export function parseJLinkEmuList(output: string): JLinkProbe[] {
+    const probes: JLinkProbe[] = [];
+    const lines = output.split(/\r?\n/);
+    for (const line of lines) {
+        const match = line.trim().match(/^J-Link\[(\d+)\]:\s*(.*)$/);
+        if (!match) {
+            continue;
+        }
+        const probe: JLinkProbe = {
+            index: Number(match[1]),
+            connection: '',
+            serialNumber: '',
+            productName: '',
+            nickname: '',
+            address: '',
+        };
+        // fields are comma separated `key: value` pairs
+        for (const field of match[2].split(',')) {
+            const separator = field.indexOf(':');
+            if (separator === -1) {
+                continue;
+            }
+            const key = field.substring(0, separator).trim().toLowerCase().replace(/[\s-]/g, '');
+            let value = field.substring(separator + 1).trim();
+            if (value === '<not set>') {
+                value = '';
+            }
+            switch (key) {
+                case 'connection':
+                    // USB connections are plain, IP ones may read `IP (192.168.1.5)`
+                    const address = value.match(/\(([^)]+)\)/);
+                    probe.connection = value.replace(/\s*\([^)]*\)/, '');
+                    if (address) {
+                        probe.address = address[1];
+                    }
+                    break;
+                case 'serialnumber':
+                    probe.serialNumber = value;
+                    break;
+                case 'productname':
+                    probe.productName = value;
+                    break;
+                case 'nickname':
+                    probe.nickname = value;
+                    break;
+                case 'ipaddr':
+                    probe.address = value;
+                    break;
+            }
+        }
+        probes.push(probe);
+    }
+    return probes;
+}
+
+export interface NrfutilDevice {
+    serialNumber: string;
+    boardVersion: string;
+    deviceFamily: string;
+    traits: string[];
+    serialPorts: string[];
+}
+
+/**
+ * Parse the newline delimited JSON `nrfutil device list --json` writes. The
+ * device list shows up in several events (`task_end`, `info`); the last one
+ * carrying a `devices` array wins.
+ */
+export function parseNrfutilDeviceList(output: string): NrfutilDevice[] {
+    let devices: any[] | undefined = undefined;
+    for (const line of output.split(/\r?\n/)) {
+        if (line.trim() === '') {
+            continue;
+        }
+        let event: any;
+        try {
+            event = JSON.parse(line);
+        } catch {
+            // nrfutil reports early failures as plain text, even with --json
+            continue;
+        }
+        const list = event?.data?.devices;
+        if (Array.isArray(list)) {
+            devices = list;
+        }
+    }
+    if (devices === undefined) {
+        return [];
+    }
+    return devices.map((device: any) => ({
+        serialNumber: String(device?.serialNumber ?? ''),
+        boardVersion: device?.devkit?.boardVersion || '',
+        deviceFamily: device?.devkit?.deviceFamily || '',
+        traits: Object.keys(device?.traits || {}).filter((trait: string) => device.traits[trait] === true),
+        serialPorts: (device?.serialPorts || []).map((port: any) => port?.path).filter((path: any) => !!path),
+    }));
+}
+
+/**
+ * Pull a progress percentage out of an `nrfutil --json` event. The percentage
+ * moved around between nrfutil versions, so search the event for it instead of
+ * relying on one path.
+ */
+export function nrfutilProgressPercentage(event: any): number | undefined {
+    if (event === null || typeof event !== 'object') {
+        return undefined;
+    }
+    for (const key of Object.keys(event)) {
+        const value = event[key];
+        if (key === 'progressPercentage' && typeof value === 'number') {
+            return value;
+        }
+        const nested = nrfutilProgressPercentage(value);
+        if (nested !== undefined) {
+            return nested;
+        }
+    }
+    return undefined;
+}
+
+/**
+ * Convert a raw binary image into Intel HEX starting at `baseAddress`.
+ * `nrfutil device program` only takes IntelHex (or zip) firmware, while device
+ * definitions may well hand us a `.bin`.
+ */
+export function binToIntelHex(bytes: Buffer, baseAddress = 0, recordLength = 16): string {
+    const record = (type: number, address: number, data: number[]): string => {
+        const bytesOut = [data.length, (address >> 8) & 0xff, address & 0xff, type, ...data];
+        const sum = bytesOut.reduce((total, byte) => total + byte, 0);
+        bytesOut.push((0x100 - (sum & 0xff)) & 0xff);
+        return ':' + bytesOut.map((byte) => byte.toString(16).toUpperCase().padStart(2, '0')).join('');
+    };
+
+    const lines: string[] = [];
+    let upperAddress = -1;
+    for (let offset = 0; offset < bytes.length; offset += recordLength) {
+        const address = baseAddress + offset;
+        const upper = (address >>> 16) & 0xffff;
+        if (upper !== upperAddress) {
+            lines.push(record(0x04, 0, [(upper >> 8) & 0xff, upper & 0xff]));
+            upperAddress = upper;
+        }
+        lines.push(record(0x00, address & 0xffff, [...bytes.slice(offset, offset + recordLength)]));
+    }
+    lines.push(record(0x01, 0, []));
+    return lines.join('\n') + '\n';
+}
 
 function openocdFirmwareExtension(buf: Buffer): 'elf' | 'hex' {
     if (buf.length >= 4 && buf[0] === 0x7f && buf[1] === 0x45 && buf[2] === 0x4c && buf[3] === 0x46) {
@@ -157,6 +319,7 @@ export class TIDEProxy {
             openocd: toolPaths.openocd || (isWindows ? 'openocd.exe' : 'openocd'),
             bossac: toolPaths.bossac || (isWindows ? 'bossac.exe' : 'bossac'),
             jlink: toolPaths.jlink || (isWindows ? 'JLinkExe.exe' : 'JLinkExe'),
+            nrfutil: toolPaths.nrfutil || (isWindows ? 'nrfutil.exe' : 'nrfutil'),
         };
 
         this.id = new Date().getTime().toString();
@@ -352,8 +515,8 @@ export class TIDEProxy {
             logger.error('connection error' + error);
         });
 
-        socket.on(TIBBO_PROXY_MESSAGE.REFRESH, (message: TaikoMessage) => {
-            this.handleRefresh();
+        socket.on(TIBBO_PROXY_MESSAGE.REFRESH, (debuggerType?: string) => {
+            this.handleRefresh(debuggerType);
         });
 
         socket.on(TIBBO_PROXY_MESSAGE.BUZZ, (message: TaikoMessage) => {
@@ -527,11 +690,20 @@ export class TIDEProxy {
         this.adks = adks;
     }
 
-    handleRefresh() {
+    handleRefresh(debuggerType?: string) {
         const msg = Buffer.from(PCODE_COMMANDS.DISCOVER);
         this.discoveredDevices = {};
         this.send(msg);
         this.getSerialPorts();
+        if (debuggerType) {
+            if (debuggerType.toLowerCase() === 'nrfutil') {
+                // nrfutil list devices
+                this.getNrfutilDevices();
+            } else {
+                // jlink list devices
+                this.getJLinkDevices();
+            }
+        }
     }
 
     setPDBAddress(message: TaikoMessage): void {
@@ -1092,6 +1264,9 @@ export class TIDEProxy {
                 return;
             } else if (method === 'jlink') {
                 this.uploadJLink(mac, bytes, deviceDefinition);
+                return;
+            } else if (method === 'nrfutil') {
+                this.uploadNrfutil(mac, bytes, deviceDefinition);
                 return;
             } else if (method === 'teensy') {
                 this.uploadTeensy(mac, bytes, deviceDefinition);
@@ -2309,6 +2484,344 @@ export class TIDEProxy {
             if (!found) {
                 this.devices.push(device);
             }
+        }
+    }
+
+    /**
+     * Enumerate the J-Link probes attached to this machine by running the
+     * J-Link Commander `ShowEmuList` command, and announce each one as a
+     * device (type `jlink`, mac = probe serial number).
+     */
+    async getJLinkDevices(): Promise<void> {
+        const jlinkPath = this.toolPaths.jlink!;
+        const scriptPath = path.join(PROJECT_OUTPUT_FOLDER, `${this.makeid(8)}.jlink`);
+        try {
+            fs.mkdirSync(PROJECT_OUTPUT_FOLDER, { recursive: true });
+            fs.writeFileSync(scriptPath, 'ShowEmuList\nExit\n');
+
+            const result = await new Promise<{ output: string, code: number | null }>((resolve, reject) => {
+                const ccmd = `${jlinkPath} -nogui 1 -CommanderScript ${scriptPath}`;
+                const exec = cp.spawn(ccmd, [], { env: { ...process.env, NODE_OPTIONS: '' }, timeout: 15000, shell: true });
+                let output = '';
+                exec.stdout.on('data', (data: any) => output += data.toString());
+                exec.stderr.on('data', (data: any) => output += data.toString());
+                exec.on('error', (error: Error) => reject(error));
+                exec.on('close', (code: number | null) => resolve({ output, code }));
+            });
+
+            const probes = parseJLinkEmuList(result.output);
+            if (probes.length === 0 && result.code !== 0) {
+                // the shell swallows a missing binary, so report it from the exit code
+                logger.error(`failed to list jlink devices: ${jlinkPath} exited with ${result.code}`);
+                this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
+                    data: `${jlinkPath} not found`,
+                    format: 'markdown',
+                });
+                return;
+            }
+
+            for (const probe of probes) {
+                const mac = probe.serialNumber || `jlink-${probe.index}`;
+                let found = false;
+                for (let i = 0; i < this.devices.length; i++) {
+                    if (this.devices[i].mac == mac) {
+                        found = true;
+                        break;
+                    }
+                }
+                const device = {
+                    ip: probe.address,
+                    mac: mac,
+                    messageQueue: [],
+                    tios: '',
+                    app: probe.productName,
+                    appVersion: '',
+                    fileIndex: 0,
+                    fileBlocksTotal: 0,
+                    type: 'jlink',
+                    pcode: -1,
+                    blockSize: 1,
+                    state: PCODEMachineState.STOPPED,
+                };
+                this.emit(TIBBO_PROXY_MESSAGE.DEVICE, {
+                    ip: device.ip,
+                    mac: device.mac,
+                    tios: device.tios,
+                    app: device.app,
+                    pcode: device.pcode,
+                    appVersion: device.appVersion,
+                    type: device.type,
+                });
+                if (!found) {
+                    this.devices.push(device);
+                }
+            }
+        } catch (ex: any) {
+            logger.error(`failed to list jlink devices: ${ex?.message ?? ex}`);
+            this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
+                data: `${jlinkPath} not found`,
+                format: 'markdown',
+            });
+        } finally {
+            if (fs.existsSync(scriptPath)) {
+                fs.unlinkSync(scriptPath);
+            }
+        }
+    }
+
+    /**
+     * Enumerate the devices `nrfutil` can see (J-Link probes, MCUboot/DFU
+     * targets) and announce each one as a device (type `nrfutil`,
+     * mac = probe serial number).
+     */
+    async getNrfutilDevices(): Promise<void> {
+        const nrfutilPath = this.toolPaths.nrfutil!;
+        try {
+            const result = await new Promise<{ output: string, code: number | null }>((resolve, reject) => {
+                const ccmd = `${nrfutilPath} device list --json`;
+                const exec = cp.spawn(ccmd, [], { env: { ...process.env, NODE_OPTIONS: '' }, timeout: 30000, shell: true });
+                let output = '';
+                exec.stdout.on('data', (data: any) => output += data.toString());
+                exec.stderr.on('data', (data: any) => output += data.toString());
+                exec.on('error', (error: Error) => reject(error));
+                exec.on('close', (code: number | null) => resolve({ output, code }));
+            });
+
+            if (result.code !== 0) {
+                // the shell swallows a missing binary, so report it from the exit code
+                logger.error(`failed to list nrfutil devices: ${nrfutilPath} exited with ${result.code}`);
+                this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
+                    data: `${nrfutilPath} not found`,
+                    format: 'markdown',
+                });
+                return;
+            }
+
+            for (const nrfDevice of parseNrfutilDeviceList(result.output)) {
+                const mac = nrfDevice.serialNumber;
+                if (!mac) {
+                    continue;
+                }
+                let found = false;
+                for (let i = 0; i < this.devices.length; i++) {
+                    if (this.devices[i].mac == mac) {
+                        found = true;
+                        break;
+                    }
+                }
+                const device = {
+                    ip: '',
+                    mac: mac,
+                    messageQueue: [],
+                    tios: '',
+                    app: nrfDevice.boardVersion || nrfDevice.deviceFamily,
+                    appVersion: '',
+                    fileIndex: 0,
+                    fileBlocksTotal: 0,
+                    type: 'nrfutil',
+                    pcode: -1,
+                    blockSize: 1,
+                    state: PCODEMachineState.STOPPED,
+                };
+                this.emit(TIBBO_PROXY_MESSAGE.DEVICE, {
+                    ip: device.ip,
+                    mac: device.mac,
+                    tios: device.tios,
+                    app: device.app,
+                    pcode: device.pcode,
+                    appVersion: device.appVersion,
+                    type: device.type,
+                });
+                if (!found) {
+                    this.devices.push(device);
+                }
+            }
+        } catch (ex: any) {
+            logger.error(`failed to list nrfutil devices: ${ex?.message ?? ex}`);
+            this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
+                data: `${nrfutilPath} not found`,
+                format: 'markdown',
+            });
+        }
+    }
+
+    /**
+     * Flash a device with `nrfutil device program`. Recognised upload method
+     * options: `--serial-number=`, `--family=`, `--core=`, `--traits=`,
+     * `--options=` (raw nrfutil program options) and `--timeout=` (ms).
+     * The probe defaults to `mac`, which is how J-Link/nrfutil probes are
+     * registered by a debugger refresh.
+     */
+    uploadNrfutil(mac: string, bytes: Buffer, deviceDefinition: any): void {
+        const nrfutilMethod = deviceDefinition.uploadMethods.find((method: any) => method.name === 'nrfutil');
+        const nrfutilPath = this.toolPaths.nrfutil!;
+        const fileBase = this.makeid(8);
+        let serialNumber = mac;
+        let family = '';
+        let core = '';
+        let traits = '';
+        let programOptions = 'chip_erase_mode=ERASE_ALL,reset=RESET_SYSTEM';
+        let timeout = 120000;
+        let filePath = '';
+        try {
+            for (let i = 0; i < (nrfutilMethod?.options?.length || 0); i++) {
+                let option = nrfutilMethod.options[i];
+                if (option.indexOf('"') === 0) {
+                    option = option.substring(1, option.length - 1);
+                }
+                const value = option.substring(option.indexOf('=') + 1);
+                if (option.indexOf('--serial-number=') === 0 || option.indexOf('--serial=') === 0) {
+                    serialNumber = value;
+                }
+                if (option.indexOf('--family=') === 0) {
+                    family = value;
+                }
+                if (option.indexOf('--core=') === 0) {
+                    core = value;
+                }
+                if (option.indexOf('--traits=') === 0) {
+                    traits = value;
+                }
+                if (option.indexOf('--options=') === 0) {
+                    programOptions = value;
+                }
+                if (option.indexOf('--timeout=') === 0) {
+                    timeout = Number(value) || timeout;
+                }
+            }
+
+            // nrfutil programs IntelHex, so convert a raw binary image
+            const isElf = bytes.length >= 4 && bytes[0] === 0x7f && bytes[1] === 0x45 && bytes[2] === 0x4c && bytes[3] === 0x46;
+            if (isElf) {
+                this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
+                    data: 'nrfutil cannot program ELF firmware, build a .hex or .bin image',
+                    mac: mac,
+                });
+                return this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, {
+                    method: 'nrfutil',
+                    code: 'unsupported_format',
+                    mac,
+                });
+            }
+
+            fs.mkdirSync(PROJECT_OUTPUT_FOLDER, { recursive: true });
+            filePath = path.join(PROJECT_OUTPUT_FOLDER, `${fileBase}.hex`);
+            if (openocdFirmwareExtension(bytes) === 'hex') {
+                fs.writeFileSync(filePath, bytes);
+            } else {
+                const flashAddress = Number(deviceDefinition.flashAddress || 0);
+                fs.writeFileSync(filePath, binToIntelHex(bytes, flashAddress));
+            }
+
+            const cleanup = () => {
+                if (filePath && fs.existsSync(filePath)) {
+                    fs.unlinkSync(filePath);
+                }
+            }
+
+            let ccmd = `${nrfutilPath} device program --firmware ${filePath} --json`;
+            if (serialNumber) {
+                ccmd += ` --serial-number ${serialNumber}`;
+            }
+            if (family) {
+                ccmd += ` --family ${family}`;
+            }
+            if (core) {
+                ccmd += ` --core ${core}`;
+            }
+            if (traits) {
+                ccmd += ` --traits ${traits}`;
+            }
+            if (programOptions) {
+                ccmd += ` --options ${programOptions}`;
+            }
+            logger.info(ccmd);
+            const exec = cp.spawn(ccmd, [], { env: { ...process.env, NODE_OPTIONS: '' }, timeout, shell: true });
+            if (!exec.pid) {
+                cleanup();
+                return;
+            }
+            let cmdOutput = '';
+            const handleOutput = (data: any) => {
+                const text = data.toString();
+                cmdOutput += text;
+                logger.info(text);
+                for (const line of text.split(/\r?\n/)) {
+                    if (line.trim() === '') {
+                        continue;
+                    }
+                    let event: any;
+                    try {
+                        event = JSON.parse(line);
+                    } catch {
+                        continue;
+                    }
+                    const percentage = nrfutilProgressPercentage(event);
+                    if (percentage !== undefined) {
+                        this.emit(TIBBO_PROXY_MESSAGE.UPLOAD, {
+                            data: percentage / 100,
+                            mac: mac,
+                        });
+                    }
+                }
+            };
+            exec.stdout.on('data', handleOutput);
+            exec.stderr.on('data', handleOutput);
+            exec.on('error', (error: Error) => {
+                cleanup();
+                this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
+                    data: `${nrfutilPath} failed: ${error.message}`,
+                    mac: mac,
+                });
+                this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, {
+                    method: 'nrfutil',
+                    code: 'not_found',
+                    mac,
+                });
+            });
+            exec.on('exit', (code: number | null) => {
+                cleanup();
+                if (code === 127) {
+                    // the shell swallows a missing binary, so report it from the exit code
+                    this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
+                        data: `${nrfutilPath} not found`,
+                        format: 'markdown',
+                        mac: mac,
+                    });
+                    return this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, {
+                        method: 'nrfutil',
+                        code: 'not_found',
+                        mac,
+                    });
+                }
+                if (code !== 0) {
+                    this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
+                        data: `nrfutil exited with code ${code} \n${cmdOutput}`,
+                        mac: mac,
+                    });
+                    return this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, {
+                        method: 'nrfutil',
+                        code: 'error',
+                        mac,
+                    });
+                }
+                this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_COMPLETE, {
+                    method: 'nrfutil',
+                    mac: mac,
+                });
+            });
+        } catch (ex: any) {
+            if (filePath && fs.existsSync(filePath)) {
+                fs.unlinkSync(filePath);
+            }
+            this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
+                data: ex.toString(),
+                mac,
+            });
+            this.emit(TIBBO_PROXY_MESSAGE.UPLOAD_ERROR, {
+                method: 'nrfutil',
+                mac,
+            });
         }
     }
 
