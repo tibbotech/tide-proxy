@@ -695,14 +695,13 @@ export class TIDEProxy {
         this.discoveredDevices = {};
         this.send(msg);
         this.getSerialPorts();
-        if (debuggerType) {
-            if (debuggerType.toLowerCase() === 'nrfutil') {
-                // nrfutil list devices
-                this.getNrfutilDevices();
-            } else {
-                // jlink list devices
-                this.getJLinkDevices();
-            }
+        const type = typeof debuggerType === 'string' ? debuggerType.toLowerCase() : '';
+        if (type === 'nrfutil') {
+            // nrfutil list devices
+            this.getNrfutilDevices();
+        } else if (type) {
+            // jlink list devices
+            this.getJLinkDevices();
         }
     }
 
