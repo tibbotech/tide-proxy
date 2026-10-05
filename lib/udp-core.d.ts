@@ -54,7 +54,11 @@ export declare enum TIBBO_PROXY_MESSAGE {
     WIEGAND_SEND = "wiegand_send",
     UPLOAD_ERROR = "upload_error",
     MESSAGE = "message",
-    POLL_DEVICE = "poll_device"
+    POLL_DEVICE = "poll_device",
+    START_GDB = "start_gdb",
+    STOP_GDB = "stop_gdb",
+    GDB_STARTED = "gdb_started",
+    GDB_CONSOLE = "gdb_console"
 }
 export interface TaikoMessage {
     mac: string;
@@ -104,6 +108,7 @@ export interface TibboDevice {
     verificationTimer?: ReturnType<typeof setInterval>;
     uploadAttempts?: number;
     deviceDefinition?: any;
+    deviceId?: string;
     resetProgrammingToken?: Deferred;
     infoToken?: Deferred;
 }
@@ -113,7 +118,7 @@ export interface UDPCoreHost {
     isValidRoute?(route: any): boolean;
     emit(channel: string, content: any): void;
     log?(level: UDPCoreLogLevel, message: any): void;
-    resolveFirmware?(deviceDefinition: any): Uint8Array | undefined | Promise<Uint8Array | undefined>;
+    resolveFirmware?(deviceDefinition: any, deviceId?: string): Uint8Array | undefined | Promise<Uint8Array | undefined>;
     onDeviceDiscovered?(device: TibboDevice): void;
 }
 export declare class Deferred {
@@ -126,6 +131,12 @@ export declare class Deferred {
     wait(timeoutMs: number): Promise<void>;
 }
 export declare function binaryStringToBytes(str: string): Uint8Array;
+export declare type UploadData = string | Uint8Array | ArrayBuffer | ArrayBufferView | number[] | {
+    type: 'Buffer';
+    data: number[];
+};
+export declare function uploadDataToBytes(data: UploadData | null | undefined): Uint8Array;
+export declare function extractDeviceIdFromBinary(bytes: Uint8Array): string | undefined;
 export declare function bytesToBinaryString(bytes: Uint8Array): string;
 export declare class TibboUDPCore {
     devices: Array<TibboDevice>;
@@ -149,8 +160,8 @@ export declare class TibboUDPCore {
     removeDeviceMessage(mac: string, nonce: string): void;
     clearDeviceMessageQueue(mac: string): void;
     stopApplicationUpload(address: string): void;
-    startApplicationUpload(mac: string, fileString: string, deviceDefinition?: any, resetAttempts?: boolean): Promise<void>;
-    startFirmwareUpload(mac: string, fileString: string, deviceDefinition?: any): Promise<void>;
+    startApplicationUpload(mac: string, fileString: UploadData, deviceDefinition?: any, resetAttempts?: boolean): Promise<void>;
+    startFirmwareUpload(mac: string, fileString: UploadData, deviceDefinition?: any): Promise<void>;
     private beginUploadStream;
     sendBlock(mac: string, blockIndex: number): void;
     sendToDevice(mac: string, command: string, data: string, reply?: boolean, nonce?: string | undefined): void;

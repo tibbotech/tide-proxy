@@ -87,6 +87,10 @@ export enum TIBBO_PROXY_MESSAGE {
     UPLOAD_ERROR = 'upload_error',
     MESSAGE = 'message',
     POLL_DEVICE = 'poll_device',
+    START_GDB = 'start_gdb',
+    STOP_GDB = 'stop_gdb',
+    GDB_STARTED = 'gdb_started',
+    GDB_CONSOLE = 'gdb_console',
 }
 
 export interface TaikoMessage {
@@ -140,6 +144,7 @@ export interface TibboDevice {
     verificationTimer?: ReturnType<typeof setInterval>;
     uploadAttempts?: number;
     deviceDefinition?: any;
+    deviceId?: string;
     resetProgrammingToken?: Deferred;
     infoToken?: Deferred;
 }
@@ -154,8 +159,12 @@ export interface UDPCoreHost {
     /** Protocol event sink (TIBBO_PROXY_MESSAGE channel names). */
     emit(channel: string, content: any): void;
     log?(level: UDPCoreLogLevel, message: any): void;
-    /** Resolve TiOS firmware bytes for the QF reflash path. Throw to report a read error. */
-    resolveFirmware?(deviceDefinition: any): Uint8Array | undefined | Promise<Uint8Array | undefined>;
+    /**
+     * Resolve TiOS firmware bytes for the QF reflash path. `deviceId` is the
+     * platform id extracted from the TPC binary, when present. Throw to report
+     * a read error.
+     */
+    resolveFirmware?(deviceDefinition: any, deviceId?: string): Uint8Array | undefined | Promise<Uint8Array | undefined>;
     /** Called once when a device is first discovered, before its info is queried. */
     onDeviceDiscovered?(device: TibboDevice): void;
 }
@@ -225,6 +234,65 @@ export function uploadDataToBytes(data: UploadData | null | undefined): Uint8Arr
         return Uint8Array.from((data as any).data);
     }
     throw new TypeError(`Unsupported upload data type: ${Object.prototype.toString.call(data)}`);
+}
+
+/**
+ * Extract the device id from a TPC/firmware binary.
+ *
+ * After the `<FD>` marker the binary carries a sequence of
+ * null-terminated strings, e.g.
+ *   <FD>\0 tibbo_self_updater \0 e46d138b-...-aa6838203f63 \0 TPP2W(G2)-4.02 \0
+ * (shown space-separated for readability — the real separator is NUL).
+ *
+ * The third field is the part-number with a trailing "-<version>", so
+ * "TPP2W(G2)-4.02" yields the device id "TPP2W(G2)".
+ */
+export function extractDeviceIdFromBinary(bytes: Uint8Array): string | undefined {
+    const marker = indexOfBytes(bytes, binaryStringToBytes('<FD>'));
+    if (marker < 0) {
+        return undefined;
+    }
+
+    let pos = marker + 4; // skip past the "<FD>" marker itself
+    const fields: string[] = [];
+    while (pos < bytes.length && fields.length < 8) {
+        // Skip NUL/whitespace separators between sections.
+        while (pos < bytes.length && (bytes[pos] === 0 || bytes[pos] === 0x20)) {
+            pos++;
+        }
+        const end = bytes.indexOf(0, pos);
+        if (end < 0) {
+            break;
+        }
+        const field = bytesToBinaryString(bytes.subarray(pos, end)).trim();
+        if (field) {
+            fields.push(field);
+        }
+        pos = end + 1;
+    }
+
+    // fields: [updater tag, uuid, part-number-version, ...]
+    const partVersion = fields[2];
+    if (!partVersion) {
+        return undefined;
+    }
+
+    // Strip the trailing "-<version>" (e.g. "TPP2W(G2)-4.02" -> "TPP2W(G2)").
+    const dash = partVersion.lastIndexOf('-');
+    return dash > 0 ? partVersion.slice(0, dash) : partVersion;
+}
+
+function indexOfBytes(haystack: Uint8Array, needle: Uint8Array): number {
+    outer:
+    for (let i = 0; i + needle.length <= haystack.length; i++) {
+        for (let j = 0; j < needle.length; j++) {
+            if (haystack[i + j] !== needle[j]) {
+                continue outer;
+            }
+        }
+        return i;
+    }
+    return -1;
 }
 
 export function bytesToBinaryString(bytes: Uint8Array): string {
@@ -749,6 +817,15 @@ export class TibboUDPCore {
         // We can only skip Q when QF is going to run immediately after (loader
         // case below); otherwise Q is needed to reset the device's upload state
         // before streaming D blocks.
+
+        // Derive the device id straight from the binary's <FD> marker
+        // (e.g. "TPP2W(G2)") rather than trusting the passed-in device info.
+        const deviceId = extractDeviceIdFromBinary(bytes);
+        if (deviceId) {
+            device.deviceId = deviceId;
+            this.log('info', `extracted device id "${deviceId}" from binary for ${mac}`);
+        }
+
         const deviceInfo = await this.getDeviceInfo(mac);
         const inLoader = deviceInfo.tios.indexOf('TiOS-32 Loader') >= 0;
         let qAcked = false;
@@ -772,7 +849,7 @@ export class TibboUDPCore {
         let firmwareBytes: Uint8Array | undefined;
         try {
             firmwareBytes = this.host.resolveFirmware
-                ? await this.host.resolveFirmware(deviceDefinition)
+                ? await this.host.resolveFirmware(deviceDefinition, deviceId)
                 : undefined;
         } catch (e: any) {
             this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
@@ -787,7 +864,7 @@ export class TibboUDPCore {
             device.file = undefined;
             return;
         }
-        if (!deviceDefinition || !firmwareBytes) {
+        if (!firmwareBytes) {
             this.emit(TIBBO_PROXY_MESSAGE.MESSAGE, {
                 data: 'Device did not enter programming mode. Provide deviceDefinition with a resolvable TIOS firmware path (tiosFirmwarePath), install @platforms (Platforms/<id>/firmware/*.bin), or set platformsDir / TIDE_PLATFORMS_DIR.',
                 mac,
@@ -1212,7 +1289,7 @@ export class TibboUDPCore {
         const device = this.getDevice(mac);
         device.infoToken = new Deferred();
         this.sendToDevice(mac, PCODE_COMMANDS.INFO, '', true);
-        await device.infoToken.wait(5000);
+        await device.infoToken.wait(10000);
         device.infoToken = undefined;
         return device;
     }
