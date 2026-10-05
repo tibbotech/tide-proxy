@@ -2,14 +2,8 @@
 import * as dgram from 'dgram';
 import SerialDevice from './NodeSerialPort';
 import { GdbProxyServer } from './gdb-server';
-interface UDPMessage {
-    deviceInterface: any;
-    message: string;
-    nonce: string;
-    tries: number;
-    timestamp: number;
-    timeout: number;
-}
+import { TaikoMessage, TibboDevice, TibboUDPCore, UDPMessage, UploadData } from './udp-core';
+export * from './udp-core';
 export interface TIDEProxyToolPaths {
     openocd?: string;
     bossac?: string;
@@ -47,19 +41,11 @@ export declare function parseNrfutilDeviceList(output: string): NrfutilDevice[];
 export declare function nrfutilProgressPercentage(event: any): number | undefined;
 export declare function binToIntelHex(bytes: Buffer, baseAddress?: number, recordLength?: number): string;
 export declare class TIDEProxy {
-    devices: Array<TibboDevice>;
-    pendingMessages: Array<UDPMessage>;
-    timer?: NodeJS.Timeout;
+    core: TibboUDPCore;
     interfaces: Array<TBNetworkInterface>;
     currentInterface: TBNetworkInterface | undefined;
     socket: any;
     server: any;
-    memoryCalls: {
-        [key: string]: any;
-    };
-    discoveredDevices: {
-        [key: string]: string;
-    };
     id: string;
     clients: any[];
     listenPort: number;
@@ -71,6 +57,19 @@ export declare class TIDEProxy {
     lastInterfaceState: string;
     toolPaths: TIDEProxyToolPaths;
     gdbProxyServer?: GdbProxyServer;
+    get devices(): Array<TibboDevice>;
+    set devices(value: Array<TibboDevice>);
+    get pendingMessages(): Array<UDPMessage>;
+    set pendingMessages(value: Array<UDPMessage>);
+    get discoveredDevices(): {
+        [key: string]: string;
+    };
+    set discoveredDevices(value: {
+        [key: string]: string;
+    });
+    get memoryCalls(): {
+        [key: string]: any;
+    };
     constructor(serverAddress: string, proxyName: string, port?: number, targetInterface?: string, options?: TIDEProxyOptions);
     constructor(options: TIDEProxyOptions);
     initInterfaces(targetInterface?: any): void;
@@ -92,11 +91,9 @@ export declare class TIDEProxy {
     removeDeviceMessage(mac: string, nonce: string): void;
     clearDeviceMessageQueue(mac: string): void;
     stopApplicationUpload(address: string): void;
-    private extractDeviceIdFromBinary;
     private resolveTiosFirmwarePath;
-    startApplicationUpload(mac: string, fileString: string, deviceDefinition?: any, method?: string, files?: any[], baudRate?: number): Promise<void>;
-    startFirmwareUpload(mac: string, fileString: string, deviceDefinition?: any): Promise<void>;
-    private beginUploadStream;
+    startApplicationUpload(mac: string, fileString: UploadData, deviceDefinition?: any, method?: string, files?: any[], baudRate?: number): Promise<void>;
+    startFirmwareUpload(mac: string, fileString: UploadData, deviceDefinition?: any): Promise<void>;
     uploadESP32(mac: string, bytes: Buffer, deviceDefinition: any, baudRate: number): void;
     uploadBossac(mac: string, bytes: Buffer, deviceDefinition: any): void;
     uploadOpenOCD(mac: string, bytes: Buffer, deviceDefinition: any): void;
@@ -108,7 +105,6 @@ export declare class TIDEProxy {
     sendToDevice(mac: string, command: string, data: string, reply?: boolean, nonce?: string | undefined): void;
     checkMessageQueue(): void;
     private isValidInterface;
-    private handleUploadMessageTimeout;
     makeid(length: number): string;
     private getBroadcastAddress;
     private isSocketActive;
@@ -116,7 +112,6 @@ export declare class TIDEProxy {
     send(message: Buffer, netInterface?: any, targetIP?: string): void;
     private sendToSingleInterface;
     private sendToAllInterfaces;
-    private getVariable;
     getDeviceInfo(mac: string): Promise<TibboDevice>;
     getDevice(mac: string): TibboDevice;
     handleHTTPProxy(message: HTTPMessage): Promise<void>;
@@ -131,55 +126,6 @@ export declare class TIDEProxy {
     attachSerial(port: string, baudRate?: number, reset?: boolean): Promise<boolean>;
     detachSerial(port: string): Promise<void>;
 }
-export interface TibboDevice {
-    ip: string;
-    mac: string;
-    messageQueue: Array<TaikoMessage>;
-    tios: string;
-    app: string;
-    appVersion: string;
-    type: string;
-    file?: Buffer;
-    fileIndex: number;
-    blockSize: number;
-    fileBlocksTotal: number;
-    pcode: PCODE_STATE;
-    lastRunCommand?: TaikoMessage;
-    state: PCODEMachineState;
-    pdbStorageAddress?: number;
-    deviceInterface?: any;
-    printing?: boolean;
-    lastPoll?: number;
-    breakpoints?: string;
-    streamURL?: string;
-    uploadRetries?: number;
-    uploadWatchdog?: NodeJS.Timeout;
-    verificationTimer?: NodeJS.Timeout;
-    uploadAttempts?: number;
-    deviceDefinition?: any;
-    deviceId?: string;
-    resetProgrammingToken?: any;
-    infoToken?: any;
-}
-export declare enum PCODEMachineState {
-    STOPPED = "***",
-    RUN = "*R*",
-    PAUSED = "**B",
-    DEBUG_PRINT_AND_STOP = "**P",
-    DEBUG_PRINT_AND_CONTINUE = "*P*"
-}
-export declare enum PCODE_STATE {
-    STOPPED = 0,
-    PAUSED = 1,
-    RUNNING = 2
-}
-export interface TaikoMessage {
-    mac: string;
-    command: PCODE_COMMANDS;
-    data: string;
-    nonce?: string;
-    timestamp: number;
-}
 export interface HTTPMessage {
     url: string;
     data: any;
@@ -187,60 +133,3 @@ export interface HTTPMessage {
     headers: any;
     nonce?: string;
 }
-export interface TaikoReply {
-    mac: string;
-    data: string;
-    replyFor?: string;
-    reply?: string;
-    nonce?: string;
-}
-export declare enum PCODE_COMMANDS {
-    STATE = "PC",
-    RUN = "PR",
-    PAUSE = "PB",
-    BREAKPOINT = "CB",
-    GET_MEMORY = "GM",
-    GET_PROPERTY = "GP",
-    SET_PROPERTY = "SR",
-    SET_MEMORY = "SM",
-    STEP = "PO",
-    SET_POINTER = "SP",
-    DISCOVER = "_?",
-    INFO = "X",
-    RESET_PROGRAMMING = "Q",
-    RESET_PROGRAMMING_FIRMWARE = "QF",
-    UPLOAD = "D",
-    APPUPLOADFINISH = "T",
-    BUZZ = "B",
-    REBOOT = "EC"
-}
-export declare enum TIBBO_PROXY_MESSAGE {
-    REFRESH = "refresh",
-    DEVICE = "device",
-    BUZZ = "buzz",
-    REBOOT = "reboot",
-    UPLOAD = "upload",
-    REGISTER = "register",
-    APPLICATION_UPLOAD = "application",
-    FIRMWARE_UPLOAD = "firmware",
-    UPLOAD_COMPLETE = "upload_complete",
-    STATE = "state",
-    COMMAND = "command",
-    REPLY = "reply",
-    SET_PDB_STORAGE_ADDRESS = "set_pdb_storage_address",
-    DEBUG_PRINT = "debug_print",
-    HTTP = "http",
-    HTTP_RESPONSE = "http_response",
-    ATTACH_SERIAL = "attach_serial",
-    DETACH_SERIAL = "detach_serial",
-    GPIO_SET = "gpio_set",
-    WIEGAND_SEND = "wiegand_send",
-    UPLOAD_ERROR = "upload_error",
-    MESSAGE = "message",
-    POLL_DEVICE = "poll_device",
-    START_GDB = "start_gdb",
-    STOP_GDB = "stop_gdb",
-    GDB_STARTED = "gdb_started",
-    GDB_CONSOLE = "gdb_console"
-}
-export {};
