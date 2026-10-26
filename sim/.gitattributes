@@ -1,0 +1,4 @@
+*.sh text eol=lf
+*.repl text eol=lf
+*.resc text eol=lf
+*.cs text eol=lf

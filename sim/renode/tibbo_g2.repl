@@ -1,0 +1,19 @@
+// Tibbo TPP2(G2)/TPP3(G2): STM32F207ZG (Cortex-M3, 1 MB flash, 128 KB SRAM), AT45DB081E.
+// App image is linked at 0x08008200 (after the Tibbo monitor).
+using "tibbo_base.repl"
+
+cpu:
+    cpuType: "cortex-m3"
+
+sram:
+    size: 0x20000
+
+flash:
+    size: 0x100000
+
+at45:
+    pageSize: 264
+    pageCount: 4096
+    densityCode: 0x9
+    jedecId: 0x1F2500
+    pagesPerSector: 256

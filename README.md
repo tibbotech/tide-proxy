@@ -185,6 +185,16 @@ sudo ufw allow proto udp from any to any
 allow tcp port 3005 to view local web server
 ```
 
+## Simulated devices (Renode)
+
+[sim/](sim/README.md) runs TPP2/TPP3 (G2 and G3) boards in Renode, several at once, with a web UI (LCD, LEDs, buttons, console).
+
+Start tide-proxy with `TIDE_PROXY_SIM_RELAY=127.0.0.1:65530` and the simulated devices appear under the `renode-sim` interface. They answer the same UDP commands as hardware.
+
+```
+docker compose -f sim/docker/docker-compose.yml up -d --build   # UI on http://localhost:3100
+```
+
 ## Zephyr Upload Methods
 
 ### Teensy

@@ -1,4 +1,4 @@
-import { TIDEProxy } from './tide-proxy';
+import { TIDEProxy, SIM_RELAY_INTERFACE } from './tide-proxy';
 import { io } from 'socket.io-client';
 
 const express = require('express');
@@ -187,9 +187,18 @@ app.get('/interfaces', async (req: any, res: any) => {
         }
     }
 
+    if (proxy && proxy.simRelay) {
+        interfacesList.push({
+            name: SIM_RELAY_INTERFACE,
+            address: `${proxy.simRelay.host}:${proxy.simRelay.port}`
+        });
+    }
+
     // Get current interface name from proxy
     let currentInterface = '';
-    if (proxy && proxy.currentInterface) {
+    if (proxy && proxy.currentInterface && proxy.currentInterface.relay) {
+        currentInterface = SIM_RELAY_INTERFACE;
+    } else if (proxy && proxy.currentInterface) {
         // Find the interface name by comparing with the current interface netInterface address
         for (const key in interfaces) {
             const iface = interfaces[key];
@@ -214,6 +223,14 @@ app.get('/interfaces', async (req: any, res: any) => {
 app.post('/interfaces', async (req: any, res: any) => {
     proxy.setInterface(req.body.interface);
     res.status(200).send();
+});
+
+// Renode simulator (sim/): where its web UI is and whether the relay interface is enabled.
+app.get('/sim', async (req: any, res: any) => {
+    res.json({
+        url: process.env.TIDE_PROXY_SIM_URL || 'http://localhost:3100',
+        relay: proxy && proxy.simRelay ? `${proxy.simRelay.host}:${proxy.simRelay.port}` : null,
+    });
 });
 
 app.use(express.static(path.join(__dirname, '..', 'static')));

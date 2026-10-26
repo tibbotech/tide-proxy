@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TPP Simulator</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+    <div class="brand">
+        <span class="logo">TPP</span>
+        <div>
+            <h1>TPP Simulator</h1>
+            <p class="sub" id="relayInfo">Renode · connecting…</p>
+        </div>
+    </div>
+    <div class="actions">
+        <button class="btn" id="btnUpload">Upload firmware</button>
+        <button class="btn primary" id="btnNew">New instance</button>
+    </div>
+</header>
+
+<main id="gridView">
+    <section class="panel" id="firmwarePanel">
+        <div class="panel-head">
+            <h2>Firmware</h2>
+            <span class="muted" id="fwCount"></span>
+        </div>
+        <div id="firmwareList" class="fw-list"></div>
+    </section>
+    <section>
+        <div class="panel-head">
+            <h2>Instances</h2>
+            <span class="muted" id="instCount"></span>
+        </div>
+        <div id="grid" class="grid"></div>
+        <p class="empty" id="emptyHint" hidden>No instances yet. Upload a <code>zephyr.elf</code> (plus <code>zephyr.dts</code>) built for a TPP board, then create an instance.</p>
+    </section>
+</main>
+
+<main id="detailView" hidden>
+    <div class="detail-head">
+        <button class="btn ghost" id="btnBack">← All instances</button>
+        <h2 id="dName"></h2>
+        <span class="pill" id="dStatus"></span>
+        <div class="spacer"></div>
+        <button class="btn" data-act="reset">Reset</button>
+        <button class="btn" data-act="restart">Restart</button>
+        <button class="btn" data-act="start">Start</button>
+        <button class="btn" data-act="stop">Stop</button>
+    </div>
+    <div class="detail">
+        <div class="device">
+            <div class="bezel">
+                <canvas id="dLcd" width="320" height="240"></canvas>
+                <div class="no-lcd" id="dNoLcd" hidden>No LCD in this build</div>
+            </div>
+            <div class="indicators">
+                <div class="leds" id="dLeds"></div>
+                <div class="bluebar" id="dBlue" title="Blue LED bar"></div>
+                <div class="bl" id="dBacklight"></div>
+            </div>
+            <div class="buttons" id="dButtons"></div>
+            <p class="hint">Hold a button to keep it pressed. Shift+click latches it.</p>
+        </div>
+        <div class="side">
+            <dl class="facts" id="dFacts"></dl>
+            <div class="row">
+                <label for="dFirmware">Firmware</label>
+                <select id="dFirmware"></select>
+            </div>
+            <div class="tabs">
+                <button class="tab active" data-tab="console">Console</button>
+                <button class="tab" data-tab="log">Renode log</button>
+                <select id="dUart" class="uart-select"></select>
+            </div>
+            <div class="tabpane" id="paneConsole"><div id="term"></div></div>
+            <div class="tabpane" id="paneLog" hidden><pre id="renodeLog"></pre></div>
+        </div>
+    </div>
+</main>
+
+<dialog id="dlgUpload">
+    <form method="dialog" id="formUpload">
+        <h3>Upload firmware</h3>
+        <p class="muted">From a Zephyr build for tpp2g2 / tpp3g2 / tpp2g3 / tpp3g3: <code>build/zephyr/zephyr.elf</code> and (recommended) <code>build/zephyr/zephyr.dts</code> for buttons, LEDs and console.</p>
+        <label>Name <input name="name" required placeholder="e.g. ShowMenuDemo"></label>
+        <label>zephyr.elf <input name="elf" type="file" accept=".elf" required></label>
+        <label>zephyr.dts <input name="dts" type="file" accept=".dts"></label>
+        <p class="error" id="uploadError"></p>
+        <menu>
+            <button class="btn" value="cancel" formnovalidate>Cancel</button>
+            <button class="btn primary" id="btnDoUpload" value="ok">Upload</button>
+        </menu>
+    </form>
+</dialog>
+
+<dialog id="dlgNew">
+    <form method="dialog" id="formNew">
+        <h3>New instance</h3>
+        <label>Firmware <select name="firmwareId" required></select></label>
+        <label>Name <input name="name" placeholder="TPP sim"></label>
+        <label>Count <input name="count" type="number" min="1" max="16" value="1"></label>
+        <p class="error" id="newError"></p>
+        <menu>
+            <button class="btn" value="cancel" formnovalidate>Cancel</button>
+            <button class="btn primary" value="ok">Create &amp; start</button>
+        </menu>
+    </form>
+</dialog>
+
+<script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

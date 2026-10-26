@@ -20,10 +20,17 @@ export interface TIDEProxyOptions {
     port?: number;
     targetInterface?: string;
     toolPaths?: TIDEProxyToolPaths;
+    simRelay?: string;
+}
+export declare const SIM_RELAY_INTERFACE = "renode-sim";
+interface SimRelay {
+    host: string;
+    port: number;
 }
 interface TBNetworkInterface {
     socket: dgram.Socket;
     netInterface: any;
+    relay?: SimRelay;
 }
 export declare class TIDEProxy {
     devices: Array<TibboDevice>;
@@ -49,9 +56,11 @@ export declare class TIDEProxy {
     networkWatcherTimer?: NodeJS.Timeout;
     lastInterfaceState: string;
     toolPaths: TIDEProxyToolPaths;
+    simRelay?: SimRelay;
     constructor(serverAddress: string, proxyName: string, port?: number, targetInterface?: string, options?: TIDEProxyOptions);
     constructor(options: TIDEProxyOptions);
     initInterfaces(targetInterface?: any): void;
+    private createSimRelayInterface;
     private clearPendingOperations;
     private cleanupOldInterfaces;
     private getInterfaceState;
@@ -86,6 +95,7 @@ export declare class TIDEProxy {
     private isValidInterface;
     private handleUploadMessageTimeout;
     makeid(length: number): string;
+    private getDestination;
     private getBroadcastAddress;
     private isSocketActive;
     private sendToSocket;
