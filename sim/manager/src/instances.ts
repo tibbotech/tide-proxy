@@ -9,7 +9,8 @@ import { config, instancesDir, legacyFirmwareDir } from './config';
 import { BoardProfile } from './dts';
 import { APP_BASE, Board, FLASH_SIZE, FirmwareInfo, Generation, boardGeneration, defaultProfile, isBoard, loadFirmware, saveFirmware } from './firmware';
 import {
-    FLASH_START, checkFlashWrite, flashWrites, forgetFlashApp, getMonitor, prepareFlash, useDefaultMonitor, writeFlash,
+    FLASH_START, LOADER_SIGNATURE, LOADER_SIGNATURE_ADDRESS, checkFlashWrite, flashWrites, forgetFlashApp, getMonitor,
+    prepareFlash, useDefaultMonitor, writeFlash,
 } from './monitor';
 import { createTap, deleteTap, writeDhcpHosts, TcpForward } from './network';
 
@@ -358,12 +359,21 @@ export class Instance extends EventEmitter {
         if (flash.boot === 'monitor') {
             // Boots like a board; flash.bin is written back on reset and stop.
             const mon = this.bootMonitor;
-            this.addLog(`booting through monitor ${mon ? mon.name : 'in flash'}${fw ? '' : ' (no firmware: the Loader waits for an upload)'}`);
+            this.addLog(`booting through monitor ${mon ? mon.name : 'in flash'}`);
             boot = [
                 `sysbus LoadBinary @${flash.file} 0x08000000`,
                 `bridge FlashSize ${FLASH_SIZE[gen]}`,
                 `bridge FlashFile @${flash.file}`,
             ];
+            // No app to start: power up as if an app had asked for a UDP upload (QF), so the
+            // monitor's network Loader waits for one instead of blinking "Update system".
+            const sig = LOADER_SIGNATURE_ADDRESS[gen];
+            if (!flash.appValid && sig !== undefined) {
+                this.addLog('no app in flash: starting the monitor\'s network Loader for an upload from TIDE');
+                boot.push(`sysbus WriteDoubleWord ${hex(sig)} ${hex(LOADER_SIGNATURE)}`);
+            } else if (!flash.appValid) {
+                this.addLog(`no app in flash, and the ${gen.toUpperCase()} Loader can't be started without one: upload an ELF`);
+            }
         } else if (fw) {
             boot = [
                 // Flash as .bin uploads left it, then the app from the ELF.

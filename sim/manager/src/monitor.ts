@@ -23,6 +23,13 @@ const OWN_MONITOR = 'own';
 // flash.json monitorSha that makes the next start rewrite the monitor area from the default.
 const RESET_MONITOR = 'reset';
 
+// Boot signature an app leaves in SRAM before rebooting into the monitor for a UDP upload (QF):
+// 'U', 0xAA, 0x1E, '-' at the end of SRAM. The monitor checks it before the app, and starts its
+// network Loader. Without it and without a valid app the monitor only blinks an error pattern
+// ("Update system"). Known from the TPP2W(G2) Monitor/Loader 3.00B; G3 is not known yet.
+export const LOADER_SIGNATURE = 0x2d1eaa55;
+export const LOADER_SIGNATURE_ADDRESS: Partial<Record<Generation, number>> = { g2: 0x2001ffe8 };
+
 export interface MonitorInfo {
     generation: Generation;
     name: string;
@@ -162,6 +169,21 @@ function tiosImage(app: Buffer): Buffer {
     return img;
 }
 
+// The monitor's check of the installed app: a size header in range and the image's big-endian
+// 16-bit words summing to 0xFFFF (see tiosImage).
+function hasValidApp(flash: Buffer, gen: Generation): boolean {
+    const hdr = headerOffset(gen);
+    const total = (flash[hdr] << 16) | (flash[hdr + 1] << 8) | flash[hdr + 2];
+    if (total < 5 || hdr + total > flash.length) {
+        return false;
+    }
+    let sum = 0;
+    for (let i = 0; i < total; i++) {
+        sum += i % 2 === 0 ? flash[hdr + i] << 8 : flash[hdr + i];
+    }
+    return (sum & 0xffff) === 0xffff;
+}
+
 function flashFile(dir: string): string {
     return path.join(dir, 'flash.bin');
 }
@@ -258,6 +280,7 @@ function syncFlash(dir: string, gen: Generation, mon: MonitorInfo | undefined, f
 
 // Brings flash.bin up to date for a start and says what it can boot: 'monitor' with a vector table at
 // 0x08000000, else 'app' with one at APP_BASE (an app written without a monitor), else null.
+// appValid: the monitor would start the app (else it needs the Loader signature to do anything).
 export function prepareFlash(dir: string, gen: Generation, mon: MonitorInfo | undefined, fw: FirmwareInfo | undefined) {
     const { flash, state, changed } = syncFlash(dir, gen, mon, fw);
     if (changed) {
@@ -269,6 +292,7 @@ export function prepareFlash(dir: string, gen: Generation, mon: MonitorInfo | un
     return {
         file: flashFile(dir),
         boot,
+        appValid: hasValidApp(flash, gen),
         appSp: flash.readUInt32LE(appOffset),
         appReset: flash.readUInt32LE(appOffset + 4),
     };
