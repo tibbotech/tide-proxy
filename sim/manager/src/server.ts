@@ -7,11 +7,13 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { config } from './config';
 import { addFirmware, deleteFirmware, getFirmware, listFirmware, Generation } from './firmware';
 import { Instance, InstanceManager } from './instances';
+import { LinkManager } from './links';
 import { deleteMonitor, listMonitors, setMonitor } from './monitor';
 import { UdpRelay } from './udpRelay';
 import { UdpDebugConsole } from './udpConsole';
 
 const manager = new InstanceManager();
+const links = new LinkManager(manager);
 const udpConsole = new UdpDebugConsole();
 const relay = new UdpRelay(udpConsole);
 const app = express();
@@ -173,6 +175,22 @@ app.post('/api/instances/:id/:action(start|stop|restart|reflash|reset|pause|resu
     return inst;
 }));
 
+// Wiring between instances. Body: { kind: 'uart'|'gpio', name?, endpoints: [{ instance, port }] }
+// (gpio: endpoints[0] drives the rest).
+app.get('/api/links', api(() => ({ links: links.list(), stats: links.statsJSON() })));
+
+app.post('/api/links', api((req) => links.create(req.body || {})));
+
+// Body: { name?, endpoints? }
+app.patch('/api/links/:id', api((req) => {
+    const { name, endpoints } = req.body || {};
+    return links.update(req.params.id, { name, endpoints });
+}));
+
+app.delete('/api/links/:id', api((req) => {
+    links.remove(req.params.id);
+}));
+
 // Body: { button: id, pressed: bool } or { port, pin, level: 0|1|null }
 app.post('/api/instances/:id/input', api((req) => {
     applyInput(instance(req), req.body || {});
@@ -217,7 +235,8 @@ function applyInput(inst: Instance, body: any): void {
 // Client -> server JSON: {t:'sub', lcd:'*'|[ids], detail:id|null}, {t:'input', id, ...},
 //                        {t:'console', id, uart, data}
 // Server -> client JSON: {t:'instances', list}, {t:'state', id, state}, {t:'uart', id, uart, data},
-//                        {t:'log', id, line}, {t:'backlog', id, uart, data}
+//                        {t:'log', id, line}, {t:'backlog', id, uart, data},
+//                        {t:'links', links, stats}, {t:'linkStats', stats}
 // Server -> client binary: [idLength u8][id utf8][x u16][y u16][w u16][h u16][RGB888...]
 
 interface Client {
@@ -253,11 +272,17 @@ function broadcastInstances() {
     clients.forEach((c) => send(c, { t: 'instances', list }));
 }
 
+function broadcastLinks() {
+    const msg = { t: 'links', links: links.list(), stats: links.statsJSON() };
+    clients.forEach((c) => send(c, msg));
+}
+
 function attach(inst: Instance) {
     if ((inst as any).__wsAttached) {
         return;
     }
     (inst as any).__wsAttached = true;
+    links.attach(inst);
     inst.on('state', (state) => clients.forEach((c) => send(c, { t: 'state', id: inst.id, state })));
     inst.on('lcd', (payload: Buffer) => clients.forEach((c) => wantsLcd(c, inst.id) && sendLcd(c, inst.id, payload)));
     inst.on('uart', (uart: string, data: Buffer) =>
@@ -280,12 +305,19 @@ manager.on('changed', (inst: Instance) => {
     broadcastInstances();
 });
 
-manager.on('removed', (inst: Instance) => udpConsole.detach(inst.tibboMac));
+manager.on('removed', (inst: Instance) => {
+    udpConsole.detach(inst.tibboMac);
+    links.removeInstance(inst.id);
+});
+
+links.on('changed', broadcastLinks);
+links.on('stats', (stats) => clients.forEach((c) => send(c, { t: 'linkStats', stats })));
 
 wss.on('connection', (ws) => {
     const client: Client = { ws, lcd: '*' };
     clients.add(client);
     send(client, { t: 'instances', list: manager.list().map((i) => i.toJSON()) });
+    send(client, { t: 'links', links: links.list(), stats: links.statsJSON() });
     manager.list().forEach((inst) => {
         const full = inst.fullLcdPayload();
         if (full) {
@@ -338,6 +370,7 @@ wss.on('connection', (ws) => {
 
 async function main() {
     manager.load();
+    links.load();
     manager.list().forEach(attach);
     udpConsole.start();
     relay.start();

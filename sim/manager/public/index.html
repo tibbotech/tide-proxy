@@ -17,6 +17,7 @@
         </div>
     </div>
     <div class="actions">
+        <button class="btn" id="btnWiring">Wiring</button>
         <button class="btn" id="btnUpload">Upload firmware</button>
         <button class="btn primary" id="btnNew">New instance</button>
     </div>
@@ -90,6 +91,42 @@
     </div>
 </main>
 
+<main id="wiringView" hidden>
+    <div class="detail-head">
+        <button class="btn ghost" id="btnWiringBack">← All instances</button>
+        <h2>Wiring</h2>
+        <span class="muted">Drag from a port to a port on another instance. Click a wire, then Delete (or ×) to remove it. Drag a box by its title.</span>
+    </div>
+    <div class="wire-canvas" id="wireCanvas">
+        <svg class="wires" id="wireSvg" xmlns="http://www.w3.org/2000/svg"></svg>
+        <button class="btn small danger" id="wireDel" title="Remove this wire" hidden>×</button>
+        <p class="empty" id="wiringEmpty" hidden>No instances yet.</p>
+    </div>
+    <section class="panel">
+        <div class="panel-head">
+            <h2>Connections</h2>
+            <span class="muted" id="linkCount"></span>
+        </div>
+        <div id="linkList"></div>
+        <form id="formLink" class="link-add">
+            <select name="kind" title="Kind">
+                <option value="uart">UART</option>
+                <option value="gpio">GPIO</option>
+            </select>
+            <select name="fromInst" title="From instance"></select>
+            <input name="fromPort" list="portsFrom" placeholder="usart3 / PA0" required spellcheck="false">
+            <span class="muted">→</span>
+            <select name="toInst" title="To instance"></select>
+            <input name="toPort" list="portsTo" placeholder="usart3 / PB1" required spellcheck="false">
+            <button class="btn primary">Connect</button>
+            <datalist id="portsFrom"></datalist>
+            <datalist id="portsTo"></datalist>
+        </form>
+        <p class="error" id="linkError"></p>
+        <p class="hint">UART: bytes one end transmits reach every other end (two ends = crossed cable, more = RS485-style bus). No baud rate or flow control. GPIO: the first pin drives the others while it is an output, released otherwise; changes take 40–80 ms, so slow signals only.</p>
+    </section>
+</main>
+
 <dialog id="dlgUpload">
     <form method="dialog" id="formUpload">
         <h3>Upload firmware</h3>
@@ -122,5 +159,6 @@
 <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js"></script>
 <script src="app.js"></script>
+<script src="wiring.js"></script>
 </body>
 </html>

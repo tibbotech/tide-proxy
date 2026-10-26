@@ -60,9 +60,19 @@ function connect() {
             if (inst) {
                 inst.state = msg.state;
                 updateIndicators(inst);
+                if (S.wiring) updateWiringLive();
             }
             break;
         }
+        case 'links':
+            S.links = msg.links;
+            S.linkStats = msg.stats;
+            if (S.wiring) renderWiring();
+            break;
+        case 'linkStats':
+            S.linkStats = msg.stats;
+            if (S.wiring) updateWiringLive();
+            break;
         case 'uart':
             if (msg.id === S.detail && msg.uart === S.uart) termWrite(atob(msg.data));
             break;
@@ -90,7 +100,8 @@ function connect() {
 
 function subscribe() {
     if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ t: 'sub', lcd: S.detail ? [S.detail] : '*', detail: S.detail }));
+        // The wiring view shows no LCDs.
+        ws.send(JSON.stringify({ t: 'sub', lcd: S.detail ? [S.detail] : S.wiring ? [] : '*', detail: S.detail }));
     }
 }
 
@@ -300,6 +311,10 @@ function updateIndicators(inst) {
 // ---- rendering ----
 function render() {
     renderFirmware();
+    if (S.wiring) {
+        renderWiring();
+        return;
+    }
     if (S.detail && !S.instances.find((i) => i.id === S.detail)) {
         showGrid();
         return;
@@ -545,8 +560,10 @@ function appendLog(lines) {
 // ---- navigation & actions ----
 function showDetail(id) {
     S.detail = id;
+    S.wiring = false;
     renderedDetail = null;
     $('#gridView').hidden = true;
+    $('#wiringView').hidden = true;
     $('#detailView').hidden = false;
     history.replaceState(null, '', `#${id}`);
     renderDetail();
@@ -555,9 +572,11 @@ function showDetail(id) {
 
 function showGrid() {
     S.detail = null;
+    S.wiring = false;
     renderedDetail = null;
     $('#gridView').hidden = false;
     $('#detailView').hidden = true;
+    $('#wiringView').hidden = true;
     history.replaceState(null, '', location.pathname);
     subscribe();
     renderGrid();
@@ -729,7 +748,8 @@ function setup() {
     setInterval(loadInfo, 5000);
 
     const hash = location.hash.slice(1);
-    if (hash) {
+    // #wiring is handled by wiring.js.
+    if (hash && hash !== 'wiring') {
         const wait = setInterval(() => {
             if (S.instances.find((i) => i.id === hash)) {
                 clearInterval(wait);

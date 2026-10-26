@@ -48,6 +48,11 @@ Renode needs Linux TAP devices, so the container runs with `NET_ADMIN` and `/dev
      - Reading dequeues entries, so the reader pauses while a tide-proxy client is fetching debug print through the relay. During that time it rebuilds the lines from the client's traffic, so nothing is lost on either side.
      - UARTs with a socket (for example the `zephyr,console` one) are in the same dropdown and accept typing.
 
+4. **Wire instances together** under **Wiring**. Drag from a port on one instance to a port on another; click a wire and press Delete (or ×) to remove it. The list under the canvas shows the same connections and can add them by name.
+   - **UART:** bytes one end transmits reach every other end's RX. Two ends act as a crossed serial cable, more as an RS485-style bus. Only UARTs enabled in the firmware's DTS have a port. There is no baud rate, flow control or RS485 direction pin, and the instances don't share a clock, so timing-sensitive framing (Modbus RTU's 3.5-character gap) is approximate.
+   - **GPIO:** the first pin drives the others while it is an output and releases them otherwise. Buttons and LEDs from the DTS are listed; add any other pin (`PA0`…`PI15`) in the box. Changes travel with the 40 ms state stream, so use it for slow signals, not bit-banged buses or pulses.
+   - Connections are stored in `sim-data/links.json` and re-applied when instances restart. API: `GET/POST /api/links`, `PATCH/DELETE /api/links/<id>` with `{ kind: 'uart'|'gpio', name?, endpoints: [{ instance, port }] }`.
+
 The same actions are available over HTTP:
 
 ```sh
