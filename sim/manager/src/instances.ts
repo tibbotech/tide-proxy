@@ -6,7 +6,8 @@ import { EventEmitter } from 'events';
 import { spawn, ChildProcess } from 'child_process';
 
 import { config, instancesDir } from './config';
-import { FirmwareInfo, getFirmware } from './firmware';
+import { FLASH_SIZE, FirmwareInfo, getFirmware } from './firmware';
+import { forgetFlashApp, getMonitor, prepareFlash } from './monitor';
 import { createTap, deleteTap, writeDhcpHosts, TcpForward } from './network';
 
 const UART_INDEX: Record<string, number> = { usart1: 0, usart2: 1, usart3: 2, uart4: 3, uart5: 4, usart6: 5 };
@@ -46,6 +47,8 @@ export class Instance extends EventEmitter {
     private consoleHistory = new Map<string, Buffer[]>();
     private forward: TcpForward;
     private stopping = false;
+    // Booted through the real Tibbo monitor from a persistent flash image (vs. the boot stub).
+    private monitorBoot = false;
 
     constructor(public cfg: InstanceConfig) {
         super();
@@ -114,6 +117,7 @@ export class Instance extends EventEmitter {
             httpPort: this.httpPort,
             monitorPort: this.monitorPort,
             firmware: fw ? { id: fw.id, name: fw.name, generation: fw.generation, profile: fw.profile } : undefined,
+            monitor: this.monitorBoot,
             consoles: this.consoles,
             state: this.state,
         };
@@ -147,16 +151,16 @@ export class Instance extends EventEmitter {
         if (!fw) {
             throw new Error(`firmware ${this.cfg.firmwareId} not found`);
         }
+        fs.mkdirSync(this.dir, { recursive: true });
+        const resc = path.join(this.dir, 'instance.resc');
+        fs.writeFileSync(resc, this.renderResc(fw));
+
         this.stopping = false;
         this.exitCode = undefined;
         this.state = undefined;
         this.lcd = undefined;
         this.consoleHistory.clear();
         this.setStatus('starting');
-
-        fs.mkdirSync(this.dir, { recursive: true });
-        const resc = path.join(this.dir, 'instance.resc');
-        fs.writeFileSync(resc, this.renderResc(fw));
         await createTap(this.tap);
 
         this.addLog(`starting renode (${fw.generation}, ${fw.name})`);
@@ -204,6 +208,9 @@ export class Instance extends EventEmitter {
                 clearTimeout(kill);
                 resolve();
             });
+            if (this.monitorBoot) {
+                proc.stdin?.write('bridge SaveFlash\n');
+            }
             proc.stdin?.write('quit\n');
         });
     }
@@ -211,6 +218,18 @@ export class Instance extends EventEmitter {
     async restart(): Promise<void> {
         await this.stop();
         await this.start();
+    }
+
+    // Reinstall the app from the firmware ELF, replacing one uploaded over UDP.
+    async reflash(): Promise<void> {
+        const running = this.status === 'running' || this.status === 'starting';
+        if (running) {
+            await this.stop();
+        }
+        forgetFlashApp(this.dir);
+        if (running) {
+            await this.start();
+        }
     }
 
     reset(): void {
@@ -240,6 +259,26 @@ export class Instance extends EventEmitter {
     private renderResc(fw: FirmwareInfo): string {
         const r = config.renodeDir;
         const hex = (n: number) => '0x' + (n >>> 0).toString(16).padStart(8, '0');
+        const monitor = getMonitor(fw.generation);
+        this.monitorBoot = !!monitor;
+        let boot: string[];
+        if (monitor) {
+            const flash = prepareFlash(this.dir, fw, monitor);
+            this.addLog(`booting through monitor ${monitor.name}`);
+            boot = [
+                `sysbus LoadBinary @${flash} 0x08000000`,
+                `bridge FlashSize ${FLASH_SIZE[fw.generation]}`,
+                `bridge FlashFile @${flash}`,
+            ];
+        } else {
+            boot = [
+                `sysbus LoadELF @${fw.elfPath}`,
+                // Stand-in for the Tibbo monitor at the start of flash: boot into the app on any reset.
+                `sysbus WriteDoubleWord 0x08000000 ${hex(fw.initialSp)}`,
+                `sysbus WriteDoubleWord 0x08000004 ${hex(fw.resetVector)}`,
+                `cpu VectorTableOffset ${hex(fw.flashBase)}`,
+            ];
+        }
         const lines = [
             `include @${r}/peripherals/TibboSim.cs`,
             `mach create "${this.cfg.id}"`,
@@ -247,11 +286,7 @@ export class Instance extends EventEmitter {
             `logLevel 2`,
             `logLevel 3 sysbus.ethernet`,
             `logLevel 3 sysbus.ethernet.phy`,
-            `sysbus LoadELF @${fw.elfPath}`,
-            // Stand-in for the Tibbo monitor at the start of flash: boot into the app on any reset.
-            `sysbus WriteDoubleWord 0x08000000 ${hex(fw.initialSp)}`,
-            `sysbus WriteDoubleWord 0x08000004 ${hex(fw.resetVector)}`,
-            `cpu VectorTableOffset ${hex(fw.flashBase)}`,
+            ...boot,
             `cpu PerformanceInMips ${fw.generation === 'g3' ? 180 : 120}`,
             `eeprom BackingFile @${path.join(this.dir, 'eeprom.bin')}`,
             `eeprom InitMac "${this.mac}"`,
@@ -465,6 +500,7 @@ export class InstanceManager extends EventEmitter {
         if (changes.firmwareId && !getFirmware(changes.firmwareId)) {
             throw new Error(`firmware ${changes.firmwareId} not found`);
         }
+        // A monitor-booted instance picks up the new app in prepareFlash() (flash.json records the firmware).
         const firmwareChanged = !!changes.firmwareId && changes.firmwareId !== inst.cfg.firmwareId;
         Object.assign(inst.cfg, changes);
         inst.save();

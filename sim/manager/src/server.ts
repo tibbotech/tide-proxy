@@ -5,8 +5,9 @@ import express from 'express';
 import { WebSocketServer, WebSocket } from 'ws';
 
 import { config } from './config';
-import { addFirmware, deleteFirmware, getFirmware, listFirmware } from './firmware';
+import { addFirmware, deleteFirmware, getFirmware, listFirmware, Generation } from './firmware';
 import { Instance, InstanceManager } from './instances';
+import { deleteMonitor, listMonitors, setMonitor } from './monitor';
 import { UdpRelay } from './udpRelay';
 import { UdpDebugConsole } from './udpConsole';
 
@@ -113,6 +114,24 @@ app.delete('/api/firmware/:id', api((req) => {
     }
 }));
 
+// Tibbo monitor per generation; used by instances started after it is set.
+app.get('/api/monitors', api(() => listMonitors()));
+
+// Body: { name, bin: base64 } (the plain monitor image, not the encrypted update file)
+app.put('/api/monitors/:gen(g2|g3)', api((req) => {
+    const { name, bin } = req.body || {};
+    if (!bin) {
+        throw new Error('bin (base64) is required');
+    }
+    return setMonitor(req.params.gen as Generation, name, Buffer.from(bin, 'base64'));
+}));
+
+app.delete('/api/monitors/:gen(g2|g3)', api((req) => {
+    if (!deleteMonitor(req.params.gen as Generation)) {
+        throw Object.assign(new Error('no monitor set'), { status: 404 });
+    }
+}));
+
 app.get('/api/instances', api(() => manager.list()));
 
 // Body: { firmwareId, name?, count?, start? }
@@ -140,12 +159,13 @@ app.delete('/api/instances/:id', api(async (req) => {
     broadcastInstances();
 }));
 
-app.post('/api/instances/:id/:action(start|stop|restart|reset|pause|resume)', api(async (req) => {
+app.post('/api/instances/:id/:action(start|stop|restart|reflash|reset|pause|resume)', api(async (req) => {
     const inst = instance(req);
     switch (req.params.action) {
     case 'start': await manager.setRunning(inst.id, true); break;
     case 'stop': await manager.setRunning(inst.id, false); break;
     case 'restart': await inst.restart(); break;
+    case 'reflash': await inst.reflash(); break;
     case 'reset': inst.reset(); break;
     case 'pause': inst.pause(); break;
     case 'resume': inst.resume(); break;

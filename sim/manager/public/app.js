@@ -4,6 +4,7 @@
 const S = {
     instances: [],
     firmware: [],
+    monitors: {},
     frames: new Map(), // id -> { image: ImageData, canvases: Set<HTMLCanvasElement> }
     detail: null, // instance id
     uart: null,
@@ -159,6 +160,99 @@ function bindCanvas(id, canvas) {
     paint(id);
 }
 
+// ---- board art (boards/*.svg) ----
+// Faceplates with data-part hooks: lcd, key-0..3, md, link-led, blue-led-0..4, red-led, green-led.
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const BOARD_ART = {};
+let artSeq = 0;
+
+async function loadBoardArt() {
+    await Promise.all(['tps2', 'tps2l', 'tps3'].map(async (name) => {
+        const res = await fetch(`boards/${name}.svg`).catch(() => null);
+        if (res && res.ok) BOARD_ART[name] = await res.text();
+    }));
+}
+
+function boardArtName(profile) {
+    if (/^tpp3/i.test(profile.board || '')) return 'tps3';
+    return profile.lcd ? 'tps2l' : 'tps2';
+}
+
+// Inline copy of the faceplate, or null if the art didn't load. Gradient ids get a per-copy suffix:
+// copies share the page, and a reference into a hidden copy (grid vs. detail view) doesn't render.
+function boardSvg(profile) {
+    const text = BOARD_ART[boardArtName(profile)];
+    if (!text) return null;
+    const sfx = `-b${++artSeq}`;
+    const holder = document.createElement('div');
+    holder.innerHTML = text.replace(/id="([^"]+)"/g, `id="$1${sfx}"`).replace(/url\(#([^)]+)\)/g, `url(#$1${sfx})`);
+    return holder.querySelector('svg');
+}
+
+// Faceplate for an instance, with LEDs wired for updateIndicators() and, when `interactive`, the
+// MD pinhole and front keys bound to the board's buttons. `canvas` goes into the LCD window if the
+// art has one; `lcdInArt` says whether it did.
+function boardView(inst, canvas, interactive) {
+    const profile = (inst.firmware && inst.firmware.profile) || { buttons: [], leds: [] };
+    const svg = boardSvg(profile);
+    if (!svg) return null;
+    const part = (name) => svg.querySelector(`[data-part="${name}"]`);
+    const titled = (node, text) => {
+        const t = document.createElementNS(SVG_NS, 'title');
+        t.textContent = text;
+        node.append(t);
+    };
+
+    let lcdInArt = false;
+    const lcd = part('lcd');
+    if (lcd && profile.lcd && canvas) {
+        const fo = document.createElementNS(SVG_NS, 'foreignObject');
+        for (const a of ['x', 'y', 'width', 'height']) fo.setAttribute(a, lcd.getAttribute(a));
+        fo.append(canvas);
+        lcd.after(fo);
+        lcdInArt = true;
+    }
+
+    const mapped = new Set();
+    for (const color of ['red', 'green']) {
+        const led = profile.leds.find((l) => ledClass(l) === color);
+        const node = part(`${color}-led`);
+        if (led && node) {
+            node.dataset.led = led.id;
+            titled(node, led.label);
+            mapped.add(led.id);
+        } else if (node) {
+            node.classList.add('unused');
+        }
+    }
+    for (let i = 0; i < 5; i++) {
+        const node = part(`blue-led-${i}`);
+        if (node) node.dataset.blue = String(i);
+    }
+    const link = part('link-led');
+    if (link) {
+        link.dataset.link = '';
+        titled(link, 'Ethernet link');
+    }
+
+    if (interactive) {
+        const md = profile.buttons.find((b) => b.id === 'mdbutton');
+        const keys = profile.buttons.filter((b) => b.id !== 'mdbutton');
+        const bind = (node, b) => {
+            if (!node || !b) return;
+            node.classList.add('press');
+            titled(node, `${b.label} — P${b.port}${b.pin}`);
+            bindButton(node, inst, b);
+        };
+        bind(part('md'), md);
+        keys.slice(0, 4).forEach((b, i) => bind(part(`key-${i}`), b));
+    }
+
+    const root = el('div', { class: 'board' });
+    root.append(svg);
+    return { root, lcdInArt, mappedLeds: mapped };
+}
+
 // ---- pins / indicators ----
 function pinLevel(inst, port, pin) {
     const pins = inst.state && inst.state.pins;
@@ -183,14 +277,19 @@ function ledDots(inst, leds) {
 function updateIndicators(inst) {
     const profile = inst.firmware && inst.firmware.profile;
     if (!profile) return;
-    document.querySelectorAll(`[data-inst="${inst.id}"] [data-led]`).forEach((dot) => {
+    const scope = `[data-inst="${inst.id}"]`;
+    document.querySelectorAll(`${scope} [data-led]`).forEach((dot) => {
         const led = profile.leds.find((l) => l.id === dot.dataset.led);
         if (led) dot.classList.toggle('on', ledOn(inst, led));
     });
+    const bar = inst.state ? inst.state.blueBar : 0;
+    document.querySelectorAll(`${scope} [data-blue]`).forEach((n) => n.classList.toggle('on', ((bar >> (4 - Number(n.dataset.blue))) & 1) === 1));
+    // The simulated LAN is always up while the instance runs.
+    document.querySelectorAll(`${scope} [data-link]`).forEach((n) => n.classList.toggle('on', inst.status === 'running'));
+    const lcd = inst.state && inst.state.lcd;
+    const dark = !lcd || !lcd.on || !lcd.backlight;
+    document.querySelectorAll(`${scope} canvas`).forEach((c) => c.classList.toggle('dark', dark && inst.status === 'running'));
     if (S.detail === inst.id) {
-        const bar = inst.state ? inst.state.blueBar : 0;
-        $('#dBlue').querySelectorAll('span').forEach((s, i) => s.classList.toggle('on', ((bar >> (4 - i)) & 1) === 1));
-        const lcd = inst.state && inst.state.lcd;
         $('#dBacklight').textContent = lcd ? `Backlight ${lcd.backlight ? 'on' : 'off'} · display ${lcd.on ? 'on' : 'off'}` : '';
         const vt = inst.state ? (inst.state.vtime / 1000).toFixed(1) + ' s' : '–';
         const vtEl = document.getElementById('dVtime');
@@ -221,8 +320,12 @@ function renderGrid() {
     for (const inst of S.instances) {
         const canvas = el('canvas', { width: 320, height: 240 });
         const running = inst.status === 'running' || inst.status === 'starting';
+        // Faceplate unless the LCD would be lost (an LCD build on art without a screen window).
+        const board = boardView(inst, canvas, false);
+        const hasLcd = !!(inst.firmware && inst.firmware.profile.lcd);
+        const face = board && (board.lcdInArt || !hasLcd) ? board.root : canvas;
         const card = el('article', { class: 'card', 'data-inst': inst.id },
-            el('div', { class: 'screen', onclick: () => showDetail(inst.id), title: 'Open' }, canvas),
+            el('div', { class: 'screen', onclick: () => showDetail(inst.id), title: 'Open' }, face),
             el('div', { class: 'body' },
                 el('div', { class: 'title' }, el('strong', {}, inst.name), statusPill(inst.status)),
                 el('div', { class: 'info' },
@@ -240,6 +343,7 @@ function renderGrid() {
                         el('button', { class: 'btn small danger', onclick: () => removeInstance(inst) }, 'Delete')))));
         grid.append(card);
         bindCanvas(inst.id, canvas);
+        updateIndicators(inst);
     }
 }
 
@@ -259,6 +363,17 @@ function renderFirmware() {
                     `${p.board || '?'} · ${fw.generation.toUpperCase()} · ${p.buttons.length} buttons · console ${p.consoleUart || 'none'}${fw.hasDts ? '' : ' · no DTS'}`)),
             el('button', { class: 'btn small', onclick: () => openNew(fw.id) }, 'Run'),
             el('button', { class: 'btn small danger', onclick: () => removeFirmware(fw) }, 'Delete')));
+    }
+    const mons = $('#monitorList');
+    mons.textContent = '';
+    for (const gen of ['g2', 'g3']) {
+        const m = S.monitors[gen];
+        mons.append(el('div', { class: 'fw' },
+            el('div', {},
+                el('strong', {}, `${gen.toUpperCase()}: ${m ? m.name : 'boot stub'}`),
+                el('div', { class: 'meta' }, m ? `${m.size} bytes · set ${new Date(m.uploadedAt).toLocaleString()}` : 'no UDP firmware upload')),
+            el('button', { class: 'btn small', onclick: () => pickMonitor(gen) }, m ? 'Replace' : 'Upload'),
+            m ? el('button', { class: 'btn small danger', onclick: () => removeMonitor(gen) }, 'Remove') : null));
     }
     const sel = $('#dFirmware');
     const keep = sel.value;
@@ -280,6 +395,7 @@ function renderDetail() {
     document.querySelector('[data-act="start"]').hidden = running;
     document.querySelector('[data-act="stop"]').hidden = !running;
     document.querySelector('[data-act="reset"]').disabled = inst.status !== 'running';
+    document.querySelector('[data-act="reflash"]').hidden = !inst.monitor;
 
     const webUrl = `${location.protocol}//${location.hostname}:${inst.httpPort}/`;
     const facts = $('#dFacts');
@@ -288,7 +404,8 @@ function renderDetail() {
     fact('MAC', `${inst.tibboMac}  (${inst.mac})`);
     fact('IP', `${inst.ip} (DHCP reservation)`);
     fact('Board', inst.firmware ? `${profile.board || '?'} · ${inst.firmware.generation.toUpperCase()}` : '–');
-    fact('Device web', el('a', { href: webUrl, target: '_blank', rel: 'noopener' }, webUrl));
+    fact('Boot', inst.monitor ? 'Tibbo monitor (UDP upload)' : 'boot stub');
+    fact('Device web', el('a',{ href: webUrl, target: '_blank', rel: 'noopener' }, webUrl));
     fact('Renode monitor', `port ${inst.monitorPort} inside the container`);
     fact('Virtual time', el('span', { id: 'dVtime' }, '–'));
     $('#dFirmware').value = inst.firmwareId;
@@ -296,18 +413,31 @@ function renderDetail() {
     if (renderedDetail !== inst.id) {
         renderedDetail = inst.id;
         S.latched.clear();
+        $('#dDevice').setAttribute('data-inst', inst.id);
+
+        // Board faceplate; the LCD sits in its screen window, or in the plain bezel below when the
+        // art has none. LEDs the faceplate shows are left out of the list under it.
+        const boardHost = $('#dBoard');
+        boardHost.textContent = '';
+        const artCanvas = el('canvas', { width: 320, height: 240 });
+        const board = boardView(inst, artCanvas, true);
+        if (board) boardHost.append(board.root);
+        const lcdInArt = !!(board && board.lcdInArt);
+        if (lcdInArt) bindCanvas(inst.id, artCanvas);
+        $('#dBezel').hidden = lcdInArt || (!!board && !profile.lcd);
         bindCanvas(inst.id, $('#dLcd'));
         $('#dNoLcd').hidden = !!profile.lcd;
 
         const leds = $('#dLeds');
         leds.textContent = '';
         for (const led of profile.leds) {
+            if (board && board.mappedLeds.has(led.id)) continue;
             leds.append(el('span', { class: 'led' }, el('span', { class: `dot ${ledClass(led)}`, 'data-led': led.id }), led.label));
         }
-        $('#dLeds').parentElement.setAttribute('data-inst', inst.id);
         const blue = $('#dBlue');
         blue.textContent = '';
-        for (let i = 0; i < 5; i++) blue.append(el('span'));
+        blue.hidden = !!board;
+        for (let i = 0; i < 5; i++) blue.append(el('span', { 'data-blue': String(i) }));
 
         const buttons = $('#dButtons');
         buttons.textContent = '';
@@ -334,8 +464,16 @@ function renderDetail() {
 function hwButton(inst, b) {
     const label = b.id === 'mdbutton' ? 'MD' : b.label.replace(/ button$/i, '');
     const btn = el('button', { class: 'hwbtn', title: `${b.label} — P${b.port}${b.pin}` }, label);
+    bindButton(btn, inst, b);
+    return btn;
+}
+
+// Hold to press, shift+click to latch. Every control for the same button (row button, faceplate
+// key) shows the pressed state.
+function bindButton(btn, inst, b) {
+    btn.dataset.btn = b.id;
     const press = (pressed) => {
-        btn.classList.toggle('pressed', pressed);
+        document.querySelectorAll(`#dDevice [data-btn="${b.id}"]`).forEach((n) => n.classList.toggle('pressed', pressed));
         send({ t: 'input', id: inst.id, button: b.id, pressed });
     };
     btn.addEventListener('pointerdown', (e) => {
@@ -359,7 +497,6 @@ function hwButton(inst, b) {
     };
     btn.addEventListener('pointerup', up);
     btn.addEventListener('pointercancel', up);
-    return btn;
 }
 
 // ---- terminal ----
@@ -447,7 +584,21 @@ async function removeFirmware(fw) {
 
 async function loadFirmware() {
     S.firmware = await api('GET', '/api/firmware').catch(() => []);
+    S.monitors = await api('GET', '/api/monitors').catch(() => ({}));
     renderFirmware();
+}
+
+let monitorGen = null;
+function pickMonitor(gen) {
+    monitorGen = gen;
+    $('#monitorFile').value = '';
+    $('#monitorFile').click();
+}
+
+async function removeMonitor(gen) {
+    if (!confirm(`Remove the ${gen.toUpperCase()} monitor? Instances started afterwards use the boot stub.`)) return;
+    await api('DELETE', `/api/monitors/${gen}`).catch((e) => alert(e.message));
+    loadFirmware();
 }
 
 async function loadInfo() {
@@ -515,6 +666,17 @@ function setup() {
         if (!name.value && e.target.files[0]) name.value = e.target.files[0].name.replace(/\.elf$/, '');
     });
 
+    $('#monitorFile').addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file || !monitorGen) return;
+        try {
+            await api('PUT', `/api/monitors/${monitorGen}`, { name: file.name, bin: await fileToBase64(file) });
+        } catch (err) {
+            alert(err.message);
+        }
+        loadFirmware();
+    });
+
     $('#formNew').addEventListener('submit', async (e) => {
         if (e.submitter && e.submitter.value === 'cancel') return;
         e.preventDefault();
@@ -560,7 +722,8 @@ function setup() {
     });
 
     initTerm();
-    connect();
+    // Instances render with their faceplate, so have the art first.
+    loadBoardArt().then(connect);
     loadFirmware();
     loadInfo();
     setInterval(loadInfo, 5000);

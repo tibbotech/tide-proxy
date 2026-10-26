@@ -186,6 +186,32 @@ main { padding: 16px 20px 32px; max-width: 1500px; margin: 0 auto; }
 .bezel canvas { width: 100%; aspect-ratio: 4 / 3; display: block; background: #000; border-radius: 4px; image-rendering: pixelated; }
 .no-lcd { position: absolute; inset: 0; display: grid; place-items: center; color: #8b93a1; }
 
+/* Board faceplate (boards/*.svg): LEDs are drawn lit and dimmed while off. */
+.board svg { display: block; width: 100%; height: auto; }
+#dBoard .board { max-width: 600px; }
+.card .screen .board { width: 100%; max-width: 320px; }
+.board foreignObject canvas {
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    aspect-ratio: auto;
+    object-fit: contain;
+    display: block;
+    background: #000;
+    border-radius: 0;
+}
+.board [data-led], .board [data-blue], .board [data-link], .board .unused { opacity: .2; transition: opacity .08s; }
+.board [data-led].on, .board [data-blue].on, .board [data-link].on { opacity: 1; }
+.board [data-blue].on { filter: drop-shadow(0 0 3px #3b6bff); }
+.board [data-link].on { filter: drop-shadow(0 0 3px #f68200); }
+.board [data-part="red-led"].on { filter: drop-shadow(0 0 3px #ff2a2a); }
+.board [data-part="green-led"].on { filter: drop-shadow(0 0 3px #2bff2b); }
+.board .press { cursor: pointer; pointer-events: all; touch-action: none; }
+.board rect.press:hover, .board g.press:hover circle:first-child { stroke: #a9bac2; }
+.board g.press circle:first-child { stroke: transparent; stroke-width: 1; }
+.board rect.press.pressed, .board g.press.pressed circle:first-child { fill: rgba(76, 141, 255, .55); stroke: #4c8dff; }
+canvas.dark { filter: brightness(.12); }
+
 .indicators { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
 .leds { display: flex; gap: 14px; flex-wrap: wrap; }
 .led { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }

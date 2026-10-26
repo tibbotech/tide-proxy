@@ -21,7 +21,8 @@ export interface FirmwareInfo {
     elfPath: string;
 }
 
-const APP_BASE: Record<Generation, number> = { g2: 0x08008200, g3: 0x08040200 };
+export const APP_BASE: Record<Generation, number> = { g2: 0x08008200, g3: 0x08040200 };
+export const FLASH_SIZE: Record<Generation, number> = { g2: 0x100000, g3: 0x200000 };
 
 // Used when no zephyr.dts is uploaded: the TPP board defaults from tpp_g2/g3.dtsi.
 function defaultProfile(generation: Generation): BoardProfile {

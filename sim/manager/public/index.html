@@ -29,6 +29,12 @@
             <span class="muted" id="fwCount"></span>
         </div>
         <div id="firmwareList" class="fw-list"></div>
+        <div class="panel-head">
+            <h2>Monitor</h2>
+            <span class="muted">With a monitor set, new starts boot through it and accept uploads over UDP</span>
+        </div>
+        <div id="monitorList" class="fw-list"></div>
+        <input type="file" id="monitorFile" accept=".bin" hidden>
     </section>
     <section>
         <div class="panel-head">
@@ -47,13 +53,15 @@
         <span class="pill" id="dStatus"></span>
         <div class="spacer"></div>
         <button class="btn" data-act="reset">Reset</button>
+        <button class="btn" data-act="reflash" title="Reinstall the app from the firmware ELF">Reflash</button>
         <button class="btn" data-act="restart">Restart</button>
         <button class="btn" data-act="start">Start</button>
         <button class="btn" data-act="stop">Stop</button>
     </div>
     <div class="detail">
-        <div class="device">
-            <div class="bezel">
+        <div class="device" id="dDevice">
+            <div id="dBoard"></div>
+            <div class="bezel" id="dBezel">
                 <canvas id="dLcd" width="320" height="240"></canvas>
                 <div class="no-lcd" id="dNoLcd" hidden>No LCD in this build</div>
             </div>
@@ -63,7 +71,7 @@
                 <div class="bl" id="dBacklight"></div>
             </div>
             <div class="buttons" id="dButtons"></div>
-            <p class="hint">Hold a button to keep it pressed. Shift+click latches it.</p>
+            <p class="hint">Hold a button (or a key / the MD pinhole on the board) to keep it pressed. Shift+click latches it.</p>
         </div>
         <div class="side">
             <dl class="facts" id="dFacts"></dl>

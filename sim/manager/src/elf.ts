@@ -12,14 +12,33 @@ const PT_LOAD = 1;
 const FLASH_START = 0x08000000;
 const FLASH_END = 0x08200000;
 
+export interface FlashSegment {
+    paddr: number;
+    data: Buffer;
+}
+
 export function readElf(buf: Buffer): ElfInfo {
+    const flashSegs = flashSegments(buf);
+    const first = flashSegs[0];
+    if (first.data.length < 8) {
+        throw new Error('first flash segment too small for a vector table');
+    }
+    return {
+        entry: buf.readUInt32LE(24),
+        flashBase: first.paddr,
+        initialSp: first.data.readUInt32LE(0),
+        resetVector: first.data.readUInt32LE(4),
+    };
+}
+
+// Loadable segments inside the STM32 flash window, lowest address first.
+export function flashSegments(buf: Buffer): FlashSegment[] {
     if (buf.length < 52 || buf.readUInt32BE(0) !== 0x7f454c46) {
         throw new Error('not an ELF file');
     }
     if (buf[4] !== 1 || buf[5] !== 1) {
         throw new Error('only 32-bit little-endian ELF is supported');
     }
-    const entry = buf.readUInt32LE(24);
     const phoff = buf.readUInt32LE(28);
     const phentsize = buf.readUInt16LE(42);
     const phnum = buf.readUInt16LE(44);
@@ -43,14 +62,5 @@ export function readElf(buf: Buffer): ElfInfo {
     if (flashSegs.length === 0) {
         throw new Error('ELF has no segment in STM32 flash (0x08000000)');
     }
-    const first = flashSegs[0];
-    if (first.filesz < 8) {
-        throw new Error('first flash segment too small for a vector table');
-    }
-    return {
-        entry,
-        flashBase: first.paddr,
-        initialSp: buf.readUInt32LE(first.offset),
-        resetVector: buf.readUInt32LE(first.offset + 4),
-    };
+    return flashSegs.map((s) => ({ paddr: s.paddr, data: buf.subarray(s.offset, s.offset + s.filesz) }));
 }

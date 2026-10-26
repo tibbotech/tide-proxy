@@ -11,7 +11,8 @@
 //  - TibboAT45       Atmel/Adesto AT45 DataFlash on SPI, file-backed.
 //  - TibboAT24       AT24Cxx EEPROM on bit-banged (gpio-i2c) SCL/SDA, file-backed.
 //  - TibboSSD1963    SSD1963 LCD controller on a bit-banged 8080 8-bit bus.
-//  - TibboSimBridge  TCP endpoint streaming LCD/pin state and accepting inputs.
+//  - TibboSimBridge  TCP endpoint streaming LCD/pin state and accepting inputs;
+//                    persists internal flash for monitor-booted instances.
 //
 using System;
 using System.Collections.Generic;
@@ -720,6 +721,33 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         {
             blueBar = 0;
             pinsDirty = true;
+            // The monitor reboots after installing an upload; keep what it wrote.
+            SaveFlash();
+        }
+
+        // Internal flash image of an instance booted through the Tibbo monitor (loaded by the resc
+        // with LoadBinary). Written back on every reset and by SaveFlash before quitting.
+        public string FlashFile { get; set; }
+
+        public int FlashSize { get; set; }
+
+        public void SaveFlash()
+        {
+            if(FlashFile == null || FlashSize <= 0)
+            {
+                return;
+            }
+            try
+            {
+                var data = machine.SystemBus.ReadBytes(0x08000000UL, FlashSize);
+                var tmp = FlashFile + ".tmp";
+                File.WriteAllBytes(tmp, data);
+                File.Move(tmp, FlashFile, true);
+            }
+            catch(Exception e)
+            {
+                this.Log(LogLevel.Warning, "Saving flash to {0} failed: {1}", FlashFile, e.Message);
+            }
         }
 
         // Setting the port starts listening (0.0.0.0:<port>).

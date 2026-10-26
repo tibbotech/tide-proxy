@@ -35,6 +35,10 @@ export function firmwareDir(): string {
     return path.join(config.dataDir, 'firmware');
 }
 
+export function monitorsDir(): string {
+    return path.join(config.dataDir, 'monitors');
+}
+
 export function instancesDir(): string {
     return path.join(config.dataDir, 'instances');
 }
