@@ -31,7 +31,8 @@ export const config = {
     dnsmasqPidFile: process.env.SIM_DNSMASQ_PID || '/run/sim/dnsmasq.pid',
 };
 
-export function firmwareDir(): string {
+// Shared firmware library of earlier versions; only read to migrate instances that used it.
+export function legacyFirmwareDir(): string {
     return path.join(config.dataDir, 'firmware');
 }
 

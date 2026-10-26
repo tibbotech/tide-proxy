@@ -60,7 +60,7 @@ function normPort(kind, port) {
 // Ports a box offers: the DTS UARTs, DTS-named pins (buttons, LEDs), pins added by hand and
 // anything already wired (so a wire stays visible after a firmware switch).
 function portsOf(inst) {
-    const profile = (inst.firmware && inst.firmware.profile) || { buttons: [], leds: [] };
+    const profile = inst.profile || { buttons: [], leds: [] };
     const uarts = (inst.consoles || []).filter((c) => c !== 'udp')
         .map((u) => ({ kind: 'uart', port: u, label: u === profile.consoleUart ? 'console' : '' }));
     const pins = new Map();
@@ -140,7 +140,7 @@ function wireBox(inst) {
     const box = el('div', { class: `wbox ${inst.status}`, 'data-wbox': inst.id, style: pos ? `left:${pos.x}px;top:${pos.y}px` : null });
     const head = el('div', { class: 'whead', title: 'Drag to move' },
         el('strong', {}, inst.name || inst.id),
-        el('span', { class: 'muted' }, inst.firmware ? inst.firmware.generation.toUpperCase() : ''),
+        el('span', { class: 'muted' }, (inst.board || '').toUpperCase()),
         statusPill(inst.status));
     head.addEventListener('pointerdown', (e) => startMove(e, box, inst.id));
     box.append(head);

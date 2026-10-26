@@ -248,7 +248,7 @@ canvas.dark { filter: brightness(.12); }
     padding: 10px 12px;
 }
 .facts dt { color: var(--muted); }
-.facts dd { margin: 0; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12.5px; }
+.facts dd { margin: 0; overflow-wrap: anywhere; white-space: pre-line; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12.5px; }
 .facts a { color: var(--accent); }
 
 .row { display: flex; align-items: center; gap: 10px; }

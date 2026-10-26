@@ -29,19 +29,36 @@ docker compose -f sim/docker/docker-compose.yml up -d --build
 - **tide-proxy relay:** udp://localhost:65530
 - **Device web servers:** http://localhost:18001 … 18032 (instance *n* is on 18000+*n*)
 
-Data lives in `sim/docker/sim-data/`: uploaded firmware, plus per-instance flash, EEPROM and config. Instances that were running come back when the container restarts.
+Data lives in `sim/docker/sim-data/instances/<id>/`: each instance's config, firmware, flash and EEPROM. Instances that were running come back when the container restarts.
 
 Renode needs Linux TAP devices, so the container runs with `NET_ADMIN` and `/dev/net/tun`. This works on Docker Desktop (Windows/macOS) and on Linux.
 
 ## Use
 
-1. **Upload firmware.** Upload `build/zephyr/zephyr.elf` and `build/zephyr/zephyr.dts` from a Zephyr build for a TPP board.
-   - The DTS tells the simulator the board, the console UART, and the gpio-keys/gpio-leds to show. Without it, TPP defaults are used.
-   - The generation (G2/G3) is detected from the ELF's flash address.
-2. **Create instances.** Choose New instance, or Run next to a firmware. You can create several at once.
+1. **Create instances.** Choose **New instance** and pick the device: **TPP2G2** or **TPP3G2** (STM32F207), **TPP2G3** or **TPP3G3** (STM32F439). You can create several at once.
    - Each instance gets a MAC, a DHCP-reserved IP `10.77.0.(10+n)` on the simulated LAN, and its own flash/EEPROM.
+   - Optionally pick files in the same dialog, as for an upload (below); each instance gets its own copy.
+   - The faceplate follows the device (TPP3: `tps3`). Without a DTS, the TPP defaults for it are used; only TPP2 gets the LCD.
+   - Without an app, an instance boots into its monitor's Loader, ready for an upload from TIDE ([Monitor](#monitor)). With no monitor either, it is created stopped until it gets one or an app.
+2. **Upload firmware to an instance** with **Upload firmware** in its detail view (or on its card when it has nothing to boot). Pick any of these together; they are told apart by extension:
+   - **`.elf`**: the app, e.g. `build/zephyr/zephyr.elf` from a Zephyr build for that board.
+   - **`.dts`**: its devicetree, `build/zephyr/zephyr.dts`.
+   - **`.bin`**: raw bytes written into the instance's flash at the address you give (hex, default 0x08000000), as a programmer would. The address field suggests the usual places:
+
+     | | G2 | G3 |
+     |---|---|---|
+     | Monitor/bootloader | 0x08000000 | 0x08000000 |
+     | App image with TiOS header | 0x08008000 | 0x08040000 |
+     | App | 0x08008200 | 0x08040200 |
+
+     - At 0x08000000 the `.bin` must be a plain image starting with a vector table, such as `TPP2WG2_RELEASE_MON.bin` (the encrypted `*_ENC.bin` is rejected). Anything written into the monitor area replaces the default monitor for this instance; **Use default** in the detail view brings the default back.
+     - A `.bin` in the app area stays until a new `.elf` is uploaded or the app is reflashed, like an app uploaded from TIDE. `.bin` data the new app doesn't cover (a data image near the end of flash, say) is written back after it.
+     - The writes are listed in the detail view under **Flash .bin**. A `.bin` must fit in the generation's flash (1 MB for G2, 2 MB for G3).
+   - The ELF must be linked for the instance's generation (detected from its flash address), and a DTS whose `compatible` names a TPP board must name the instance's (a `tpp3g2` DTS is rejected on a `tpp2g2` instance).
+   - The DTS tells the simulator the board, the console UART, and the gpio-keys/gpio-leds to show. Leave it out to keep the instance's current DTS (handy when rebuilding the same project). An instance that never got one uses the TPP defaults.
+   - A running instance restarts. API: `PUT /api/instances/<id>/firmware` with `{ elf?: base64, elfName?, dts?: text, bin?: base64, binName?, binAddress?: "0x08008000" | number }`; `POST /api/instances` takes `{ board: 'tpp2g2'|'tpp3g2'|'tpp2g3'|'tpp3g3', name?, count?, ...the same files }`; `DELETE /api/instances/<id>/monitor` goes back to the default monitor.
 3. **Open an instance** to see the LCD, LEDs, blue bar and console, and to press buttons.
-   - The device is drawn as its faceplate ([manager/public/boards](manager/public/boards)): `tps3` for TPP3, `tps2l` (LCD and 4 keys) for a TPP2 build with a display, `tps2` otherwise. Its LEDs follow the simulated pins; the keys and the MD pinhole can be pressed.
+   - The device is drawn as its faceplate ([manager/public/boards](manager/public/boards)): `tps3` for a TPP3 instance, `tps2l` (LCD and 4 keys) for a TPP2 build with a display, `tps2` otherwise. Its LEDs follow the simulated pins; the keys and the MD pinhole can be pressed.
    - Hold a button to keep it pressed; shift+click latches it.
    - The Renode log tab shows the emulator's own output.
    - **Console** defaults to **udp (debug print)**: the device's `log_udp` buffer, read with the same UDP commands TIDE uses (`PC` → `GM0000,02` → `GM0002,10`… → `PR`).
@@ -65,15 +82,16 @@ curl localhost:3100/api/instances/<id>/screen.png -o screen.png
 
 ## Monitor
 
-Set the real Tibbo Monitor/Loader for a generation under **Monitor** in the web UI (or `PUT /api/monitors/g2` with `{ "name", "bin": base64 }`). Use the plain image (for example `TPP2WG2_RELEASE_MON.bin`), not the encrypted `*_ENC.bin` update file: that one can't run and is rejected.
+An instance boots through the real Tibbo Monitor/Loader when its flash has one at 0x08000000: its own, written by a `.bin` upload (above), or the default for its generation, set under **Default monitor** in the web UI (or `PUT /api/monitors/g2` with `{ "name", "bin": base64 }`). Use the plain image (for example `TPP2WG2_RELEASE_MON.bin`), not the encrypted `*_ENC.bin` update file: that one can't run and is rejected.
 
-Instances of that generation started afterwards boot through the monitor, as a board does:
+With a monitor, an instance boots through it as a board does:
 
-- Internal flash is a per-instance file, `flash.bin`: the monitor at 0x08000000, then the app from the firmware ELF in the layout the monitor installs (size header and checksum at app base − 0x200). The file is written back on every reset and on stop.
+- Internal flash is a per-instance file, `flash.bin`: the monitor at 0x08000000, then the app from the firmware ELF in the layout the monitor installs (size header and checksum at app base − 0x200), plus any `.bin` writes. The file is written back on every reset and on stop.
 - Uploads through TIDE/tide-proxy work: `QF` makes the app set the boot signature and reboot, the monitor comes up as `TiOS-32 Loader`, takes the `D` blocks, flashes them and boots the new app. The upload is the same TiOS-format `.bin` (from `convert_to_tios.js`) that a board takes.
-- An uploaded app stays across restarts. **Reflash** (`POST /api/instances/<id>/reflash`) reinstalls the app from the firmware ELF; switching the instance's firmware does the same. The instance keeps using that firmware's DTS for buttons, LEDs and UARTs.
+- An uploaded app stays across restarts. **Reflash** (`POST /api/instances/<id>/reflash`) reinstalls the app from the instance's firmware ELF; uploading a new ELF to the instance does the same. The instance keeps using its DTS for buttons, LEDs and UARTs.
+- An instance without firmware starts with an empty app area, so the monitor stays in the Loader until TIDE uploads an app.
 
-Removing the monitor puts later starts back on the boot stub.
+Without a monitor in flash, the instance boots its ELF through the boot stub, on top of the flash contents (so `.bin` data is there too). With no ELF either, it boots an app a `.bin` put at the app base (a vector table at 0x08008200 / 0x08040200) through the stub.
 
 ## tide-proxy
 
@@ -91,7 +109,7 @@ This adds a `renode-sim` interface. Discovery, `X`, state, buzz, reboot and othe
 
 ## Limits
 
-- **Without a monitor, firmware is loaded by the simulator,** by uploading an ELF or switching firmware on an instance. Uploading through TIDE/tide-proxy (`QF`/`D`/`N`) needs the real monitor ([Monitor](#monitor)).
+- **Without a monitor, firmware is loaded by the simulator,** by uploading an ELF to an instance. Uploading through TIDE/tide-proxy (`QF`/`D`/`N`) needs the real monitor ([Monitor](#monitor)).
 - **Not modelled:** touch, the beeper (DAC/PWM), Wi-Fi (WA2000), and Tibbits other than plain GPIO.
 - **Speed:** time runs at real time while firmware is mostly idle. A full-screen LCD redraw takes noticeably longer than on hardware, because every byte is bit-banged through GPIO.
 

@@ -18,21 +18,15 @@
     </div>
     <div class="actions">
         <button class="btn" id="btnWiring">Wiring</button>
-        <button class="btn" id="btnUpload">Upload firmware</button>
         <button class="btn primary" id="btnNew">New instance</button>
     </div>
 </header>
 
 <main id="gridView">
-    <section class="panel" id="firmwarePanel">
+    <section class="panel" id="monitorPanel">
         <div class="panel-head">
-            <h2>Firmware</h2>
-            <span class="muted" id="fwCount"></span>
-        </div>
-        <div id="firmwareList" class="fw-list"></div>
-        <div class="panel-head">
-            <h2>Monitor</h2>
-            <span class="muted">With a monitor set, new starts boot through it and accept uploads over UDP</span>
+            <h2>Default monitor</h2>
+            <span class="muted">Used by instances without their own .bin. With a monitor, an instance boots through it and accepts uploads from TIDE</span>
         </div>
         <div id="monitorList" class="fw-list"></div>
         <input type="file" id="monitorFile" accept=".bin" hidden>
@@ -43,7 +37,7 @@
             <span class="muted" id="instCount"></span>
         </div>
         <div id="grid" class="grid"></div>
-        <p class="empty" id="emptyHint" hidden>No instances yet. Upload a <code>zephyr.elf</code> (plus <code>zephyr.dts</code>) built for a TPP board, then create an instance.</p>
+        <p class="empty" id="emptyHint" hidden>No instances yet. Create a TPP2/TPP3 G2 or G3 instance, then upload a <code>zephyr.elf</code> (plus <code>zephyr.dts</code>) to it, or upload from TIDE through the monitor.</p>
     </section>
 </main>
 
@@ -53,6 +47,7 @@
         <h2 id="dName"></h2>
         <span class="pill" id="dStatus"></span>
         <div class="spacer"></div>
+        <button class="btn" id="btnFwUpload">Upload firmware</button>
         <button class="btn" data-act="reset">Reset</button>
         <button class="btn" data-act="reflash" title="Reinstall the app from the firmware ELF">Reflash</button>
         <button class="btn" data-act="restart">Restart</button>
@@ -76,10 +71,6 @@
         </div>
         <div class="side">
             <dl class="facts" id="dFacts"></dl>
-            <div class="row">
-                <label for="dFirmware">Firmware</label>
-                <select id="dFirmware"></select>
-            </div>
             <div class="tabs">
                 <button class="tab active" data-tab="console">Console</button>
                 <button class="tab" data-tab="log">Renode log</button>
@@ -129,11 +120,12 @@
 
 <dialog id="dlgUpload">
     <form method="dialog" id="formUpload">
-        <h3>Upload firmware</h3>
-        <p class="muted">From a Zephyr build for tpp2g2 / tpp3g2 / tpp2g3 / tpp3g3: <code>build/zephyr/zephyr.elf</code> and (recommended) <code>build/zephyr/zephyr.dts</code> for buttons, LEDs and console.</p>
-        <label>Name <input name="name" required placeholder="e.g. ShowMenuDemo"></label>
-        <label>zephyr.elf <input name="elf" type="file" accept=".elf" required></label>
-        <label>zephyr.dts <input name="dts" type="file" accept=".dts"></label>
+        <h3>Upload firmware <span class="muted" id="uploadTarget"></span></h3>
+        <p class="muted">Pick any of: <code>.elf</code> (the app, e.g. <code>build/zephyr/zephyr.elf</code>), its <code>.dts</code> (buttons, LEDs and console; without one the instance keeps its current DTS), and a <code>.bin</code> written into flash at the address you give (0x08000000 is the Tibbo monitor/bootloader). A running instance restarts.</p>
+        <label>Files <input name="files" type="file" accept=".elf,.dts,.bin" multiple required></label>
+        <label hidden>.bin address (hex) <input name="binAddress" value="0x08000000" list="addrUpload" spellcheck="false" autocomplete="off"></label>
+        <datalist id="addrUpload"></datalist>
+        <p class="muted" id="uploadFiles"></p>
         <p class="error" id="uploadError"></p>
         <menu>
             <button class="btn" value="cancel" formnovalidate>Cancel</button>
@@ -145,13 +137,29 @@
 <dialog id="dlgNew">
     <form method="dialog" id="formNew">
         <h3>New instance</h3>
-        <label>Firmware <select name="firmwareId" required></select></label>
+        <label>Device
+            <select name="board" required>
+                <optgroup label="G2 · STM32F207">
+                    <option value="tpp2g2">TPP2G2</option>
+                    <option value="tpp3g2">TPP3G2</option>
+                </optgroup>
+                <optgroup label="G3 · STM32F439">
+                    <option value="tpp2g3">TPP2G3</option>
+                    <option value="tpp3g3">TPP3G3</option>
+                </optgroup>
+            </select>
+        </label>
         <label>Name <input name="name" placeholder="TPP sim"></label>
         <label>Count <input name="count" type="number" min="1" max="16" value="1"></label>
+        <label>Files (optional: .elf app, its .dts, .bin written into flash) <input name="files" type="file" accept=".elf,.dts,.bin" multiple></label>
+        <label hidden>.bin address (hex) <input name="binAddress" value="0x08000000" list="addrNew" spellcheck="false" autocomplete="off"></label>
+        <datalist id="addrNew"></datalist>
+        <p class="muted" id="newFiles"></p>
+        <p class="muted" id="newHint"></p>
         <p class="error" id="newError"></p>
         <menu>
             <button class="btn" value="cancel" formnovalidate>Cancel</button>
-            <button class="btn primary" value="ok">Create &amp; start</button>
+            <button class="btn primary" id="btnDoNew" value="ok">Create</button>
         </menu>
     </form>
 </dialog>

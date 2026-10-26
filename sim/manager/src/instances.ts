@@ -5,9 +5,12 @@ import * as crypto from 'crypto';
 import { EventEmitter } from 'events';
 import { spawn, ChildProcess } from 'child_process';
 
-import { config, instancesDir } from './config';
-import { FLASH_SIZE, FirmwareInfo, getFirmware } from './firmware';
-import { forgetFlashApp, getMonitor, prepareFlash } from './monitor';
+import { config, instancesDir, legacyFirmwareDir } from './config';
+import { BoardProfile } from './dts';
+import { APP_BASE, Board, FLASH_SIZE, FirmwareInfo, Generation, boardGeneration, defaultProfile, isBoard, loadFirmware, saveFirmware } from './firmware';
+import {
+    FLASH_START, checkFlashWrite, flashWrites, forgetFlashApp, getMonitor, prepareFlash, useDefaultMonitor, writeFlash,
+} from './monitor';
 import { createTap, deleteTap, writeDhcpHosts, TcpForward } from './network';
 
 const UART_INDEX: Record<string, number> = { usart1: 0, usart2: 1, usart3: 2, uart4: 3, uart5: 4, usart6: 5 };
@@ -18,8 +21,16 @@ export interface InstanceConfig {
     id: string;
     name: string;
     index: number;
-    firmwareId: string;
+    board: Board;
     autoStart: boolean;
+}
+
+// Files uploaded to an instance: an app ELF (+ DTS), and/or a .bin written into flash at `address`
+// (0x08000000, the monitor, by default).
+export interface FirmwareUpload {
+    elf?: { name: string; data: Buffer };
+    dts?: Buffer;
+    bin?: { name: string; data: Buffer; address?: number };
 }
 
 export type InstanceStatus = 'stopped' | 'starting' | 'running' | 'exited';
@@ -49,6 +60,8 @@ export class Instance extends EventEmitter {
     private stopping = false;
     // Booted through the real Tibbo monitor from a persistent flash image (vs. the boot stub).
     private monitorBoot = false;
+    // Loaded from <dir>/firmware on first use; null when none has been uploaded.
+    private fw?: FirmwareInfo | null;
 
     constructor(public cfg: InstanceConfig) {
         super();
@@ -96,8 +109,40 @@ export class Instance extends EventEmitter {
         return config.uartPortBase + this.cfg.index * 8 + UART_INDEX[uart];
     }
 
+    get generation(): Generation {
+        return boardGeneration(this.cfg.board);
+    }
+
+    get firmwareDir(): string {
+        return path.join(this.dir, 'firmware');
+    }
+
     get firmware(): FirmwareInfo | undefined {
-        return getFirmware(this.cfg.firmwareId);
+        if (this.fw === undefined) {
+            this.fw = loadFirmware(this.firmwareDir) || null;
+        }
+        return this.fw || undefined;
+    }
+
+    // Buttons, LEDs and UARTs: from the firmware's DTS, else the TPP defaults for the board.
+    get profile(): BoardProfile {
+        return this.firmware?.profile || defaultProfile(this.cfg.board);
+    }
+
+    // The monitor at 0x08000000: one a .bin upload wrote there, else the generation's default.
+    get bootMonitor(): { name: string; own: boolean } | null {
+        const own = flashWrites(this.dir).ownMonitor;
+        if (own) {
+            return { name: own, own: true };
+        }
+        const def = getMonitor(this.generation);
+        return def ? { name: def.name, own: false } : null;
+    }
+
+    // Something to boot: an app from the ELF, a monitor (its Loader waits for a UDP upload), or code a
+    // .bin upload put into flash.
+    get canStart(): boolean {
+        return !!this.firmware || !!this.bootMonitor || flashWrites(this.dir).writes.length > 0;
     }
 
     save(): void {
@@ -109,6 +154,7 @@ export class Instance extends EventEmitter {
         const fw = this.firmware;
         return {
             ...this.cfg,
+            generation: this.generation,
             status: this.status,
             exitCode: this.exitCode,
             mac: this.mac,
@@ -116,8 +162,13 @@ export class Instance extends EventEmitter {
             ip: this.ip,
             httpPort: this.httpPort,
             monitorPort: this.monitorPort,
-            firmware: fw ? { id: fw.id, name: fw.name, generation: fw.generation, profile: fw.profile } : undefined,
+            profile: this.profile,
+            firmware: fw ? { name: fw.name, uploadedAt: fw.uploadedAt, hasDts: fw.hasDts } : undefined,
             monitor: this.monitorBoot,
+            // The monitor the next start uses; own = written by a .bin upload (not the default).
+            bootMonitor: this.bootMonitor,
+            flashWrites: flashWrites(this.dir).writes,
+            canStart: this.canStart,
             consoles: this.consoles,
             state: this.state,
         };
@@ -125,7 +176,7 @@ export class Instance extends EventEmitter {
 
     // Console channels: 'udp' (debug print over the Tibbo UDP protocol) first, then the UARTs.
     get consoles(): string[] {
-        return ['udp', ...(this.firmware?.profile.uarts || []).filter((u) => u in UART_INDEX)];
+        return ['udp', ...this.profile.uarts.filter((u) => u in UART_INDEX)];
     }
 
     consoleBacklog(name: string): Buffer {
@@ -148,8 +199,9 @@ export class Instance extends EventEmitter {
             return;
         }
         const fw = this.firmware;
-        if (!fw) {
-            throw new Error(`firmware ${this.cfg.firmwareId} not found`);
+        const gen = this.generation;
+        if (!this.canStart) {
+            throw new Error(`no firmware: upload one, or set the ${gen.toUpperCase()} monitor to upload over UDP`);
         }
         fs.mkdirSync(this.dir, { recursive: true });
         const resc = path.join(this.dir, 'instance.resc');
@@ -163,7 +215,7 @@ export class Instance extends EventEmitter {
         this.setStatus('starting');
         await createTap(this.tap);
 
-        this.addLog(`starting renode (${fw.generation}, ${fw.name})`);
+        this.addLog(`starting renode (${this.cfg.board}, ${fw ? fw.name : 'no firmware'})`);
         // --console with an open stdin puts monitor output (script errors included) on stdout.
         const proc = spawn(config.renodeBin, ['--disable-gui', '--console', '-P', String(this.monitorPort), '-e', `include @${resc}`], {
             cwd: this.dir,
@@ -183,7 +235,7 @@ export class Instance extends EventEmitter {
         });
 
         this.connectBridge();
-        for (const uart of fw.profile.uarts) {
+        for (const uart of this.profile.uarts) {
             if (uart in UART_INDEX) {
                 this.connectUart(uart);
             }
@@ -222,14 +274,10 @@ export class Instance extends EventEmitter {
 
     // Reinstall the app from the firmware ELF, replacing one uploaded over UDP.
     async reflash(): Promise<void> {
-        const running = this.status === 'running' || this.status === 'starting';
-        if (running) {
-            await this.stop();
+        if (!this.firmware) {
+            throw new Error('no firmware uploaded to reflash from');
         }
-        forgetFlashApp(this.dir);
-        if (running) {
-            await this.start();
-        }
+        await this.whileStopped(() => forgetFlashApp(this.dir));
     }
 
     reset(): void {
@@ -256,43 +304,102 @@ export class Instance extends EventEmitter {
         this.uarts.get(uart)?.write(data);
     }
 
-    private renderResc(fw: FirmwareInfo): string {
+    // Takes an uploaded ELF (+ DTS) as the app and/or writes a .bin into flash at its address, with
+    // the instance stopped (a running one keeps flash in memory) and restarted afterwards. Both are
+    // checked before either is kept.
+    async upload(u: FirmwareUpload): Promise<void> {
+        if (!u.elf && !u.bin) {
+            throw new Error('upload a .elf or a .bin');
+        }
+        if (u.dts && !u.elf) {
+            throw new Error('a .dts goes with a .elf');
+        }
+        const address = u.bin?.address ?? FLASH_START;
+        if (u.bin) {
+            checkFlashWrite(this.generation, address, u.bin.data);
+        }
+        await this.whileStopped(() => {
+            if (u.elf) {
+                this.fw = saveFirmware(this.firmwareDir, this.cfg.board, u.elf.name, u.elf.data, u.dts);
+            }
+            if (u.bin) {
+                writeFlash(this.dir, this.generation, getMonitor(this.generation), this.firmware, address, u.bin.data, u.bin.name);
+            }
+        });
+    }
+
+    // Drops what .bin uploads wrote into the monitor area: the default monitor (if any) comes back.
+    async useDefaultMonitor(): Promise<void> {
+        await this.whileStopped(() => useDefaultMonitor(this.dir, this.generation));
+    }
+
+    // Runs fn with the instance stopped, restarting it afterwards if it was running.
+    private async whileStopped(fn: () => void): Promise<void> {
+        const running = this.status === 'running' || this.status === 'starting';
+        if (running) {
+            await this.stop();
+        }
+        try {
+            fn();
+        } finally {
+            if (running) {
+                await this.start();
+            }
+        }
+    }
+
+    private renderResc(fw: FirmwareInfo | undefined): string {
         const r = config.renodeDir;
         const hex = (n: number) => '0x' + (n >>> 0).toString(16).padStart(8, '0');
-        const monitor = getMonitor(fw.generation);
-        this.monitorBoot = !!monitor;
+        const gen = this.generation;
+        const flash = prepareFlash(this.dir, gen, getMonitor(gen), fw);
+        this.monitorBoot = flash.boot === 'monitor';
         let boot: string[];
-        if (monitor) {
-            const flash = prepareFlash(this.dir, fw, monitor);
-            this.addLog(`booting through monitor ${monitor.name}`);
+        if (flash.boot === 'monitor') {
+            // Boots like a board; flash.bin is written back on reset and stop.
+            const mon = this.bootMonitor;
+            this.addLog(`booting through monitor ${mon ? mon.name : 'in flash'}${fw ? '' : ' (no firmware: the Loader waits for an upload)'}`);
             boot = [
-                `sysbus LoadBinary @${flash} 0x08000000`,
-                `bridge FlashSize ${FLASH_SIZE[fw.generation]}`,
-                `bridge FlashFile @${flash}`,
+                `sysbus LoadBinary @${flash.file} 0x08000000`,
+                `bridge FlashSize ${FLASH_SIZE[gen]}`,
+                `bridge FlashFile @${flash.file}`,
             ];
-        } else {
+        } else if (fw) {
             boot = [
+                // Flash as .bin uploads left it, then the app from the ELF.
+                `sysbus LoadBinary @${flash.file} 0x08000000`,
                 `sysbus LoadELF @${fw.elfPath}`,
                 // Stand-in for the Tibbo monitor at the start of flash: boot into the app on any reset.
                 `sysbus WriteDoubleWord 0x08000000 ${hex(fw.initialSp)}`,
                 `sysbus WriteDoubleWord 0x08000004 ${hex(fw.resetVector)}`,
                 `cpu VectorTableOffset ${hex(fw.flashBase)}`,
             ];
+        } else if (flash.boot === 'app') {
+            // No monitor and no ELF: the app a .bin upload put at the app base, through the boot stub.
+            this.addLog('no monitor: booting the app in flash through the boot stub');
+            boot = [
+                `sysbus LoadBinary @${flash.file} 0x08000000`,
+                `sysbus WriteDoubleWord 0x08000000 ${hex(flash.appSp)}`,
+                `sysbus WriteDoubleWord 0x08000004 ${hex(flash.appReset)}`,
+                `cpu VectorTableOffset ${hex(APP_BASE[gen])}`,
+            ];
+        } else {
+            throw new Error('nothing to boot: no monitor or app in flash and no firmware');
         }
         const lines = [
             `include @${r}/peripherals/TibboSim.cs`,
             `mach create "${this.cfg.id}"`,
-            `machine LoadPlatformDescription @${r}/tibbo_${fw.generation}.repl`,
+            `machine LoadPlatformDescription @${r}/tibbo_${gen}.repl`,
             `logLevel 2`,
             `logLevel 3 sysbus.ethernet`,
             `logLevel 3 sysbus.ethernet.phy`,
             ...boot,
-            `cpu PerformanceInMips ${fw.generation === 'g3' ? 180 : 120}`,
+            `cpu PerformanceInMips ${gen === 'g3' ? 180 : 120}`,
             `eeprom BackingFile @${path.join(this.dir, 'eeprom.bin')}`,
             `eeprom InitMac "${this.mac}"`,
             `spi1.at45 BackingFile @${path.join(this.dir, 'at45.bin')}`,
         ];
-        for (const uart of fw.profile.uarts) {
+        for (const uart of this.profile.uarts) {
             if (uart in UART_INDEX) {
                 lines.push(`emulation CreateServerSocketTerminal ${this.uartPort(uart)} "term_${uart}" false`);
                 lines.push(`connector Connect sysbus.${uart} term_${uart}`);
@@ -329,7 +436,7 @@ export class Instance extends EventEmitter {
             this.bridge = sock;
             sock.setNoDelay(true);
             // Buttons idle at their inactive level (the board has pull resistors on them).
-            for (const b of this.firmware?.profile.buttons || []) {
+            for (const b of this.profile.buttons) {
                 this.setPin(b.port, b.pin, b.activeLow);
             }
             this.setStatus('running');
@@ -445,7 +552,9 @@ export class InstanceManager extends EventEmitter {
         for (const id of fs.readdirSync(instancesDir())) {
             const file = path.join(instancesDir(), id, 'config.json');
             if (fs.existsSync(file)) {
-                this.track(new Instance(JSON.parse(fs.readFileSync(file, 'utf8'))));
+                const cfg = migrateConfig(path.dirname(file), JSON.parse(fs.readFileSync(file, 'utf8')));
+                migrateOwnMonitor(path.dirname(file), cfg);
+                this.track(new Instance(cfg));
             }
         }
         this.updateDhcp();
@@ -467,9 +576,14 @@ export class InstanceManager extends EventEmitter {
         return this.instances.get(id);
     }
 
-    async create(opts: { name?: string; firmwareId: string; start?: boolean }): Promise<Instance> {
-        if (!getFirmware(opts.firmwareId)) {
-            throw new Error(`firmware ${opts.firmwareId} not found`);
+    async create(opts: {
+        name?: string;
+        board: Board;
+        upload?: FirmwareUpload;
+        start?: boolean;
+    }): Promise<Instance> {
+        if (!isBoard(opts.board)) {
+            throw new Error('board must be tpp2g2, tpp3g2, tpp2g3 or tpp3g3');
         }
         const used = new Set(this.list().map((i) => i.cfg.index));
         let index = 1;
@@ -483,30 +597,50 @@ export class InstanceManager extends EventEmitter {
             id: `sim${index}-${crypto.randomBytes(2).toString('hex')}`,
             name: opts.name || `TPP sim ${index}`,
             index,
-            firmwareId: opts.firmwareId,
-            autoStart: opts.start !== false,
+            board: opts.board,
+            autoStart: false,
         });
+        // The ELF (and DTS) is checked against the board, and a .bin as a monitor image, before the
+        // instance is kept.
+        if (opts.upload) {
+            try {
+                await inst.upload(opts.upload);
+            } catch (e) {
+                fs.rmSync(inst.dir, { recursive: true, force: true });
+                throw e;
+            }
+        }
+        // Without firmware or a monitor there is nothing to boot yet; it can start after an upload.
+        inst.cfg.autoStart = opts.start !== false && inst.canStart;
         inst.save();
         this.track(inst);
         this.updateDhcp();
-        if (opts.start !== false) {
+        if (inst.cfg.autoStart) {
             await inst.start();
         }
         return inst;
     }
 
-    async update(id: string, changes: { name?: string; firmwareId?: string }): Promise<Instance> {
+    async update(id: string, changes: { name?: string }): Promise<Instance> {
         const inst = this.mustGet(id);
-        if (changes.firmwareId && !getFirmware(changes.firmwareId)) {
-            throw new Error(`firmware ${changes.firmwareId} not found`);
+        if (changes.name) {
+            inst.cfg.name = changes.name;
         }
-        // A monitor-booted instance picks up the new app in prepareFlash() (flash.json records the firmware).
-        const firmwareChanged = !!changes.firmwareId && changes.firmwareId !== inst.cfg.firmwareId;
-        Object.assign(inst.cfg, changes);
         inst.save();
-        if (firmwareChanged && (inst.status === 'running' || inst.status === 'starting')) {
-            await inst.restart();
-        }
+        this.emit('changed', inst);
+        return inst;
+    }
+
+    async upload(id: string, u: FirmwareUpload): Promise<Instance> {
+        const inst = this.mustGet(id);
+        await inst.upload(u);
+        this.emit('changed', inst);
+        return inst;
+    }
+
+    async useDefaultMonitor(id: string): Promise<Instance> {
+        const inst = this.mustGet(id);
+        await inst.useDefaultMonitor();
         this.emit('changed', inst);
         return inst;
     }
@@ -534,10 +668,6 @@ export class InstanceManager extends EventEmitter {
         this.emit('removed', inst);
     }
 
-    usesFirmware(firmwareId: string): boolean {
-        return this.list().some((i) => i.cfg.firmwareId === firmwareId);
-    }
-
     async stopAll(): Promise<void> {
         await Promise.all(this.list().map((i) => i.stop()));
     }
@@ -558,4 +688,40 @@ export class InstanceManager extends EventEmitter {
     private updateDhcp(): void {
         writeDhcpHosts(this.list().map((i) => ({ mac: i.mac, ip: i.ip })));
     }
+}
+
+// Instances from before per-instance firmware referenced a shared firmware/<firmwareId>. Copy it
+// into the instance (same id, so a monitor flash image stays as it is) and record the board: the
+// firmware's DTS board, else TPP2 of the firmware's (or a recorded) generation.
+function migrateConfig(dir: string, cfg: any): InstanceConfig {
+    if (isBoard(cfg.board)) {
+        return cfg;
+    }
+    const src = cfg.firmwareId ? path.join(legacyFirmwareDir(), cfg.firmwareId) : '';
+    const dst = path.join(dir, 'firmware');
+    if (src && fs.existsSync(path.join(src, 'meta.json')) && !fs.existsSync(dst)) {
+        fs.cpSync(src, dst, { recursive: true });
+    }
+    const fw = loadFirmware(dst);
+    const gen: Generation = fw?.generation || (cfg.generation === 'g3' ? 'g3' : 'g2');
+    const fwBoard = fw?.profile.board;
+    const board: Board = isBoard(fwBoard) && boardGeneration(fwBoard) === gen ? fwBoard : `tpp2${gen}`;
+    const { firmwareId, generation, ...rest } = cfg;
+    const migrated: InstanceConfig = { ...rest, board };
+    fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify(migrated, null, 2));
+    return migrated;
+}
+
+// An instance's own monitor used to be kept as monitor.bin; it is now written into its flash.
+function migrateOwnMonitor(dir: string, cfg: InstanceConfig): void {
+    const bin = path.join(dir, 'monitor.bin');
+    const meta = path.join(dir, 'monitor.json');
+    if (!fs.existsSync(bin)) {
+        return;
+    }
+    const gen = boardGeneration(cfg.board);
+    const name = fs.existsSync(meta) ? JSON.parse(fs.readFileSync(meta, 'utf8')).name : 'monitor.bin';
+    writeFlash(dir, gen, getMonitor(gen), loadFirmware(path.join(dir, 'firmware')), FLASH_START, fs.readFileSync(bin), name);
+    fs.rmSync(bin, { force: true });
+    fs.rmSync(meta, { force: true });
 }

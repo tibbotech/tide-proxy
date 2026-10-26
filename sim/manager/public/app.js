@@ -3,7 +3,6 @@
 // ---- state ----
 const S = {
     instances: [],
-    firmware: [],
     monitors: {},
     frames: new Map(), // id -> { image: ImageData, canvases: Set<HTMLCanvasElement> }
     detail: null, // instance id
@@ -184,15 +183,15 @@ async function loadBoardArt() {
     }));
 }
 
-function boardArtName(profile) {
-    if (/^tpp3/i.test(profile.board || '')) return 'tps3';
+function boardArtName(inst, profile) {
+    if (/^tpp3/i.test(inst.board || profile.board || '')) return 'tps3';
     return profile.lcd ? 'tps2l' : 'tps2';
 }
 
 // Inline copy of the faceplate, or null if the art didn't load. Gradient ids get a per-copy suffix:
 // copies share the page, and a reference into a hidden copy (grid vs. detail view) doesn't render.
-function boardSvg(profile) {
-    const text = BOARD_ART[boardArtName(profile)];
+function boardSvg(inst, profile) {
+    const text = BOARD_ART[boardArtName(inst, profile)];
     if (!text) return null;
     const sfx = `-b${++artSeq}`;
     const holder = document.createElement('div');
@@ -204,8 +203,8 @@ function boardSvg(profile) {
 // MD pinhole and front keys bound to the board's buttons. `canvas` goes into the LCD window if the
 // art has one; `lcdInArt` says whether it did.
 function boardView(inst, canvas, interactive) {
-    const profile = (inst.firmware && inst.firmware.profile) || { buttons: [], leds: [] };
-    const svg = boardSvg(profile);
+    const profile = inst.profile || { buttons: [], leds: [] };
+    const svg = boardSvg(inst, profile);
     if (!svg) return null;
     const part = (name) => svg.querySelector(`[data-part="${name}"]`);
     const titled = (node, text) => {
@@ -286,7 +285,7 @@ function ledDots(inst, leds) {
 }
 
 function updateIndicators(inst) {
-    const profile = inst.firmware && inst.firmware.profile;
+    const profile = inst.profile;
     if (!profile) return;
     const scope = `[data-inst="${inst.id}"]`;
     document.querySelectorAll(`${scope} [data-led]`).forEach((dot) => {
@@ -310,7 +309,7 @@ function updateIndicators(inst) {
 
 // ---- rendering ----
 function render() {
-    renderFirmware();
+    renderMonitors();
     if (S.wiring) {
         renderWiring();
         return;
@@ -321,6 +320,10 @@ function render() {
     }
     if (S.detail) renderDetail();
     else renderGrid();
+}
+
+function boardLabel(inst) {
+    return (inst.board || '').toUpperCase();
 }
 
 function statusPill(status) {
@@ -337,7 +340,7 @@ function renderGrid() {
         const running = inst.status === 'running' || inst.status === 'starting';
         // Faceplate unless the LCD would be lost (an LCD build on art without a screen window).
         const board = boardView(inst, canvas, false);
-        const hasLcd = !!(inst.firmware && inst.firmware.profile.lcd);
+        const hasLcd = !!(inst.profile && inst.profile.lcd);
         const face = board && (board.lcdInArt || !hasLcd) ? board.root : canvas;
         const card = el('article', { class: 'card', 'data-inst': inst.id },
             el('div', { class: 'screen', onclick: () => showDetail(inst.id), title: 'Open' }, face),
@@ -346,15 +349,17 @@ function renderGrid() {
                 el('div', { class: 'info' },
                     el('span', {}, inst.tibboMac),
                     el('span', {}, inst.ip),
-                    el('span', {}, inst.firmware ? `${inst.firmware.name} (${inst.firmware.generation.toUpperCase()})` : 'firmware missing')),
+                    el('span', {}, `${boardLabel(inst)} · ${inst.firmware ? inst.firmware.name : 'no firmware'}`)),
                 el('div', { class: 'title' },
-                    el('span', { class: 'dots' }, ledDots(inst, (inst.firmware && inst.firmware.profile.leds.slice(0, 6)) || [])),
+                    el('span', { class: 'dots' }, ledDots(inst, (inst.profile && inst.profile.leds.slice(0, 6)) || [])),
                     el('span', { class: 'ops' },
                         el('button', { class: 'btn small', onclick: () => showDetail(inst.id) }, 'Open'),
                         running
                             ? el('button', { class: 'btn small', onclick: () => act(inst.id, 'reset') }, 'Reset')
                             : null,
-                        el('button', { class: 'btn small', onclick: () => act(inst.id, running ? 'stop' : 'start') }, running ? 'Stop' : 'Start'),
+                        running || inst.canStart
+                            ? el('button', { class: 'btn small', onclick: () => act(inst.id, running ? 'stop' : 'start') }, running ? 'Stop' : 'Start')
+                            : el('button', { class: 'btn small', onclick: () => openUpload(inst) }, 'Upload firmware'),
                         el('button', { class: 'btn small danger', onclick: () => removeInstance(inst) }, 'Delete')))));
         grid.append(card);
         bindCanvas(inst.id, canvas);
@@ -362,23 +367,7 @@ function renderGrid() {
     }
 }
 
-function renderFirmware() {
-    const list = $('#firmwareList');
-    list.textContent = '';
-    $('#fwCount').textContent = S.firmware.length ? String(S.firmware.length) : '';
-    if (!S.firmware.length) {
-        list.append(el('span', { class: 'muted' }, 'None uploaded yet.'));
-    }
-    for (const fw of S.firmware) {
-        const p = fw.profile;
-        list.append(el('div', { class: 'fw' },
-            el('div', {},
-                el('strong', {}, fw.name),
-                el('div', { class: 'meta' },
-                    `${p.board || '?'} · ${fw.generation.toUpperCase()} · ${p.buttons.length} buttons · console ${p.consoleUart || 'none'}${fw.hasDts ? '' : ' · no DTS'}`)),
-            el('button', { class: 'btn small', onclick: () => openNew(fw.id) }, 'Run'),
-            el('button', { class: 'btn small danger', onclick: () => removeFirmware(fw) }, 'Delete')));
-    }
+function renderMonitors() {
     const mons = $('#monitorList');
     mons.textContent = '';
     for (const gen of ['g2', 'g3']) {
@@ -390,27 +379,23 @@ function renderFirmware() {
             el('button', { class: 'btn small', onclick: () => pickMonitor(gen) }, m ? 'Replace' : 'Upload'),
             m ? el('button', { class: 'btn small danger', onclick: () => removeMonitor(gen) }, 'Remove') : null));
     }
-    const sel = $('#dFirmware');
-    const keep = sel.value;
-    sel.textContent = '';
-    for (const fw of S.firmware) sel.append(el('option', { value: fw.id }, `${fw.name} (${fw.generation.toUpperCase()})`));
-    if (keep) sel.value = keep;
 }
 
 let renderedDetail = null;
 function renderDetail() {
     const inst = S.instances.find((i) => i.id === S.detail);
     if (!inst) return;
-    const profile = (inst.firmware && inst.firmware.profile) || { buttons: [], leds: [], uarts: [] };
+    const profile = inst.profile || { buttons: [], leds: [], uarts: [] };
     $('#dName').textContent = inst.name;
     const pill = $('#dStatus');
     pill.className = `pill ${inst.status}`;
     pill.textContent = inst.status + (inst.status === 'exited' && inst.exitCode !== undefined ? ` (${inst.exitCode})` : '');
     const running = inst.status === 'running' || inst.status === 'starting';
     document.querySelector('[data-act="start"]').hidden = running;
+    document.querySelector('[data-act="start"]').disabled = !inst.canStart;
     document.querySelector('[data-act="stop"]').hidden = !running;
     document.querySelector('[data-act="reset"]').disabled = inst.status !== 'running';
-    document.querySelector('[data-act="reflash"]').hidden = !inst.monitor;
+    document.querySelector('[data-act="reflash"]').hidden = !inst.monitor || !inst.firmware;
 
     const webUrl = `${location.protocol}//${location.hostname}:${inst.httpPort}/`;
     const facts = $('#dFacts');
@@ -418,15 +403,30 @@ function renderDetail() {
     const fact = (k, v) => facts.append(el('dt', {}, k), el('dd', {}, v));
     fact('MAC', `${inst.tibboMac}  (${inst.mac})`);
     fact('IP', `${inst.ip} (DHCP reservation)`);
-    fact('Board', inst.firmware ? `${profile.board || '?'} · ${inst.firmware.generation.toUpperCase()}` : '–');
+    fact('Board', `${boardLabel(inst)} (${inst.generation === 'g3' ? 'STM32F439' : 'STM32F207'})${profile.board && profile.board !== inst.board ? ` · DTS ${profile.board}` : ''}`);
+    const fw = inst.firmware;
+    const mon = inst.bootMonitor;
+    fact('Firmware', fw
+        ? `${fw.name} · ${new Date(fw.uploadedAt).toLocaleString()}${fw.hasDts ? '' : ' · no DTS (TPP defaults)'}`
+        : mon ? 'none (upload a .elf, or from TIDE through the monitor)' : 'none (upload a .elf or a monitor .bin to start)');
+    fact('Monitor', mon
+        ? el('span', {},
+            `${mon.name} · ${mon.own ? 'this instance' : `${inst.generation.toUpperCase()} default`} `,
+            mon.own ? el('button', { class: 'btn small', onclick: () => useDefaultMonitor(inst) }, S.monitors[inst.generation] ? 'Use default' : 'Remove') : null)
+        : 'none (boot stub)');
+    const writes = inst.flashWrites || [];
+    if (writes.length) {
+        fact('Flash .bin', writes.map((w) => `${w.name} @ ${hexAddr(w.address)} (${w.size} B)`).join('\n'));
+    }
     fact('Boot', inst.monitor ? 'Tibbo monitor (UDP upload)' : 'boot stub');
     fact('Device web', el('a',{ href: webUrl, target: '_blank', rel: 'noopener' }, webUrl));
     fact('Renode monitor', `port ${inst.monitorPort} inside the container`);
     fact('Virtual time', el('span', { id: 'dVtime' }, '–'));
-    $('#dFirmware').value = inst.firmwareId;
 
-    if (renderedDetail !== inst.id) {
-        renderedDetail = inst.id;
+    // Rebuilt when the firmware changes too: a new DTS can bring other buttons, LEDs and UARTs.
+    const key = `${inst.id}|${fw ? fw.uploadedAt : ''}`;
+    if (renderedDetail !== key) {
+        renderedDetail = key;
         S.latched.clear();
         $('#dDevice').setAttribute('data-inst', inst.id);
 
@@ -595,16 +595,9 @@ async function removeInstance(inst) {
     await api('DELETE', `/api/instances/${inst.id}`).catch((e) => alert(e.message));
 }
 
-async function removeFirmware(fw) {
-    if (!confirm(`Delete firmware ${fw.name}?`)) return;
-    await api('DELETE', `/api/firmware/${fw.id}`).catch((e) => alert(e.message));
-    loadFirmware();
-}
-
-async function loadFirmware() {
-    S.firmware = await api('GET', '/api/firmware').catch(() => []);
+async function loadMonitors() {
     S.monitors = await api('GET', '/api/monitors').catch(() => ({}));
-    renderFirmware();
+    render();
 }
 
 let monitorGen = null;
@@ -617,7 +610,7 @@ function pickMonitor(gen) {
 async function removeMonitor(gen) {
     if (!confirm(`Remove the ${gen.toUpperCase()} monitor? Instances started afterwards use the boot stub.`)) return;
     await api('DELETE', `/api/monitors/${gen}`).catch((e) => alert(e.message));
-    loadFirmware();
+    loadMonitors();
 }
 
 async function loadInfo() {
@@ -630,17 +623,118 @@ async function loadInfo() {
     }
 }
 
-function openNew(firmwareId) {
-    if (!S.firmware.length) {
-        $('#dlgUpload').showModal();
+function openNew() {
+    const form = $('#formNew');
+    const board = form.elements.board.value;
+    form.reset();
+    form.elements.board.value = board;
+    $('#newError').textContent = '';
+    updateNewHint();
+    $('#dlgNew').showModal();
+}
+
+// What a new instance boots: the picked ELF, a monitor's Loader (picked .bin or the default), or nothing yet.
+function updateNewHint() {
+    const f = $('#formNew').elements;
+    const gen = f.board.value.slice(-2);
+    let picked = {};
+    try {
+        picked = pickedFiles(f.files);
+    } catch {}
+    describeFiles(f, gen, $('#addrNew'), $('#newFiles'));
+    const monBin = picked.bin && parseHex(f.binAddress.value) === FLASH_START;
+    const mon = monBin ? picked.bin.name : S.monitors[gen] ? `the ${gen.toUpperCase()} default monitor` : null;
+    let hint, start = true;
+    if (picked.elf) hint = mon ? `Boots through ${mon} into this app.` : 'Boots this app (no monitor: boot stub).';
+    else if (mon) hint = `No app: boots into the Loader of ${mon}, ready for an upload from TIDE. You can also upload a .elf later.`;
+    else if (picked.bin) hint = 'Boots what the .bin puts into flash (an app at the app base runs through the boot stub).';
+    else {
+        hint = `No app and no monitor: the instance is created stopped. Upload a .elf or a .bin to it to start it.`;
+        start = false;
+    }
+    $('#newHint').textContent = hint;
+    $('#btnDoNew').textContent = start ? 'Create & start' : 'Create';
+}
+
+let uploadInst = null;
+function openUpload(inst) {
+    uploadInst = inst.id;
+    $('#formUpload').reset();
+    describeFiles($('#formUpload').elements, inst.generation, $('#addrUpload'), $('#uploadFiles'));
+    $('#uploadTarget').textContent = `· ${inst.name} (${boardLabel(inst)})`;
+    $('#uploadError').textContent = '';
+    $('#dlgUpload').showModal();
+}
+
+// Files picked in a multi-file input, by type: { elf, dts, bin }.
+function pickedFiles(input) {
+    const out = {};
+    for (const file of input.files) {
+        const ext = (file.name.match(/\.(elf|dts|bin)$/i) || [])[1];
+        if (!ext) throw new Error(`${file.name}: pick .elf, .dts or .bin files`);
+        const key = ext.toLowerCase();
+        if (out[key]) throw new Error(`more than one .${key} picked`);
+        out[key] = file;
+    }
+    return out;
+}
+
+// Well-known places for a .bin in each generation's flash.
+const FLASH_START = 0x08000000;
+const FLASH_ADDRESSES = {
+    g2: [[FLASH_START, 'monitor'], [0x08008000, 'app image with TiOS header'], [0x08008200, 'app']],
+    g3: [[FLASH_START, 'monitor'], [0x08040000, 'app image with TiOS header'], [0x08040200, 'app']],
+};
+
+function parseHex(v) {
+    const t = String(v).trim().replace(/^0x/i, '');
+    return /^[0-9a-f]{1,8}$/i.test(t) ? parseInt(t, 16) : NaN;
+}
+
+function hexAddr(n) {
+    return '0x' + n.toString(16).padStart(8, '0');
+}
+
+// Shows what each picked file of form `f` becomes, and the .bin address field (with the well-known
+// addresses of `gen` as suggestions) only when a .bin is picked.
+function describeFiles(f, gen, datalist, target) {
+    const known = FLASH_ADDRESSES[gen] || [];
+    datalist.textContent = '';
+    for (const [addr, what] of known) datalist.append(el('option', { value: hexAddr(addr) }, what));
+    let p = {};
+    try {
+        p = pickedFiles(f.files);
+    } catch (e) {
+        target.textContent = e.message;
         return;
     }
-    const sel = $('#formNew').elements.firmwareId;
-    sel.textContent = '';
-    for (const fw of S.firmware) sel.append(el('option', { value: fw.id }, `${fw.name} (${fw.generation.toUpperCase()})`));
-    if (firmwareId) sel.value = firmwareId;
-    $('#newError').textContent = '';
-    $('#dlgNew').showModal();
+    f.binAddress.closest('label').hidden = !p.bin;
+    const addr = parseHex(f.binAddress.value);
+    const place = Number.isNaN(addr) ? 'nowhere: the address is not hex'
+        : `flash @ ${hexAddr(addr)}${(known.find(([a]) => a === addr) || [])[1] ? ` (${known.find(([a]) => a === addr)[1]})` : ''}`;
+    target.textContent = [
+        p.elf && `${p.elf.name} → app`,
+        p.dts && `${p.dts.name} → devicetree`,
+        p.bin && `${p.bin.name} → ${place}`,
+    ].filter(Boolean).join(' · ');
+}
+
+// The request fields for the picked files of form `f`: { elf, elfName, dts, bin, binName, binAddress }
+// (absent ones left out).
+async function firmwareFields(f) {
+    const p = pickedFiles(f.files);
+    return {
+        elf: p.elf && await fileToBase64(p.elf),
+        elfName: p.elf && p.elf.name,
+        dts: p.dts && await p.dts.text(),
+        bin: p.bin && await fileToBase64(p.bin),
+        binName: p.bin && p.bin.name,
+        binAddress: p.bin ? f.binAddress.value : undefined,
+    };
+}
+
+async function useDefaultMonitor(inst) {
+    await api('DELETE', `/api/instances/${inst.id}/monitor`).catch((e) => alert(e.message));
 }
 
 function fileToBase64(file) {
@@ -653,37 +747,35 @@ function fileToBase64(file) {
 }
 
 function setup() {
-    $('#btnUpload').onclick = () => {
-        $('#uploadError').textContent = '';
-        $('#dlgUpload').showModal();
-    };
     $('#btnNew').onclick = () => openNew();
     $('#btnBack').onclick = showGrid;
+    $('#btnFwUpload').onclick = () => {
+        const inst = S.instances.find((i) => i.id === S.detail);
+        if (inst) openUpload(inst);
+    };
 
     $('#formUpload').addEventListener('submit', async (e) => {
         if (e.submitter && e.submitter.value === 'cancel') return;
         e.preventDefault();
-        const f = e.target.elements;
         const btn = $('#btnDoUpload');
         btn.disabled = true;
         $('#uploadError').textContent = '';
         try {
-            const elf = await fileToBase64(f.elf.files[0]);
-            const dts = f.dts.files[0] ? await f.dts.files[0].text() : undefined;
-            await api('POST', '/api/firmware', { name: f.name.value, elf, dts });
+            await api('PUT', `/api/instances/${uploadInst}/firmware`, await firmwareFields(e.target.elements));
             $('#dlgUpload').close();
-            e.target.reset();
-            await loadFirmware();
         } catch (err) {
             $('#uploadError').textContent = err.message;
         } finally {
             btn.disabled = false;
         }
     });
-    $('#formUpload').elements.elf.addEventListener('change', (e) => {
-        const name = $('#formUpload').elements.name;
-        if (!name.value && e.target.files[0]) name.value = e.target.files[0].name.replace(/\.elf$/, '');
-    });
+
+    const describeUpload = () => {
+        const inst = S.instances.find((i) => i.id === uploadInst);
+        if (inst) describeFiles($('#formUpload').elements, inst.generation, $('#addrUpload'), $('#uploadFiles'));
+    };
+    $('#formUpload').elements.files.addEventListener('change', describeUpload);
+    $('#formUpload').elements.binAddress.addEventListener('input', describeUpload);
 
     $('#monitorFile').addEventListener('change', async (e) => {
         const file = e.target.files[0];
@@ -693,32 +785,31 @@ function setup() {
         } catch (err) {
             alert(err.message);
         }
-        loadFirmware();
+        loadMonitors();
     });
 
+    $('#formNew').elements.board.addEventListener('change', updateNewHint);
+    $('#formNew').elements.files.addEventListener('change', updateNewHint);
+    $('#formNew').elements.binAddress.addEventListener('input', updateNewHint);
     $('#formNew').addEventListener('submit', async (e) => {
         if (e.submitter && e.submitter.value === 'cancel') return;
         e.preventDefault();
         const f = e.target.elements;
+        const btn = $('#btnDoNew');
+        btn.disabled = true;
+        $('#newError').textContent = '';
         try {
-            await api('POST', '/api/instances', { firmwareId: f.firmwareId.value, name: f.name.value || undefined, count: f.count.value });
+            const files = await firmwareFields(f);
+            await api('POST', '/api/instances', { board: f.board.value, name: f.name.value || undefined, count: f.count.value, ...files });
             $('#dlgNew').close();
         } catch (err) {
             $('#newError').textContent = err.message;
+        } finally {
+            btn.disabled = false;
         }
     });
 
     document.querySelectorAll('[data-act]').forEach((b) => (b.onclick = () => S.detail && act(S.detail, b.dataset.act)));
-
-    $('#dFirmware').addEventListener('change', async (e) => {
-        if (!S.detail) return;
-        if (!confirm('Switch firmware? The instance restarts; its flash and EEPROM are kept.')) {
-            renderDetail();
-            return;
-        }
-        await api('PATCH', `/api/instances/${S.detail}`, { firmwareId: e.target.value }).catch((err) => alert(err.message));
-        renderedDetail = null;
-    });
 
     document.querySelectorAll('.tab').forEach((t) => (t.onclick = () => {
         document.querySelectorAll('.tab').forEach((x) => x.classList.toggle('active', x === t));
@@ -743,7 +834,7 @@ function setup() {
     initTerm();
     // Instances render with their faceplate, so have the art first.
     loadBoardArt().then(connect);
-    loadFirmware();
+    loadMonitors();
     loadInfo();
     setInterval(loadInfo, 5000);
 

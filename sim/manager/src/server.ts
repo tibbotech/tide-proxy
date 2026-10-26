@@ -5,10 +5,10 @@ import express from 'express';
 import { WebSocketServer, WebSocket } from 'ws';
 
 import { config } from './config';
-import { addFirmware, deleteFirmware, getFirmware, listFirmware, Generation } from './firmware';
-import { Instance, InstanceManager } from './instances';
+import { Generation } from './firmware';
+import { FirmwareUpload, Instance, InstanceManager } from './instances';
 import { LinkManager } from './links';
-import { deleteMonitor, listMonitors, setMonitor } from './monitor';
+import { deleteMonitor, listMonitors, monitorJSON, setMonitor } from './monitor';
 import { UdpRelay } from './udpRelay';
 import { UdpDebugConsole } from './udpConsole';
 
@@ -96,26 +96,6 @@ app.get('/api/info', api(() => ({
     relay: { ...relay.stats, clients: relay.clientList() },
 })));
 
-app.get('/api/firmware', api(() => listFirmware()));
-
-// Body: { name, elf: base64, dts?: string }
-app.post('/api/firmware', api((req) => {
-    const { name, elf, dts } = req.body || {};
-    if (!elf) {
-        throw new Error('elf (base64) is required');
-    }
-    return addFirmware(name, Buffer.from(elf, 'base64'), dts ? Buffer.from(dts, 'utf8') : undefined);
-}));
-
-app.delete('/api/firmware/:id', api((req) => {
-    if (manager.usesFirmware(req.params.id)) {
-        throw new Error('firmware is used by an instance');
-    }
-    if (!deleteFirmware(req.params.id)) {
-        throw Object.assign(new Error('firmware not found'), { status: 404 });
-    }
-}));
-
 // Tibbo monitor per generation; used by instances started after it is set.
 app.get('/api/monitors', api(() => listMonitors()));
 
@@ -125,7 +105,7 @@ app.put('/api/monitors/:gen(g2|g3)', api((req) => {
     if (!bin) {
         throw new Error('bin (base64) is required');
     }
-    return setMonitor(req.params.gen as Generation, name, Buffer.from(bin, 'base64'));
+    return monitorJSON(setMonitor(req.params.gen as Generation, name, Buffer.from(bin, 'base64')));
 }));
 
 app.delete('/api/monitors/:gen(g2|g3)', api((req) => {
@@ -136,25 +116,67 @@ app.delete('/api/monitors/:gen(g2|g3)', api((req) => {
 
 app.get('/api/instances', api(() => manager.list()));
 
-// Body: { firmwareId, name?, count?, start? }
-app.post('/api/instances', api(async (req) => {
-    const { firmwareId, name, count, start } = req.body || {};
-    if (!getFirmware(firmwareId)) {
-        throw new Error('unknown firmwareId');
+// Uploaded files as sent in a request: { elf?: base64, elfName?, dts?: text, bin?: base64, binName?,
+// binAddress? }. elf is the app (dts its devicetree); bin is written into flash at binAddress (a
+// number, or a hex string such as "0x08008000"), by default 0x08000000: the monitor/bootloader.
+function firmwareUpload(body: any): FirmwareUpload | undefined {
+    const { elf, elfName, dts, bin, binName, binAddress } = body || {};
+    if (!elf && !bin && !dts) {
+        return undefined;
     }
+    return {
+        elf: elf ? { name: elfName || 'zephyr.elf', data: Buffer.from(elf, 'base64') } : undefined,
+        dts: dts ? Buffer.from(dts, 'utf8') : undefined,
+        bin: bin ? { name: binName || 'image.bin', data: Buffer.from(bin, 'base64'), address: parseAddress(binAddress) } : undefined,
+    };
+}
+
+function parseAddress(v: any): number | undefined {
+    if (v === undefined || v === null || v === '') {
+        return undefined;
+    }
+    const n = typeof v === 'number' ? v : /^(0x)?[0-9a-f]+$/i.test(String(v).trim()) ? parseInt(String(v).trim().replace(/^0x/i, ''), 16) : NaN;
+    if (!Number.isInteger(n)) {
+        throw new Error(`binAddress ${v} is not a hex address`);
+    }
+    return n;
+}
+
+// Body: { board: 'tpp2g2'|'tpp3g2'|'tpp2g3'|'tpp3g3', name?, count?, start?, ...files (see firmwareUpload) }.
+// Without an elf the instance has no app: it boots into its monitor's Loader for an upload over UDP,
+// or waits for an upload. Without a bin it uses the generation's default monitor, if one is set.
+app.post('/api/instances', api(async (req) => {
+    const { board, name, count, start } = req.body || {};
+    const upload = firmwareUpload(req.body);
     const n = Math.max(1, Math.min(16, parseInt(count, 10) || 1));
     const created: Instance[] = [];
-    for (let i = 0; i < n; i++) {
-        created.push(await manager.create({ firmwareId, name: n > 1 && name ? `${name} ${i + 1}` : name, start }));
+    try {
+        for (let i = 0; i < n; i++) {
+            created.push(await manager.create({ board, upload, name: n > 1 && name ? `${name} ${i + 1}` : name, start }));
+        }
+    } finally {
+        broadcastInstances();
     }
-    broadcastInstances();
     return created;
 }));
 
 app.patch('/api/instances/:id', api(async (req) => {
-    const { name, firmwareId } = req.body || {};
-    return manager.update(instance(req).id, { name, firmwareId });
+    const { name } = req.body || {};
+    return manager.update(instance(req).id, { name });
 }));
+
+// Body: files as for POST /api/instances (elf and/or bin, dts with elf). Without a dts the
+// instance keeps its current one; without a bin, its current monitor.
+app.put('/api/instances/:id/firmware', api(async (req) => {
+    const upload = firmwareUpload(req.body);
+    if (!upload) {
+        throw new Error('elf or bin (base64) is required');
+    }
+    return manager.upload(instance(req).id, upload);
+}));
+
+// Drops what .bin uploads wrote into the monitor area: the default monitor (if any) comes back.
+app.delete('/api/instances/:id/monitor', api(async (req) => manager.useDefaultMonitor(instance(req).id)));
 
 app.delete('/api/instances/:id', api(async (req) => {
     await manager.remove(instance(req).id);
@@ -218,7 +240,7 @@ app.get('/api/instances/:id/screen.png', (req, res) => {
 
 function applyInput(inst: Instance, body: any): void {
     if (body.button !== undefined) {
-        const btn = inst.firmware?.profile.buttons.find((b) => b.id === body.button);
+        const btn = inst.profile.buttons.find((b) => b.id === body.button);
         if (!btn) {
             throw new Error(`unknown button ${body.button}`);
         }
