@@ -26,9 +26,10 @@ const RESET_MONITOR = 'reset';
 // Boot signature an app leaves in SRAM before rebooting into the monitor for a UDP upload (QF):
 // 'U', 0xAA, 0x1E, '-' at the end of SRAM. The monitor checks it before the app, and starts its
 // network Loader. Without it and without a valid app the monitor only blinks an error pattern
-// ("Update system"). Known from the TPP2W(G2) Monitor/Loader 3.00B; G3 is not known yet.
+// ("Update system"). Read from the TPP2W(G2) Monitor/Loader 3.00B and TPP2WG3_RELEASE_MON.bin: both
+// check it 0x18 below the end of SRAM (128 KB on G2, 192 KB on G3).
 export const LOADER_SIGNATURE = 0x2d1eaa55;
-export const LOADER_SIGNATURE_ADDRESS: Partial<Record<Generation, number>> = { g2: 0x2001ffe8 };
+export const LOADER_SIGNATURE_ADDRESS: Partial<Record<Generation, number>> = { g2: 0x2001ffe8, g3: 0x2002ffe8 };
 
 export interface MonitorInfo {
     generation: Generation;
