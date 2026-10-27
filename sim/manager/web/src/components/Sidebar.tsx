@@ -1,10 +1,10 @@
 import { useRef, useState } from 'react';
-import { act, createInstances, removeMonitor, setMonitor } from '../actions';
+import { act, addFieldDevice, createInstances, removeMonitor, setMonitor } from '../actions';
 import { fileToBase64 } from '../api';
 import { artForBoard } from '../art';
-import { BOARD_MIME } from '../scene';
-import { notify, useInstances, useMonitors } from '../store';
-import type { Board, Generation } from '../types';
+import { BOARD_MIME, FIELD_MIME } from '../scene';
+import { notify, useFields, useInstances, useMonitors } from '../store';
+import type { Board, FieldKind, Generation } from '../types';
 import { Icon } from './icons';
 
 const CATALOG: Array<{ board: Board; name: string; mcu: string }> = [
@@ -12,6 +12,12 @@ const CATALOG: Array<{ board: Board; name: string; mcu: string }> = [
     { board: 'tpp3g2', name: 'TPP3 G2', mcu: 'STM32F207' },
     { board: 'tpp2g3', name: 'TPP2 G3', mcu: 'STM32F439 · LCD build' },
     { board: 'tpp3g3', name: 'TPP3 G3', mcu: 'STM32F439' },
+];
+
+const FIELD_CATALOG: Array<{ kind: FieldKind; name: string; note: string }> = [
+    { kind: 'wiegand-reader', name: 'Wiegand reader', note: 'D0 / D1 · swipe a card' },
+    { kind: 'modbus-slave', name: 'Modbus RTU slave', note: 'RS485 A / B · register table' },
+    { kind: 'io-panel', name: 'I/O panel', note: '4 switches and lamps' },
 ];
 
 const thumb = (board: string) => `data:image/svg+xml;utf8,${encodeURIComponent(artForBoard(board).raw)}`;
@@ -24,6 +30,7 @@ interface Props {
 
 export function Sidebar({ selected, onSelect, onAddAdvanced }: Props) {
     const instances = useInstances();
+    const fields = useFields();
     const monitors = useMonitors();
     const fileRef = useRef<HTMLInputElement>(null);
     const [monitorGen, setMonitorGen] = useState<Generation | null>(null);
@@ -73,7 +80,16 @@ export function Sidebar({ selected, onSelect, onAddAdvanced }: Props) {
                             </li>
                         );
                     })}
-                    {!instances.length && <li className="tree-empty muted">Nothing on the rails yet.</li>}
+                    {fields.map((f) => (
+                        <li key={f.id} className={f.id === selected ? 'selected' : ''} onClick={() => onSelect(f.id)}>
+                            <span className="status-dot field" />
+                            <span className="tree-main">
+                                <strong>{f.name}</strong>
+                                <span className="muted">{f.title}</span>
+                            </span>
+                        </li>
+                    ))}
+                    {!instances.length && !fields.length && <li className="tree-empty muted">Nothing on the rails yet.</li>}
                 </ul>
             </section>
 
@@ -103,6 +119,35 @@ export function Sidebar({ selected, onSelect, onAddAdvanced }: Props) {
                             </button>
                             <button className="icon-btn" title="Add with firmware files…" onClick={() => onAddAdvanced(c.board)}>
                                 <Icon name="upload" />
+                            </button>
+                        </div>
+                    ))}
+                </div>
+            </section>
+
+            <section>
+                <header className="side-head">
+                    <h2>Field devices</h2>
+                    <span className="muted">wire to terminals</span>
+                </header>
+                <div className="catalog">
+                    {FIELD_CATALOG.map((c) => (
+                        <div
+                            key={c.kind}
+                            className="cat-card"
+                            draggable
+                            onDragStart={(e) => {
+                                e.dataTransfer.setData(FIELD_MIME, c.kind);
+                                e.dataTransfer.effectAllowed = 'copy';
+                            }}
+                        >
+                            <span className="cat-icon" />
+                            <div className="cat-main">
+                                <strong>{c.name}</strong>
+                                <span className="muted">{c.note}</span>
+                            </div>
+                            <button className="icon-btn" title="Add to the first rail with room" onClick={() => addFieldDevice(c.kind)}>
+                                <Icon name="plus" />
                             </button>
                         </div>
                     ))}

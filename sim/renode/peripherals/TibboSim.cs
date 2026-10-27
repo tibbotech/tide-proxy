@@ -12,7 +12,8 @@
 //  - TibboAT24       AT24Cxx EEPROM on bit-banged (gpio-i2c) SCL/SDA, file-backed.
 //  - TibboSSD1963    SSD1963 LCD controller on a bit-banged 8080 8-bit bus.
 //  - TibboSimBridge  TCP endpoint streaming LCD/pin state and accepting inputs;
-//                    persists internal flash for monitor-booted instances.
+//                    makes Wiegand pulses in virtual time; persists internal flash for
+//                    monitor-booted instances.
 //
 using System;
 using System.Collections.Generic;
@@ -28,6 +29,7 @@ using Antmicro.Renode.Logging;
 using Antmicro.Renode.Peripherals.Bus;
 using Antmicro.Renode.Peripherals.CPU;
 using Antmicro.Renode.Peripherals.Timers;
+using Antmicro.Renode.Time;
 
 namespace Antmicro.Renode.Peripherals.GPIOPort
 {
@@ -692,7 +694,9 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
     //   type 1: JSON state, type 2: LCD rectangle (x,y,w,h as u16 LE, then RGB888 rows),
     //   type 3: JSON pin configuration (sent when it changes; it rarely does, unlike the levels).
     // Inbound: text lines "drive <port> <pin> <0|1>", "release <port> <pin>", "full",
-    //   "reset", "pause", "resume".
+    //   "reset", "pause", "resume", and
+    //   "wiegand <pulseUs> <gapUs> <D0 pins|-> <D1 pins|-> <bits>": a card swipe. Pins are port letter
+    //   and number (D5), comma separated. Each bit pulls its line low for pulseUs, then high for gapUs.
     public class TibboSimBridge : IDoubleWordPeripheral, IKnownSize, IDisposable
     {
         public TibboSimBridge(IMachine machine, Video.TibboSSD1963 lcd,
@@ -1006,6 +1010,15 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
                 case "resume":
                     machine.Start();
                     break;
+                case "wiegand":
+                    var wPulse = ulong.Parse(parts[1]);
+                    var wGap = ulong.Parse(parts[2]);
+                    var wD0 = ParsePins(parts[3]);
+                    var wD1 = ParsePins(parts[4]);
+                    var wBits = parts[5];
+                    Action wiegand = () => SendWiegand(wD0, wD1, wBits, wPulse, wGap);
+                    machine.HandleTimeDomainEvent<Action>(a => a(), wiegand, false);
+                    break;
                 case "drive":
                 case "release":
                     var port = ports[char.ToUpperInvariant(parts[1][0]) - 'A'];
@@ -1031,6 +1044,52 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             {
                 this.Log(LogLevel.Warning, "Bad bridge command '{0}': {1}", line, e.Message);
             }
+        }
+
+        private List<KeyValuePair<TibboGPIOPort, int>> ParsePins(string list)
+        {
+            var result = new List<KeyValuePair<TibboGPIOPort, int>>();
+            if(list == "-")
+            {
+                return result;
+            }
+            foreach(var item in list.Split(','))
+            {
+                result.Add(new KeyValuePair<TibboGPIOPort, int>(ports[char.ToUpperInvariant(item[0]) - 'A'], int.Parse(item.Substring(1))));
+            }
+            return result;
+        }
+
+        // Runs on the emulation thread. The lines idle high (driven by the reader): a 0 pulls D0 low, a 1 pulls
+        // D1 low, each for pulseUs, with gapUs before the next bit. Timed with the machine's scheduler, so
+        // the widths are virtual time whatever the host is doing.
+        private void SendWiegand(List<KeyValuePair<TibboGPIOPort, int>> d0, List<KeyValuePair<TibboGPIOPort, int>> d1, string bits, ulong pulseUs, ulong gapUs)
+        {
+            var started = machine.ElapsedVirtualTime.TimeElapsed;
+            Action<int> sendBit = null;
+            sendBit = i =>
+            {
+                if(i >= bits.Length)
+                {
+                    var took = machine.ElapsedVirtualTime.TimeElapsed - started;
+                    this.Log(LogLevel.Info, "Wiegand: {0} bits sent in {1:0.0} ms of virtual time", bits.Length, took.TotalMilliseconds);
+                    return;
+                }
+                var line = bits[i] == '0' ? d0 : d1;
+                foreach(var p in line)
+                {
+                    p.Key.Drive(p.Value, false);
+                }
+                machine.ScheduleAction(TimeInterval.FromMicroseconds(pulseUs), _ =>
+                {
+                    foreach(var p in line)
+                    {
+                        p.Key.Drive(p.Value, true);
+                    }
+                    machine.ScheduleAction(TimeInterval.FromMicroseconds(gapUs), __ => sendBit(i + 1));
+                });
+            };
+            sendBit(0);
         }
 
         private volatile bool running;

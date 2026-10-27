@@ -1,0 +1,1432 @@
+{
+ "tpp2g2": [
+  {
+   "socket": "1",
+   "accept": [
+    "M1S",
+    "M1T",
+    "M2S",
+    "M2T",
+    "H1",
+    "H2"
+   ],
+   "lines": [
+    {
+     "port": "D",
+     "pin": 5
+    },
+    {
+     "port": "D",
+     "pin": 6
+    },
+    {
+     "port": "A",
+     "pin": 3
+    },
+    {
+     "port": "D",
+     "pin": 8
+    }
+   ],
+   "uart": "usart2"
+  },
+  {
+   "socket": "2",
+   "accept": [
+    "C1",
+    "C2"
+   ],
+   "lines": []
+  },
+  {
+   "socket": "3",
+   "accept": [
+    "M1S",
+    "M1T",
+    "H1"
+   ],
+   "lines": [
+    {
+     "port": "C",
+     "pin": 10
+    },
+    {
+     "port": "C",
+     "pin": 11
+    },
+    {
+     "port": "A",
+     "pin": 4
+    },
+    {
+     "port": "D",
+     "pin": 9
+    }
+   ],
+   "uart": "usart3"
+  },
+  {
+   "socket": "4",
+   "accept": [
+    "C1"
+   ],
+   "lines": []
+  },
+  {
+   "socket": "5",
+   "accept": [
+    "M1S",
+    "M1T",
+    "M2S",
+    "M2T",
+    "H1",
+    "H2"
+   ],
+   "lines": [
+    {
+     "port": "C",
+     "pin": 12
+    },
+    {
+     "port": "D",
+     "pin": 2
+    },
+    {
+     "port": "A",
+     "pin": 5
+    },
+    {
+     "port": "D",
+     "pin": 10
+    }
+   ],
+   "uart": "uart5"
+  },
+  {
+   "socket": "6",
+   "accept": [
+    "C1",
+    "C2"
+   ],
+   "lines": []
+  },
+  {
+   "socket": "7",
+   "accept": [
+    "M1S",
+    "M1T",
+    "H1"
+   ],
+   "lines": [
+    {
+     "port": "C",
+     "pin": 6
+    },
+    {
+     "port": "C",
+     "pin": 7
+    },
+    {
+     "port": "A",
+     "pin": 6
+    },
+    {
+     "port": "D",
+     "pin": 11
+    }
+   ],
+   "uart": "usart6"
+  },
+  {
+   "socket": "8",
+   "accept": [
+    "C1"
+   ],
+   "lines": []
+  },
+  {
+   "socket": "9",
+   "accept": [
+    "M1S",
+    "M1T",
+    "M2S",
+    "M2T",
+    "H1",
+    "H2"
+   ],
+   "lines": [
+    {
+     "port": "E",
+     "pin": 8
+    },
+    {
+     "port": "E",
+     "pin": 9
+    },
+    {
+     "port": "D",
+     "pin": 0
+    },
+    {
+     "port": "D",
+     "pin": 12
+    }
+   ]
+  },
+  {
+   "socket": "10",
+   "accept": [
+    "C1",
+    "C2"
+   ],
+   "lines": []
+  },
+  {
+   "socket": "11",
+   "accept": [
+    "M1S",
+    "M1T",
+    "H1"
+   ],
+   "lines": [
+    {
+     "port": "E",
+     "pin": 10
+    },
+    {
+     "port": "E",
+     "pin": 11
+    },
+    {
+     "port": "D",
+     "pin": 1
+    },
+    {
+     "port": "D",
+     "pin": 13
+    }
+   ]
+  },
+  {
+   "socket": "12",
+   "accept": [
+    "C1"
+   ],
+   "lines": []
+  },
+  {
+   "socket": "13",
+   "accept": [
+    "37"
+   ],
+   "lines": []
+  },
+  {
+   "socket": "wifi",
+   "accept": [
+    "GA1000",
+    "WA2000C",
+    "WA2000U"
+   ],
+   "lines": []
+  }
+ ],
+ "tpp3g2": [
+  {
+   "socket": "1",
+   "accept": [
+    "M1S",
+    "M1T",
+    "M2S",
+    "M2T",
+    "H1",
+    "H2"
+   ],
+   "lines": [
+    {
+     "port": "D",
+     "pin": 5
+    },
+    {
+     "port": "D",
+     "pin": 6
+    },
+    {
+     "port": "A",
+     "pin": 3
+    },
+    {
+     "port": "D",
+     "pin": 8
+    }
+   ],
+   "uart": "usart2"
+  },
+  {
+   "socket": "2",
+   "accept": [
+    "C1",
+    "C2"
+   ],
+   "lines": []
+  },
+  {
+   "socket": "3",
+   "accept": [
+    "M1S",
+    "M1T",
+    "H1"
+   ],
+   "lines": [
+    {
+     "port": "E",
+     "pin": 8
+    },
+    {
+     "port": "E",
+     "pin": 9
+    },
+    {
+     "port": "D",
+     "pin": 0
+    },
+    {
+     "port": "D",
+     "pin": 12
+    }
+   ]
+  },
+  {
+   "socket": "4",
+   "accept": [
+    "C1"
+   ],
+   "lines": []
+  },
+  {
+   "socket": "5",
+   "accept": [
+    "M1S",
+    "M1T",
+    "M2S",
+    "M2T",
+    "H1",
+    "H2"
+   ],
+   "lines": [
+    {
+     "port": "C",
+     "pin": 10
+    },
+    {
+     "port": "C",
+     "pin": 11
+    },
+    {
+     "port": "A",
+     "pin": 4
+    },
+    {
+     "port": "D",
+     "pin": 9
+    }
+   ],
+   "uart": "usart3"
+  },
+  {
+   "socket": "6",
+   "accept": [
+    "C1",
+    "C2"
+   ],
+   "lines": []
+  },
+  {
+   "socket": "7",
+   "accept": [
+    "M1S",
+    "M1T",
+    "H1"
+   ],
+   "lines": [
+    {
+     "port": "E",
+     "pin": 10
+    },
+    {
+     "port": "E",
+     "pin": 11
+    },
+    {
+     "port": "D",
+     "pin": 1
+    },
+    {
+     "port": "D",
+     "pin": 13
+    }
+   ]
+  },
+  {
+   "socket": "8",
+   "accept": [
+    "C1"
+   ],
+   "lines": []
+  },
+  {
+   "socket": "9",
+   "accept": [
+    "M1S",
+    "M1T",
+    "M2S",
+    "M2T",
+    "H1",
+    "H2"
+   ],
+   "lines": [
+    {
+     "port": "C",
+     "pin": 12
+    },
+    {
+     "port": "D",
+     "pin": 2
+    },
+    {
+     "port": "A",
+     "pin": 5
+    },
+    {
+     "port": "D",
+     "pin": 10
+    }
+   ],
+   "uart": "uart5"
+  },
+  {
+   "socket": "10",
+   "accept": [
+    "C1",
+    "C2"
+   ],
+   "lines": []
+  },
+  {
+   "socket": "11",
+   "accept": [
+    "M1S",
+    "M1T",
+    "H1"
+   ],
+   "lines": [
+    {
+     "port": "E",
+     "pin": 12
+    },
+    {
+     "port": "E",
+     "pin": 13
+    },
+    {
+     "port": "D",
+     "pin": 3
+    },
+    {
+     "port": "D",
+     "pin": 14
+    }
+   ]
+  },
+  {
+   "socket": "12",
+   "accept": [
+    "C1"
+   ],
+   "lines": []
+  },
+  {
+   "socket": "13",
+   "accept": [
+    "M1S",
+    "M1T",
+    "M2S",
+    "M2T",
+    "H1",
+    "H2"
+   ],
+   "lines": [
+    {
+     "port": "C",
+     "pin": 6
+    },
+    {
+     "port": "C",
+     "pin": 7
+    },
+    {
+     "port": "A",
+     "pin": 6
+    },
+    {
+     "port": "D",
+     "pin": 11
+    }
+   ],
+   "uart": "usart6"
+  },
+  {
+   "socket": "14",
+   "accept": [
+    "C1",
+    "C2"
+   ],
+   "lines": []
+  },
+  {
+   "socket": "15",
+   "accept": [
+    "M1S",
+    "M1T",
+    "H1"
+   ],
+   "lines": [
+    {
+     "port": "E",
+     "pin": 14
+    },
+    {
+     "port": "E",
+     "pin": 15
+    },
+    {
+     "port": "D",
+     "pin": 4
+    },
+    {
+     "port": "D",
+     "pin": 15
+    }
+   ]
+  },
+  {
+   "socket": "16",
+   "accept": [
+    "C1"
+   ],
+   "lines": []
+  },
+  {
+   "socket": "17",
+   "accept": [
+    "M1S",
+    "M1T",
+    "M2S",
+    "M2T",
+    "H1",
+    "H2"
+   ],
+   "lines": [
+    {
+     "port": "E",
+     "pin": 0
+    },
+    {
+     "port": "E",
+     "pin": 1
+    },
+    {
+     "port": "E",
+     "pin": 2
+    },
+    {
+     "port": "E",
+     "pin": 3
+    }
+   ]
+  },
+  {
+   "socket": "18",
+   "accept": [
+    "C1",
+    "C2"
+   ],
+   "lines": []
+  },
+  {
+   "socket": "19",
+   "accept": [
+    "M1S",
+    "M1T",
+    "H1"
+   ],
+   "lines": [
+    {
+     "port": "E",
+     "pin": 4
+    },
+    {
+     "port": "E",
+     "pin": 5
+    },
+    {
+     "port": "E",
+     "pin": 6
+    },
+    {
+     "port": "E",
+     "pin": 7
+    }
+   ]
+  },
+  {
+   "socket": "20",
+   "accept": [
+    "C1"
+   ],
+   "lines": []
+  },
+  {
+   "socket": "21",
+   "accept": [
+    "M1S",
+    "M1T",
+    "M2S",
+    "M2T",
+    "H1",
+    "H2"
+   ],
+   "lines": [
+    {
+     "port": "B",
+     "pin": 0
+    },
+    {
+     "port": "C",
+     "pin": 0
+    },
+    {
+     "port": "C",
+     "pin": 2
+    },
+    {
+     "port": "C",
+     "pin": 3
+    }
+   ]
+  },
+  {
+   "socket": "22",
+   "accept": [
+    "C1",
+    "C2"
+   ],
+   "lines": []
+  },
+  {
+   "socket": "23",
+   "accept": [
+    "M1S",
+    "M1T",
+    "H1"
+   ],
+   "lines": [
+    {
+     "port": "A",
+     "pin": 9
+    },
+    {
+     "port": "B",
+     "pin": 1
+    },
+    null,
+    null
+   ]
+  },
+  {
+   "socket": "24",
+   "accept": [
+    "C1"
+   ],
+   "lines": []
+  },
+  {
+   "socket": "25",
+   "accept": [
+    "M1S",
+    "M1T",
+    "M2S",
+    "M2T",
+    "H1",
+    "H2"
+   ],
+   "lines": [
+    null,
+    null,
+    null,
+    null
+   ]
+  },
+  {
+   "socket": "26",
+   "accept": [
+    "18",
+    "21",
+    "37"
+   ],
+   "lines": []
+  },
+  {
+   "socket": "27",
+   "accept": [
+    "M1S",
+    "M1T",
+    "H1"
+   ],
+   "lines": [
+    null,
+    null,
+    null,
+    null
+   ]
+  },
+  {
+   "socket": "28",
+   "accept": [
+    "C1"
+   ],
+   "lines": []
+  },
+  {
+   "socket": "29",
+   "accept": [
+    "37"
+   ],
+   "lines": []
+  },
+  {
+   "socket": "wifi",
+   "accept": [
+    "GA1000",
+    "WA2000C",
+    "WA2000U"
+   ],
+   "lines": []
+  }
+ ],
+ "tpp2g3": [
+  {
+   "socket": "1",
+   "accept": [
+    "M1S",
+    "M1T",
+    "M2S",
+    "M2T",
+    "H1",
+    "H2"
+   ],
+   "lines": [
+    {
+     "port": "D",
+     "pin": 5
+    },
+    {
+     "port": "D",
+     "pin": 6
+    },
+    {
+     "port": "A",
+     "pin": 3
+    },
+    {
+     "port": "D",
+     "pin": 8
+    }
+   ],
+   "uart": "usart2"
+  },
+  {
+   "socket": "2",
+   "accept": [
+    "C1",
+    "C2"
+   ],
+   "lines": []
+  },
+  {
+   "socket": "3",
+   "accept": [
+    "M1S",
+    "M1T",
+    "H1"
+   ],
+   "lines": [
+    {
+     "port": "C",
+     "pin": 10
+    },
+    {
+     "port": "C",
+     "pin": 11
+    },
+    {
+     "port": "A",
+     "pin": 4
+    },
+    {
+     "port": "D",
+     "pin": 9
+    }
+   ],
+   "uart": "usart3"
+  },
+  {
+   "socket": "4",
+   "accept": [
+    "C1"
+   ],
+   "lines": []
+  },
+  {
+   "socket": "5",
+   "accept": [
+    "M1S",
+    "M1T",
+    "M2S",
+    "M2T",
+    "H1",
+    "H2"
+   ],
+   "lines": [
+    {
+     "port": "C",
+     "pin": 12
+    },
+    {
+     "port": "D",
+     "pin": 2
+    },
+    {
+     "port": "A",
+     "pin": 5
+    },
+    {
+     "port": "D",
+     "pin": 10
+    }
+   ],
+   "uart": "uart5"
+  },
+  {
+   "socket": "6",
+   "accept": [
+    "C1",
+    "C2"
+   ],
+   "lines": []
+  },
+  {
+   "socket": "7",
+   "accept": [
+    "M1S",
+    "M1T",
+    "H1"
+   ],
+   "lines": [
+    {
+     "port": "C",
+     "pin": 6
+    },
+    {
+     "port": "C",
+     "pin": 7
+    },
+    {
+     "port": "A",
+     "pin": 6
+    },
+    {
+     "port": "D",
+     "pin": 11
+    }
+   ],
+   "uart": "usart6"
+  },
+  {
+   "socket": "8",
+   "accept": [
+    "C1"
+   ],
+   "lines": []
+  },
+  {
+   "socket": "9",
+   "accept": [
+    "M1S",
+    "M1T",
+    "M2S",
+    "M2T",
+    "H1",
+    "H2"
+   ],
+   "lines": [
+    {
+     "port": "E",
+     "pin": 8
+    },
+    {
+     "port": "E",
+     "pin": 9
+    },
+    {
+     "port": "D",
+     "pin": 0
+    },
+    {
+     "port": "D",
+     "pin": 12
+    }
+   ]
+  },
+  {
+   "socket": "10",
+   "accept": [
+    "C1",
+    "C2"
+   ],
+   "lines": []
+  },
+  {
+   "socket": "11",
+   "accept": [
+    "M1S",
+    "M1T",
+    "H1"
+   ],
+   "lines": [
+    {
+     "port": "E",
+     "pin": 10
+    },
+    {
+     "port": "E",
+     "pin": 11
+    },
+    {
+     "port": "D",
+     "pin": 1
+    },
+    {
+     "port": "D",
+     "pin": 13
+    }
+   ]
+  },
+  {
+   "socket": "12",
+   "accept": [
+    "C1"
+   ],
+   "lines": []
+  },
+  {
+   "socket": "13",
+   "accept": [
+    "37"
+   ],
+   "lines": []
+  },
+  {
+   "socket": "wifi",
+   "accept": [
+    "GA1000",
+    "WA2000C",
+    "WA2000U"
+   ],
+   "lines": []
+  }
+ ],
+ "tpp3g3": [
+  {
+   "socket": "1",
+   "accept": [
+    "M1S",
+    "M1T",
+    "M2S",
+    "M2T",
+    "H1",
+    "H2"
+   ],
+   "lines": [
+    {
+     "port": "D",
+     "pin": 5
+    },
+    {
+     "port": "D",
+     "pin": 6
+    },
+    {
+     "port": "A",
+     "pin": 3
+    },
+    {
+     "port": "D",
+     "pin": 8
+    }
+   ],
+   "uart": "usart2"
+  },
+  {
+   "socket": "2",
+   "accept": [
+    "C1",
+    "C2"
+   ],
+   "lines": []
+  },
+  {
+   "socket": "3",
+   "accept": [
+    "M1S",
+    "M1T",
+    "H1"
+   ],
+   "lines": [
+    {
+     "port": "E",
+     "pin": 8
+    },
+    {
+     "port": "E",
+     "pin": 9
+    },
+    {
+     "port": "D",
+     "pin": 0
+    },
+    {
+     "port": "D",
+     "pin": 12
+    }
+   ]
+  },
+  {
+   "socket": "4",
+   "accept": [
+    "C1"
+   ],
+   "lines": []
+  },
+  {
+   "socket": "5",
+   "accept": [
+    "M1S",
+    "M1T",
+    "M2S",
+    "M2T",
+    "H1",
+    "H2"
+   ],
+   "lines": [
+    {
+     "port": "C",
+     "pin": 10
+    },
+    {
+     "port": "C",
+     "pin": 11
+    },
+    {
+     "port": "A",
+     "pin": 4
+    },
+    {
+     "port": "D",
+     "pin": 9
+    }
+   ],
+   "uart": "usart3"
+  },
+  {
+   "socket": "6",
+   "accept": [
+    "C1",
+    "C2"
+   ],
+   "lines": []
+  },
+  {
+   "socket": "7",
+   "accept": [
+    "M1S",
+    "M1T",
+    "H1"
+   ],
+   "lines": [
+    {
+     "port": "E",
+     "pin": 10
+    },
+    {
+     "port": "E",
+     "pin": 11
+    },
+    {
+     "port": "D",
+     "pin": 1
+    },
+    {
+     "port": "D",
+     "pin": 13
+    }
+   ]
+  },
+  {
+   "socket": "8",
+   "accept": [
+    "C1"
+   ],
+   "lines": []
+  },
+  {
+   "socket": "9",
+   "accept": [
+    "M1S",
+    "M1T",
+    "M2S",
+    "M2T",
+    "H1",
+    "H2"
+   ],
+   "lines": [
+    {
+     "port": "C",
+     "pin": 12
+    },
+    {
+     "port": "D",
+     "pin": 2
+    },
+    {
+     "port": "A",
+     "pin": 5
+    },
+    {
+     "port": "D",
+     "pin": 10
+    }
+   ],
+   "uart": "uart5"
+  },
+  {
+   "socket": "10",
+   "accept": [
+    "C1",
+    "C2"
+   ],
+   "lines": []
+  },
+  {
+   "socket": "11",
+   "accept": [
+    "M1S",
+    "M1T",
+    "H1"
+   ],
+   "lines": [
+    {
+     "port": "E",
+     "pin": 12
+    },
+    {
+     "port": "E",
+     "pin": 13
+    },
+    {
+     "port": "D",
+     "pin": 3
+    },
+    {
+     "port": "D",
+     "pin": 14
+    }
+   ]
+  },
+  {
+   "socket": "12",
+   "accept": [
+    "C1"
+   ],
+   "lines": []
+  },
+  {
+   "socket": "13",
+   "accept": [
+    "M1S",
+    "M1T",
+    "M2S",
+    "M2T",
+    "H1",
+    "H2"
+   ],
+   "lines": [
+    {
+     "port": "C",
+     "pin": 6
+    },
+    {
+     "port": "C",
+     "pin": 7
+    },
+    {
+     "port": "A",
+     "pin": 6
+    },
+    {
+     "port": "D",
+     "pin": 11
+    }
+   ],
+   "uart": "usart6"
+  },
+  {
+   "socket": "14",
+   "accept": [
+    "C1",
+    "C2"
+   ],
+   "lines": []
+  },
+  {
+   "socket": "15",
+   "accept": [
+    "M1S",
+    "M1T",
+    "H1"
+   ],
+   "lines": [
+    {
+     "port": "E",
+     "pin": 14
+    },
+    {
+     "port": "E",
+     "pin": 15
+    },
+    {
+     "port": "D",
+     "pin": 4
+    },
+    {
+     "port": "D",
+     "pin": 15
+    }
+   ]
+  },
+  {
+   "socket": "16",
+   "accept": [
+    "C1"
+   ],
+   "lines": []
+  },
+  {
+   "socket": "17",
+   "accept": [
+    "M1S",
+    "M1T",
+    "M2S",
+    "M2T",
+    "H1",
+    "H2"
+   ],
+   "lines": [
+    {
+     "port": "E",
+     "pin": 0
+    },
+    {
+     "port": "E",
+     "pin": 1
+    },
+    {
+     "port": "E",
+     "pin": 2
+    },
+    {
+     "port": "E",
+     "pin": 3
+    }
+   ]
+  },
+  {
+   "socket": "18",
+   "accept": [
+    "C1",
+    "C2"
+   ],
+   "lines": []
+  },
+  {
+   "socket": "19",
+   "accept": [
+    "M1S",
+    "M1T",
+    "H1"
+   ],
+   "lines": [
+    {
+     "port": "E",
+     "pin": 4
+    },
+    {
+     "port": "E",
+     "pin": 5
+    },
+    {
+     "port": "E",
+     "pin": 6
+    },
+    {
+     "port": "E",
+     "pin": 7
+    }
+   ]
+  },
+  {
+   "socket": "20",
+   "accept": [
+    "C1"
+   ],
+   "lines": []
+  },
+  {
+   "socket": "21",
+   "accept": [
+    "M1S",
+    "M1T",
+    "M2S",
+    "M2T",
+    "H1",
+    "H2"
+   ],
+   "lines": [
+    {
+     "port": "B",
+     "pin": 0
+    },
+    {
+     "port": "C",
+     "pin": 0
+    },
+    {
+     "port": "C",
+     "pin": 2
+    },
+    {
+     "port": "C",
+     "pin": 3
+    }
+   ]
+  },
+  {
+   "socket": "22",
+   "accept": [
+    "C1",
+    "C2"
+   ],
+   "lines": []
+  },
+  {
+   "socket": "23",
+   "accept": [
+    "M1S",
+    "M1T",
+    "H1"
+   ],
+   "lines": [
+    {
+     "port": "A",
+     "pin": 9
+    },
+    {
+     "port": "B",
+     "pin": 1
+    },
+    null,
+    null
+   ]
+  },
+  {
+   "socket": "24",
+   "accept": [
+    "C1"
+   ],
+   "lines": []
+  },
+  {
+   "socket": "25",
+   "accept": [
+    "M1S",
+    "M1T",
+    "M2S",
+    "M2T",
+    "H1",
+    "H2"
+   ],
+   "lines": [
+    null,
+    null,
+    null,
+    null
+   ]
+  },
+  {
+   "socket": "26",
+   "accept": [
+    "18",
+    "21",
+    "37"
+   ],
+   "lines": []
+  },
+  {
+   "socket": "27",
+   "accept": [
+    "M1S",
+    "M1T",
+    "H1"
+   ],
+   "lines": [
+    null,
+    null,
+    null,
+    null
+   ]
+  },
+  {
+   "socket": "28",
+   "accept": [
+    "C1"
+   ],
+   "lines": []
+  },
+  {
+   "socket": "29",
+   "accept": [
+    "37"
+   ],
+   "lines": []
+  },
+  {
+   "socket": "wifi",
+   "accept": [
+    "GA1000",
+    "WA2000C",
+    "WA2000U"
+   ],
+   "lines": []
+  }
+ ]
+}

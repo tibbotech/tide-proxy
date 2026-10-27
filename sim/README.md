@@ -71,6 +71,19 @@ Renode needs Linux TAP devices, so the container runs with `NET_ADMIN` and `/dev
    - **GPIO:** the first pin drives the others while it is an output and releases them otherwise. Buttons and LEDs from the DTS have terminals; add any other pin (`PA0`…`PI15`) with **+ pin**. Changes travel with the 40 ms state stream, so use it for slow signals, not bit-banged buses or pulses.
    - Connections are stored in `sim-data/links.json` and re-applied when instances restart. API: `GET/POST /api/links`, `PATCH/DELETE /api/links/<id>` with `{ kind: 'uart'|'gpio', name?, endpoints: [{ instance, port }] }`.
 
+## Tibbits and terminal wiring
+
+A TPP's sockets take Tibbits: function Tibbits (RS485, Wiegand, ...) in the odd sockets, and in the even socket after one a connector Tibbit that brings its four lines out. With a terminal block (#21: 4 terminals, #20: 9) in that socket, the instance shows **green screw terminals**, labelled by the Tibbit they serve (485+ / 485- / VCC / GND, W0 / W1, ...). Wires go between terminals, on the rail, as on a panel.
+
+- **Place Tibbits** in the inspector's **Tibbits** tab (the list is filtered by what each socket accepts; a simulated function Tibbit gets a #21 block beside it), or **Import from Cody project…** to take them from a Cody project's `.json`. API: `PUT /api/instances/<id>/tibbits` with `{ tibbits: { "7": "08", "8": "21" } }`; `POST /api/instances/<id>/tibbits/import` with the project JSON; `GET /api/tibbits` for the catalog and each board's sockets. The socket data (accepted forms, the MCU pin and UART behind each line) comes from Cody; `tools/gen-tibbit-data.js` regenerates `manager/src/data/`.
+- **Simulated Tibbits** (marked ● in the list): #05 RS485, #01 RS232, #08 Wiegand, #00_1/2/3 direct I/O. The rest can be placed but have no terminals that do anything.
+- **Field devices** (catalog, *Field devices*) sit on the rail with terminals of their own:
+  - **Wiegand reader:** D0, D1. *Swipe card* sends the bits (26/34/37-bit with parity, or raw) as pulses on the MCU pins behind the W0/W1 terminals. The pulses are made inside Renode with the machine's scheduler, so pulse and gap widths (default 100 µs / 1 ms) are virtual time, and the firmware's GPIO interrupts and timers see what a reader would send. Both lines idle high. API: `POST /api/devices/<id>/swipe`.
+  - **Modbus RTU slave:** A, B. Answers the TPPs on its RS485 bus from an editable register table (holding, input, coils, discrete; function codes 1-6, 15, 16; exception 2 for an address that isn't listed). The requests it saw are listed. Frames are cut by length and CRC, not by the 3.5-character gap, which the simulated UARTs don't carry.
+  - **I/O panel:** four switch/lamp channels (released, low, high) for direct I/O lines. The lamp follows the level on the wire, so it also shows a TPP output.
+- **Nets and checks.** Wires join terminals into nets; what a net does follows from its terminals. RS485 devices whose A and B are on the same two nets share a bus (bytes a TPP sends reach the slaves and the other TPPs, and replies come back); RS232 TX reaches the RX on its net; MCU pins on a net follow its driver (a reader, a panel switch, or a TPP output). Mistakes are reported as **wiring warnings** on the canvas, and the wires concerned turn red and dashed: A and B reversed between two devices (nothing crosses), A shorted to B, D0 and D1 swapped, TX wired to TX, unlike signals or ground on one net, one RS485 terminal missing, and an RS485 UART the firmware's devicetree doesn't enable. API: `GET/POST /api/wires`, `DELETE /api/wires/<id>` with `{ a: { owner, term }, b: { owner, term } }`.
+- Pin-level wiring (the strip of UART and GPIO terminals under each device) still works as before, for TPP to TPP.
+
 The same actions are available over HTTP:
 
 ```sh
@@ -124,7 +137,7 @@ npm run dev:web   # UI on :5173 with hot reload; /api and /ws go to a running ma
 ## Limits
 
 - **Without a monitor, firmware is loaded by the simulator,** by uploading an ELF to an instance. Uploading through TIDE/tide-proxy (`QF`/`D`/`N`) needs the real monitor ([Monitor](#monitor)).
-- **Not modelled:** touch, the beeper (DAC/PWM), Wi-Fi (WA2000), and Tibbits other than plain GPIO.
+- **Not modelled:** touch, the beeper (DAC/PWM), Wi-Fi (WA2000), and Tibbits other than #00, #01, #05 and #08 ([Tibbits](#tibbits-and-terminal-wiring)). There is no RS485 direction (DE) pin: a TPP's bytes reach the bus whether or not it enabled its driver. #02/#44 (RS232/422/485 by mode), relays, inputs, ADC/DAC and the sensor Tibbits can be placed but do nothing yet.
 - **Speed:** time runs at real time while firmware is mostly idle. A full-screen LCD redraw takes noticeably longer than on hardware, because every byte is bit-banged through GPIO.
 
 ## Layout
@@ -134,6 +147,8 @@ sim/
   docker/      Dockerfile (Renode 1.17 + sim-manager), entrypoint (bridge, DHCP), compose file
   renode/      tibbo_base.repl, tibbo_g2.repl, tibbo_g3.repl, peripherals/TibboSim.cs
   manager/     Node/TypeScript sim-manager: instances, UDP relay, REST + WebSocket; web/ is the UI (React + Vite), built into public/
+               src/tibbits.ts, wiring.ts, fielddevices.ts, modbus.ts: Tibbits, terminal wiring, field devices
+  tools/       gen-tibbit-data.js (socket and Tibbit data from Cody)
 ```
 
 Renode 1.17 or newer is required. Earlier Synopsys Ethernet MAC models keep the ETH interrupt asserted while DMA interrupts are disabled, which hangs the G3 (STM32F4 HAL v2) Ethernet driver.

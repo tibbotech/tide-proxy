@@ -13,6 +13,7 @@ import {
     prepareFlash, useDefaultMonitor, writeFlash,
 } from './monitor';
 import { createTap, deleteTap, writeDhcpHosts, TcpForward } from './network';
+import { McuPin, Placements, Terminal, checkPlacements, terminalsOf } from './tibbits';
 
 const UART_INDEX: Record<string, number> = { usart1: 0, usart2: 1, usart3: 2, uart4: 3, uart5: 4, usart6: 5 };
 const CONSOLE_HISTORY_BYTES = 64 * 1024;
@@ -24,6 +25,8 @@ export interface InstanceConfig {
     index: number;
     board: Board;
     autoStart: boolean;
+    // Tibbits in the TPP's sockets (socket -> model). Terminal blocks among them give the instance wire terminals.
+    tibbits?: Placements;
 }
 
 // Files uploaded to an instance: an app ELF (+ DTS), and/or a .bin written into flash at `address`
@@ -134,6 +137,20 @@ export class Instance extends EventEmitter {
         return this.firmware?.profile || defaultProfile(this.cfg.board);
     }
 
+    get tibbits(): Placements {
+        return this.cfg.tibbits || {};
+    }
+
+    get terminals(): Terminal[] {
+        return terminalsOf(this.cfg.board, this.tibbits);
+    }
+
+    // Replaces the Tibbit placements (socket -> model; null or '' empties a socket).
+    setTibbits(map: Record<string, string | null>): void {
+        this.cfg.tibbits = checkPlacements(this.cfg.board, map);
+        this.save();
+    }
+
     // The monitor at 0x08000000: one a .bin upload wrote there, else the generation's default.
     get bootMonitor(): { name: string; own: boolean } | null {
         const own = flashWrites(this.dir).ownMonitor;
@@ -168,6 +185,8 @@ export class Instance extends EventEmitter {
             httpPort: this.httpPort,
             monitorPort: this.monitorPort,
             profile: this.profile,
+            tibbits: this.tibbits,
+            terminals: this.terminals,
             firmware: fw ? { name: fw.name, uploadedAt: fw.uploadedAt, hasDts: fw.hasDts } : undefined,
             monitor: this.monitorBoot,
             // The monitor the next start uses; own = written by a .bin upload (not the default).
@@ -307,6 +326,13 @@ export class Instance extends EventEmitter {
         this.bridgeCommand(level === null ? `release ${port} ${pin}` : `drive ${port} ${pin} ${level ? 1 : 0}`);
     }
 
+    // Sends bits as Wiegand pulses (active low, idle high) on the pins of D0 and D1. The pulses are timed
+    // by Renode in virtual time; pulseUs is the low time of each and gapUs the time between bits.
+    wiegand(d0: McuPin[], d1: McuPin[], bits: string, pulseUs: number, gapUs: number): void {
+        const list = (pins: McuPin[]) => (pins.length ? pins.map((p) => `${p.port}${p.pin}`).join(',') : '-');
+        this.bridgeCommand(`wiegand ${pulseUs} ${gapUs} ${list(d0)} ${list(d1)} ${bits}`);
+    }
+
     sendConsole(uart: string, data: string | Buffer): void {
         this.uarts.get(uart)?.write(data);
     }
@@ -413,6 +439,8 @@ export class Instance extends EventEmitter {
             `logLevel 2`,
             `logLevel 3 sysbus.ethernet`,
             `logLevel 3 sysbus.ethernet.phy`,
+            // The bridge reports card swipes (Wiegand) at info level.
+            `logLevel 1 sysbus.bridge`,
             ...boot,
             `cpu PerformanceInMips ${mips}`,
             `eeprom BackingFile @${path.join(this.dir, 'eeprom.bin')}`,
@@ -661,6 +689,13 @@ export class InstanceManager extends EventEmitter {
             inst.cfg.name = changes.name;
         }
         inst.save();
+        this.emit('changed', inst);
+        return inst;
+    }
+
+    setTibbits(id: string, map: Record<string, string | null>): Instance {
+        const inst = this.mustGet(id);
+        inst.setTibbits(map);
         this.emit('changed', inst);
         return inst;
     }

@@ -5,13 +5,14 @@ import { Icon } from './components/icons';
 import { Inspector } from './components/Inspector';
 import { Sidebar } from './components/Sidebar';
 import { Workspace, type WorkspaceHandle } from './components/Workspace';
-import { setDetail, startStore, useConnected, useInfo, useInstances, useNotice } from './store';
+import { setDetail, startStore, useConnected, useFields, useInfo, useInstances, useNotice } from './store';
 import type { Board, Instance } from './types';
 
 type Dialog = { kind: 'new'; board: Board } | { kind: 'upload'; inst: Instance } | null;
 
 export function App() {
     const instances = useInstances();
+    const fields = useFields();
     const connected = useConnected();
     const info = useInfo();
     const notice = useNotice();
@@ -22,6 +23,7 @@ export function App() {
     useEffect(() => startStore(), []);
 
     const inst = instances.find((i) => i.id === selected) || null;
+    const field = fields.find((f) => f.id === selected) || null;
     const instId = inst ? inst.id : null;
 
     // The manager sends console and log streams for the selected device only.
@@ -29,8 +31,8 @@ export function App() {
 
     // A deleted device leaves the selection (not before the first list arrives).
     useEffect(() => {
-        if (selected && instances.length && !inst) setSelected(null);
-    }, [selected, instances, inst]);
+        if (selected && (instances.length || fields.length) && !inst && !field) setSelected(null);
+    }, [selected, instances, fields, inst, field]);
 
     useEffect(() => {
         history.replaceState(null, '', selected ? `#${selected}` : location.pathname);
@@ -83,7 +85,7 @@ export function App() {
 
             <main className="center">
                 <Workspace ref={workspace} selected={selected} onSelect={setSelected} onAddDevice={() => setDialog({ kind: 'new', board: 'tpp2g2' })} />
-                <Inspector inst={inst} onUpload={(i) => setDialog({ kind: 'upload', inst: i })} />
+                <Inspector inst={inst} field={field} onUpload={(i) => setDialog({ kind: 'upload', inst: i })} />
             </main>
 
             <Dialogs dialog={dialog} onClose={() => setDialog(null)} />

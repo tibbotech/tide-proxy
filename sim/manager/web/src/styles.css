@@ -17,6 +17,9 @@
     --ws-bg: #e9ecf1;
     --ws-dot: #c5cad3;
     --terminal: #f7f8fa;
+    --tgreen: #2f9e5a;
+    --tgreen-hi: #49b873;
+    --tgreen-lo: #1f7a43;
     --rail-hi: #d5dbe1;
     --rail-mid: #a9b2bb;
     --rail-lo: #8a949d;
@@ -119,6 +122,7 @@ input:focus, select:focus, .btn:focus-visible, .icon-btn:focus-visible, .tab:foc
 .status-dot.running { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
 .status-dot.starting { background: var(--warn); }
 .status-dot.exited { background: var(--bad); }
+.status-dot.field { background: var(--tgreen); }
 
 /* ---- shell ---- */
 .app {
@@ -186,7 +190,7 @@ input:focus, select:focus, .btn:focus-visible, .icon-btn:focus-visible, .tab:foc
     user-select: none;
 }
 .workspace.panning { cursor: grabbing; }
-.workspace.wiring-uart, .workspace.wiring-gpio { cursor: crosshair; }
+.workspace.wiring-uart, .workspace.wiring-gpio, .workspace.wiring-term { cursor: crosshair; }
 .world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
 .rails, .wires { position: absolute; left: 0; top: 0; pointer-events: none; }
 .rail-label { font-size: 12px; fill: var(--muted); letter-spacing: 0.04em; }
@@ -400,3 +404,93 @@ dialog menu { display: flex; justify-content: flex-end; gap: 8px; margin: 6px 0 
     .app { grid-template-columns: 1fr; grid-template-rows: auto auto minmax(0, 1fr); grid-template-areas: 'top' 'side' 'center'; }
     .sidebar { max-height: 28vh; border-right: 0; border-bottom: 1px solid var(--border); }
 }
+
+/* ---- terminal blocks (pluggable green screw terminals, flush with the bottom of the case) ---- */
+.tblock { position: absolute; filter: drop-shadow(0 3px 2px rgba(0, 0, 0, 0.35)); }
+.tterm { position: absolute; top: 0; height: 100%; cursor: crosshair; touch-action: none; }
+.tterm-body {
+    position: absolute; inset: 0; border-radius: 0 0 3px 3px;
+    background: linear-gradient(90deg, var(--tgreen-lo), var(--tgreen) 16%, var(--tgreen-hi) 50%, var(--tgreen) 84%, var(--tgreen-lo));
+    border-right: 1px solid rgba(0, 0, 0, 0.28);
+}
+.tterm:first-child .tterm-body { border-radius: 0 0 3px 7px; }
+.tterm:last-child .tterm-body { border-radius: 0 0 7px 3px; border-right: 0; }
+.tterm:only-child .tterm-body { border-radius: 0 0 7px 7px; }
+.tterm-label {
+    position: absolute; left: 0; right: 0; top: 11px; z-index: 1; text-align: center; font: 700 9px ui-monospace, SFMono-Regular, Consolas, monospace;
+    color: #fff; text-shadow: 0 1px 1px rgba(0, 0, 0, 0.55); white-space: nowrap; overflow: hidden; pointer-events: none;
+}
+.tterm-screw {
+    position: absolute; left: 50%; top: 22px; width: 13px; height: 13px; margin-left: -6.5px; border-radius: 50%;
+    background: radial-gradient(circle at 38% 33%, #f4f6f8, #a3acb5 68%); border: 1px solid #4f5861; box-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
+}
+.tterm-screw::after { content: ''; position: absolute; left: 50%; top: 2px; bottom: 2px; width: 2px; margin-left: -1px; background: #424a52; transform: rotate(35deg); border-radius: 1px; }
+.tterm-hole { position: absolute; left: 50%; bottom: 3px; width: 12px; height: 8px; margin-left: -6px; border-radius: 2px; background: #0f2b1b; box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.7); }
+.tterm:hover .tterm-body { filter: brightness(1.12); }
+.tterm.wired .tterm-hole { background: var(--accent); box-shadow: 0 0 5px var(--accent); }
+.tterm.target .tterm-body { outline: 2px solid var(--accent); outline-offset: -1px; }
+.tterm.self .tterm-body { outline: 2px dashed var(--accent); outline-offset: -1px; }
+.tterm.dim, .tterm.inert { opacity: 0.4; cursor: default; }
+.tterm.inert .tterm-body { filter: grayscale(0.7); }
+
+/* ---- field devices ---- */
+.device.field .np-name { max-width: 80%; }
+.device.field .nameplate { border-color: color-mix(in srgb, var(--tgreen) 45%, var(--border)); }
+.fd-face {
+    position: absolute; left: 0; top: 40px; width: 100%; background: var(--surface-2);
+    border: 1px solid var(--border); border-top: 0; display: flex; align-items: stretch; justify-content: center;
+}
+.fd-body { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; width: 100%; padding: 8px 12px 16px; }
+.fd-body.panel { flex-direction: row; gap: 10px; }
+.fd-shell { fill: var(--surface-3); stroke: var(--border); stroke-width: 2; }
+.fd-slot { fill: var(--muted); opacity: 0.6; }
+.fd-led { fill: var(--ok); }
+.fd-line { display: flex; gap: 10px; align-items: baseline; }
+.fd-activity { width: 100%; font: 10.5px ui-monospace, Consolas, monospace; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 30px; }
+.chan { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.lamp { width: 16px; height: 16px; border-radius: 50%; background: var(--surface-3); border: 2px solid var(--muted); }
+.lamp.on { background: var(--gpio-hi); border-color: var(--gpio-hi); box-shadow: 0 0 8px var(--gpio-hi); }
+.switch { width: 34px; height: 26px; border-radius: 5px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font: 700 12px ui-monospace, Consolas, monospace; cursor: pointer; }
+.switch.z { color: var(--muted); }
+.switch.hi { background: var(--gpio-hi); border-color: var(--gpio-hi); color: #1a1200; }
+.switch.lo { background: var(--surface-3); }
+
+.twire.warn .wire-line { stroke: var(--bad); stroke-dasharray: 7 4; }
+.twire .wire-hit { cursor: pointer; }
+.twire.sel .wire-line { stroke-width: 4.5; filter: drop-shadow(0 0 5px var(--text)); }
+.wiring-warnings {
+    position: absolute; right: 12px; top: 12px; max-width: 420px; font-size: 12px; padding: 8px 10px; border-radius: 8px;
+    background: var(--surface); border: 1px solid var(--bad); color: var(--text); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+}
+.wiring-warnings strong { display: flex; align-items: center; gap: 6px; color: var(--bad); }
+.wiring-warnings ul { margin: 4px 0 0; padding-left: 16px; }
+.wiring-warnings li { margin: 2px 0; }
+
+/* ---- Tibbits tab and field panel ---- */
+.cat-icon { width: 46px; height: 46px; flex: none; border-radius: 6px; background: linear-gradient(180deg, var(--tgreen-hi), var(--tgreen-lo)); opacity: 0.85; }
+.tibbits-head { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 8px; }
+.tibbits-head p { flex: 1; margin: 0; }
+.tibbit-table { border-collapse: collapse; width: 100%; max-width: 900px; }
+.tibbit-table th { text-align: left; font-size: 11.5px; color: var(--muted); font-weight: 600; padding: 2px 8px 4px 0; }
+.tibbit-table td { padding: 3px 8px 3px 0; border-top: 1px solid var(--border); vertical-align: middle; }
+.tibbit-table tr.conn td { background: color-mix(in srgb, var(--tgreen) 6%, transparent); }
+.tibbit-table select { max-width: 360px; width: 100%; }
+.tibbit-table .lines { font: 11.5px ui-monospace, Consolas, monospace; white-space: nowrap; }
+.field-inspector { max-height: 60vh; }
+.name-input { width: 220px; }
+.field-form { display: flex; flex-direction: column; gap: 10px; max-width: 760px; }
+.field-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px 14px; }
+.field-row { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--muted); }
+.field-row.inline { flex-direction: row; align-items: center; gap: 8px; }
+.field-row.wide { grid-column: span 2; }
+.field-row input, .field-row select { color: var(--text); }
+.field-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.slave-panel { display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 380px); gap: 20px; align-items: start; }
+@media (max-width: 900px) { .slave-panel { grid-template-columns: 1fr; } }
+.reg-table { border-collapse: collapse; width: 100%; margin: 8px 0; }
+.reg-table th { text-align: left; font-size: 11.5px; color: var(--muted); font-weight: 600; padding: 2px 6px 4px 0; }
+.reg-table td { padding: 2px 6px 2px 0; }
+.reg-table input { width: 100%; }
+.reg-table input.num, input.num { width: 84px; }
+.reg-add { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.slave-log pre { margin: 0; max-height: 220px; overflow: auto; font: 11.5px/1.4 ui-monospace, Consolas, monospace; background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; white-space: pre-wrap; }

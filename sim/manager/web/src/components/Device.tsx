@@ -1,10 +1,11 @@
-import { memo, useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import { act, isPin, normPort } from '../actions';
-import { extraPinsStore, HEAD_H, PAD_W, type DeviceGeom, type PlacedPad } from '../scene';
+import { extraPinsStore, HEAD_H, PAD_W, type DeviceGeom, type PlacedPad, type PlacedTerm } from '../scene';
 import { notify, useInstanceState, useLinks } from '../store';
-import type { Instance, InstState, LinkKind } from '../types';
+import type { Instance, InstState, LinkKind, TermRef, Wire } from '../types';
 import { Faceplate } from './Faceplate';
 import { Icon } from './icons';
+import { TerminalBlock } from './Terminals';
 
 export interface WireDrag {
     instance: string;
@@ -20,10 +21,22 @@ interface Props {
     selected: boolean;
     dragging: boolean;
     wiring: WireDrag | null;
+    termWires: Wire[];
+    termDrag: TermRef | null;
+    onTermDown: (e: React.PointerEvent, t: PlacedTerm) => void;
     onSelect: (id: string) => void;
     onMoveStart: (e: React.PointerEvent, id: string) => void;
     onPadDown: (e: React.PointerEvent, inst: Instance, pad: PlacedPad) => void;
 }
+
+export const wiredKeys = (wires: Wire[]) => {
+    const keys = new Set<string>();
+    for (const w of wires) {
+        keys.add(`${w.a.owner}/${w.a.term}`);
+        keys.add(`${w.b.owner}/${w.b.term}`);
+    }
+    return keys;
+};
 
 const pinState = (state: InstState | undefined, port: string) => {
     const m = /^P([A-I])(\d+)$/.exec(port);
@@ -32,13 +45,14 @@ const pinState = (state: InstState | undefined, port: string) => {
     return { high: ((state.pins[m[1]] || 0) & bit) !== 0, out: (((state.out || {})[m[1]] || 0) & bit) !== 0 };
 };
 
-export const Device = memo(function Device({ inst, geom, x, y, selected, dragging, wiring, onSelect, onMoveStart, onPadDown }: Props) {
+export const Device = memo(function Device({ inst, geom, x, y, selected, dragging, wiring, termWires, termDrag, onTermDown, onSelect, onMoveStart, onPadDown }: Props) {
     const state = useInstanceState(inst.id);
     const links = useLinks();
     const running = inst.status === 'running' || inst.status === 'starting';
     const [adding, setAdding] = useState(false);
     const live = inst.status === 'running';
 
+    const wired = useMemo(() => wiredKeys(termWires), [termWires]);
     const linked = (pad: PlacedPad) => links.some((l) => l.endpoints.some((e) => e.instance === inst.id && e.port === pad.port));
 
     const addPin = (value: string) => {
@@ -91,6 +105,10 @@ export const Device = memo(function Device({ inst, geom, x, y, selected, draggin
             </div>
 
             <Faceplate inst={inst} state={state} />
+
+            {geom.blocks.map((b) => (
+                <TerminalBlock key={b.id} block={b} wired={wired} dragging={termDrag} onDown={onTermDown} />
+            ))}
 
             {geom.pads.map((pad) => {
                 const ps = pad.kind === 'gpio' && live ? pinState(state, pad.port) : null;

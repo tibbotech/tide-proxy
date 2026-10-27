@@ -1,6 +1,6 @@
 import { persisted } from './local';
 
-export type InspectorTab = 'properties' | 'console' | 'io' | 'log' | 'wires';
+export type InspectorTab = 'properties' | 'tibbits' | 'console' | 'io' | 'log' | 'wires';
 
 // Panel state kept per viewer.
 export const uiStore = persisted<{ tab: InspectorTab; height: number; collapsed: boolean }>('sim.ui', {

@@ -14,14 +14,14 @@ export interface WireSel {
 
 // A wire's colour comes from its id, so it keeps it as others come and go.
 const PALETTE = ['#e5484d', '#f5a524', '#3dd68c', '#3b9eff', '#a78bfa', '#ec6cb9', '#2dd4bf', '#c4b454'];
-const colorOf = (id: string) => {
+export const colorOf = (id: string) => {
     let h = 0;
     for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
     return PALETTE[Math.abs(h) % PALETTE.length];
 };
 
 // Both ends leave their terminal downwards, so a wire hangs below the rail like a patch cable.
-function hang(a: Pt, b: Pt, lane: number) {
+export function hang(a: Pt, b: Pt, lane: number) {
     const drop = 70 + Math.min(Math.abs(b.x - a.x) * 0.22, 150) + lane * 10;
     const d = `M${a.x},${a.y} C${a.x},${a.y + drop} ${b.x},${b.y + drop} ${b.x},${b.y}`;
     // The cubic at t = 0.5.

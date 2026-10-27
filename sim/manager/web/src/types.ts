@@ -70,6 +70,8 @@ export interface Instance {
     httpPort: number;
     monitorPort: number;
     profile: BoardProfile;
+    tibbits: Record<string, string>; // socket -> Tibbit model
+    terminals: Terminal[]; // wire terminals of the terminal blocks among them
     firmware?: { name: string; uploadedAt: string; hasDts: boolean };
     monitor?: unknown;
     bootMonitor?: { name: string; own: boolean } | null;
@@ -110,4 +112,87 @@ export interface SimInfo {
     relayPort: number;
     subnet: string;
     relay: { clients: unknown[] };
+}
+
+// ---- Tibbits and field wiring ----
+export type Role = 'a' | 'b' | 'tx' | 'rx' | 'rts' | 'cts' | 'w0' | 'w1' | 'io' | 'vcc' | 'gnd';
+
+export interface Terminal {
+    id: string; // 'T2.3'
+    n: number;
+    block: string;
+    label: string;
+    role?: Role;
+    socket?: string;
+    line?: number;
+    mcu?: { port: string; pin: number };
+    uart?: string;
+}
+
+export interface TibbitInfo {
+    model: string;
+    name: string;
+    form: string;
+    category: string;
+    lines?: string[];
+    sim?: boolean;
+}
+
+export interface SocketInfo {
+    socket: string;
+    accept: string[];
+    lines: Array<{ port: string; pin: number } | null>;
+    uart?: string;
+}
+
+export interface Catalog {
+    tibbits: TibbitInfo[];
+    sockets: Record<string, SocketInfo[]>;
+}
+
+export type FieldKind = 'wiegand-reader' | 'modbus-slave' | 'io-panel';
+
+export interface FieldTerminal {
+    id: string;
+    label: string;
+    role: Role;
+}
+
+export interface Register {
+    type: 'holding' | 'input' | 'coil' | 'discrete';
+    address: number;
+    name: string;
+    value: number;
+}
+
+export interface FieldDevice {
+    id: string;
+    kind: FieldKind;
+    name: string;
+    title: string;
+    props: Record<string, any>;
+    terminals: FieldTerminal[];
+    activity: string[];
+}
+
+export interface TermRef {
+    owner: string;
+    term: string;
+}
+
+export interface Wire {
+    id: string;
+    a: TermRef;
+    b: TermRef;
+}
+
+export interface WiringWarning {
+    text: string;
+    wires: string[];
+}
+
+export interface Wiring {
+    wires: Wire[];
+    warnings: WiringWarning[];
+    pins: Record<string, Array<{ instance: string; port: string }>>;
 }

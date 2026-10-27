@@ -1,6 +1,6 @@
 import { artFor, artForBoard } from './art';
 import { persisted } from './local';
-import type { Instance, Link } from './types';
+import type { FieldDevice, Instance, Link, Role, Terminal } from './types';
 
 // The workspace model. Devices sit on DIN rails; each has a faceplate and, below it, a strip of pin
 // terminals (UARTs and GPIOs) that wires attach to. Everything is laid out in world pixels from
@@ -11,11 +11,25 @@ export const HEAD_H = 40; // nameplate above the faceplate
 export const PAD_W = 60;
 export const PAD_H = 58;
 export const PADS_TOP = HEAD_H + FACE_H + 10;
+// Terminal blocks are plugged into the bottom edge of the case, tucked TERM_TUCK px into the faceplate.
+// The wire leaves the bottom edge of a terminal.
+export const TERM_TUCK = 8;
+export const TERMS_TOP = HEAD_H + FACE_H - TERM_TUCK;
+export const TERM_W = 26; // one terminal of a #21 (a socket is four of them wide)
+export const SOCKET_W = 4 * TERM_W;
+export const TERM_BLOCK_H = 50;
+export const TERM_HEAD_H = 0;
+export const TERM_ROW = 60;
+export const BLOCK_GAP = 8;
+export const TERM_MARGIN = 6;
+export const FIELD_W = 250;
+export const FIELD_BODY_H = 150;
 export const DEVICE_GAP = 20;
 export const RAIL_TOP = 60;
 export const RAIL_GAP = 130;
 export const RAIL_BAND = 38;
 export const BOARD_MIME = 'application/x-tpp-board'; // a catalog card being dragged onto a rail
+export const FIELD_MIME = 'application/x-field-device'; // a field device from the catalog
 const WRAP_X = 1500; // new devices start another rail beyond this
 
 // ---- layout (persisted per viewer) ----
@@ -41,24 +55,29 @@ export function freeX(others: { x: number; w: number }[], desired: number, w: nu
     return ok.reduce((best, x) => (Math.abs(x - desired) < Math.abs(best - desired) ? x : best));
 }
 
+export type Placeable = Instance | FieldDevice;
+export const isField = (p: Placeable): p is FieldDevice => !('board' in p);
+
 export const deviceWidth = (inst: Instance) => {
     const art = artFor(inst);
     return Math.round((FACE_H * art.w) / art.h);
 };
+
+export const widthOf = (p: Placeable) => (isField(p) ? FIELD_W : deviceWidth(p));
 
 export const deviceWidthForBoard = (board: string) => {
     const art = artForBoard(board);
     return Math.round((FACE_H * art.w) / art.h);
 };
 
-function onRail(layout: Layout, instances: Instance[], rail: string, except?: string) {
+function onRail(layout: Layout, instances: Placeable[], rail: string, except?: string) {
     return instances
         .filter((i) => i.id !== except && layout.place[i.id] && layout.place[i.id].rail === rail)
-        .map((i) => ({ x: layout.place[i.id].x, w: deviceWidth(i) }));
+        .map((i) => ({ x: layout.place[i.id].x, w: widthOf(i) }));
 }
 
 // Puts devices without a place at the end of the first rail with room, and forgets devices that are gone.
-export function ensurePlacements(instances: Instance[]) {
+export function ensurePlacements(instances: Placeable[]) {
     const layout = layoutStore.get();
     const ids = new Set(instances.map((i) => i.id));
     let next: Layout | null = null;
@@ -69,7 +88,7 @@ export function ensurePlacements(instances: Instance[]) {
     for (const inst of instances) {
         const cur = next || layout;
         if (cur.place[inst.id]) continue;
-        const w = deviceWidth(inst);
+        const w = widthOf(inst);
         let target: { rail: string; x: number } | null = null;
         for (const rail of cur.rails) {
             const end = Math.max(-DEVICE_GAP, ...onRail(cur, instances, rail, inst.id).map((o) => o.x + o.w)) + DEVICE_GAP;
@@ -110,7 +129,7 @@ export function moveDevice(id: string, rail: string, x: number) {
     layoutStore.set({ ...l, place: { ...l.place, [id]: { rail, x } } });
 }
 
-export const railXFor = (instances: Instance[], rail: string, desired: number, w: number, except?: string) =>
+export const railXFor = (instances: Placeable[], rail: string, desired: number, w: number, except?: string) =>
     freeX(onRail(layoutStore.get(), instances, rail, except), desired, w);
 
 // A device dropped at its x on a rail pushes its neighbours aside: those left of its centre keep to its
@@ -141,20 +160,20 @@ export function resolveRail(items: { id: string; x: number; w: number }[], fixed
     return out;
 }
 
-function railItems(layout: Layout, instances: Instance[], rail: string, id: string, x: number) {
+function railItems(layout: Layout, instances: Placeable[], rail: string, id: string, x: number) {
     const items = onRailWithIds(layout, instances, rail, id);
     const me = instances.find((i) => i.id === id);
-    if (me) items.push({ id, x, w: deviceWidth(me) });
+    if (me) items.push({ id, x, w: widthOf(me) });
     return items;
 }
 
-const onRailWithIds = (layout: Layout, instances: Instance[], rail: string, except: string) =>
+const onRailWithIds = (layout: Layout, instances: Placeable[], rail: string, except: string) =>
     instances
         .filter((i) => i.id !== except && layout.place[i.id] && layout.place[i.id].rail === rail)
-        .map((i) => ({ id: i.id, x: layout.place[i.id].x, w: deviceWidth(i) }));
+        .map((i) => ({ id: i.id, x: layout.place[i.id].x, w: widthOf(i) }));
 
 // Drops a device on a rail, shifting the ones it overlaps.
-export function commitMove(instances: Instance[], id: string, rail: string, x: number) {
+export function commitMove(instances: Placeable[], id: string, rail: string, x: number) {
     const l = layoutStore.get();
     const pos = resolveRail(railItems(l, instances, rail, id, x), id);
     const place = { ...l.place };
@@ -210,35 +229,129 @@ export interface PlacedPad extends Pad {
     y: number;
 }
 
+// A wire terminal on a terminal block. (x, y) is where its wire leaves, relative to the device's top-left.
+export interface PlacedTerm {
+    owner: string;
+    id: string;
+    n: number;
+    label: string;
+    role?: Role;
+    x: number;
+    y: number;
+    wirable: boolean;
+}
+
+export interface PlacedBlock {
+    id: string;
+    caption: string;
+    x: number; // top-left, relative to the device
+    y: number;
+    w: number;
+    termW: number; // width of one terminal
+    terms: PlacedTerm[];
+}
+
 export interface DeviceGeom {
     faceW: number;
     w: number;
     h: number;
     pads: PlacedPad[];
+    blocks: PlacedBlock[];
+    padsTop: number;
     add: { x: number; y: number }; // the "+ pin" cell
 }
 
 const geomCache = new Map<string, DeviceGeom>();
 
-// Same pads and width give the same object, so memoised devices don't re-render on a drag.
+interface BlockInput {
+    id: string;
+    caption: string;
+    terms: Array<{ id: string; n: number; label: string; role?: Role; wirable: boolean }>;
+}
+
+// Terminal blocks flow left to right in rows no wider than the faceplate. Returns the blocks and the rows used.
+function layoutBlocks(owner: string, inputs: BlockInput[], width: number, top: number): { blocks: PlacedBlock[]; rows: number } {
+    const blocks: PlacedBlock[] = [];
+    let x = TERM_MARGIN;
+    let row = 0;
+    for (const b of inputs) {
+        // A block is as wide as the sockets it spans: one for the four terminals of a #21, two (and the gap
+        // between them) for the nine of a #20, whose terminals are thinner.
+        const w = b.terms.length > 4 ? 2 * SOCKET_W + BLOCK_GAP : b.terms.length * TERM_W;
+        const tw = w / b.terms.length;
+        if (x > TERM_MARGIN && x + w > width - TERM_MARGIN) {
+            x = TERM_MARGIN;
+            row++;
+        }
+        const y = top + row * TERM_ROW;
+        blocks.push({
+            id: b.id,
+            caption: b.caption,
+            x,
+            y,
+            w,
+            termW: tw,
+            terms: b.terms.map((t, i) => ({ owner, ...t, x: x + i * tw + tw / 2, y: y + TERM_HEAD_H + TERM_BLOCK_H })),
+        });
+        x += w + BLOCK_GAP;
+    }
+    return { blocks, rows: inputs.length ? row + 1 : 0 };
+}
+
+function blockInputs(inst: Instance): BlockInput[] {
+    const groups = new Map<string, Terminal[]>();
+    for (const t of inst.terminals || []) {
+        const list = groups.get(t.block) || [];
+        list.push(t);
+        groups.set(t.block, list);
+    }
+    return [...groups.entries()].map(([block, terms]) => {
+        const served = [...new Set(terms.map((t) => t.socket).filter(Boolean))] as string[];
+        const caption = served.map((s) => `S${s}${inst.tibbits[s] ? ` · #${inst.tibbits[s]}` : ''}`).join('  ') || `S${block}`;
+        return { id: block, caption, terms: terms.map((t) => ({ id: t.id, n: t.n, label: t.label, role: t.role, wirable: !!t.role })) };
+    });
+}
+
+// Same pads, terminals and width give the same object, so memoised devices don't re-render on a drag.
 export function geometryOf(inst: Instance, pads: Pad[]): DeviceGeom {
     const faceW = deviceWidth(inst);
-    const key = `${faceW}|${pads.map((p) => `${p.key}:${p.label}:${p.extra ? 1 : 0}${p.missing ? 'm' : ''}`).join(',')}`;
+    const inputs = blockInputs(inst);
+    const key = `${inst.id}|${faceW}|${JSON.stringify(inputs)}|${pads.map((p) => `${p.key}:${p.label}:${p.extra ? 1 : 0}${p.missing ? 'm' : ''}`).join(',')}`;
     const hit = geomCache.get(key);
     if (hit) return hit;
+    const { blocks, rows: termRows } = layoutBlocks(inst.id, inputs, faceW, TERMS_TOP);
+    const padsTop = termRows ? TERMS_TOP + termRows * TERM_ROW + 6 : PADS_TOP;
     const cols = Math.max(1, Math.floor(faceW / PAD_W));
     const left = (faceW - cols * PAD_W) / 2;
-    const cell = (i: number) => ({ x: left + (i % cols) * PAD_W + PAD_W / 2, y: PADS_TOP + Math.floor(i / cols) * PAD_H + 12 });
+    const cell = (i: number) => ({ x: left + (i % cols) * PAD_W + PAD_W / 2, y: padsTop + Math.floor(i / cols) * PAD_H + 12 });
     const placed = pads.map((p, i) => ({ ...p, ...cell(i) }));
     const rows = Math.ceil((pads.length + 1) / cols);
-    const geom = { faceW, w: faceW, h: PADS_TOP + rows * PAD_H + 6, pads: placed, add: cell(pads.length) };
+    const geom = { faceW, w: faceW, h: padsTop + rows * PAD_H + 6, pads: placed, blocks, padsTop, add: cell(pads.length) };
+    geomCache.set(key, geom);
+    return geom;
+}
+
+export function fieldGeometry(dev: FieldDevice): DeviceGeom {
+    const key = `field|${dev.id}|${dev.terminals.map((t) => t.id + t.label).join(',')}`;
+    const hit = geomCache.get(key);
+    if (hit) return hit;
+    const top = HEAD_H + FIELD_BODY_H - TERM_TUCK;
+    const input: BlockInput = { id: 'F', caption: dev.title, terms: dev.terminals.map((t, i) => ({ id: t.id, n: i + 1, label: t.label, role: t.role, wirable: true })) };
+    const { blocks } = layoutBlocks(dev.id, [input], FIELD_W, top);
+    // Centre the block.
+    const shift = (FIELD_W - blocks[0].w) / 2 - blocks[0].x;
+    blocks[0].x += shift;
+    blocks[0].terms.forEach((t) => (t.x += shift));
+    const geom = { faceW: FIELD_W, w: FIELD_W, h: top + TERM_ROW, pads: [], blocks, padsTop: top + TERM_ROW, add: { x: 0, y: 0 } };
     geomCache.set(key, geom);
     return geom;
 }
 
 // ---- scene ----
 export interface PlacedDevice {
-    inst: Instance;
+    id: string;
+    inst?: Instance;
+    field?: FieldDevice;
     geom: DeviceGeom;
     rail: string;
     x: number;
@@ -269,9 +382,9 @@ export interface DragPreview {
 
 export const railBandY = (rail: RailInfo) => rail.top + HEAD_H + FACE_H / 2 - RAIL_BAND / 2;
 
-export function buildScene(layout: Layout, instances: Instance[], extra: Record<string, string[]>, links: Link[], drag: DragPreview | null): Scene {
+export function buildScene(layout: Layout, instances: Placeable[], extra: Record<string, string[]>, links: Link[], drag: DragPreview | null): Scene {
     const geoms = new Map<string, DeviceGeom>();
-    for (const inst of instances) geoms.set(inst.id, geometryOf(inst, padsOf(inst, extra[inst.id] || [], links)));
+    for (const inst of instances) geoms.set(inst.id, isField(inst) ? fieldGeometry(inst) : geometryOf(inst, padsOf(inst, extra[inst.id] || [], links)));
     // While a device is dragged, its new rail shows the neighbours pushed aside.
     const pushed = drag ? resolveRail(railItems(layout, instances, drag.rail, drag.id, drag.x), drag.id) : null;
     const where = (id: string) => (pushed && pushed.has(id) ? { rail: drag!.rail, x: pushed.get(id)! } : layout.place[id]);
@@ -284,13 +397,13 @@ export function buildScene(layout: Layout, instances: Instance[], extra: Record<
         const h = Math.max(HEAD_H + FACE_H + 130, ...here.map((i) => geoms.get(i.id)!.h));
         const right = Math.max(0, ...here.map((i) => where(i.id)!.x + geoms.get(i.id)!.w));
         rails.push({ id, index, top, h, x1: Math.max(1100, right + 260), count: here.length });
-        for (const inst of here) devices.push({ inst, geom: geoms.get(inst.id)!, rail: id, x: where(inst.id)!.x, y: top });
+        for (const inst of here) devices.push({ id: inst.id, inst: isField(inst) ? undefined : inst, field: isField(inst) ? inst : undefined, geom: geoms.get(inst.id)!, rail: id, x: where(inst.id)!.x, y: top });
         top += h + RAIL_GAP;
     });
     const maxX = Math.max(...rails.map((r) => r.x1));
     return {
         devices,
-        byId: new Map(devices.map((d) => [d.inst.id, d])),
+        byId: new Map(devices.map((d) => [d.id, d])),
         rails,
         bounds: { x: -80, y: 0, w: maxX + 160, h: top },
     };
@@ -301,4 +414,15 @@ export function padPoint(scene: Scene, instance: string, port: string, kind: 'ua
     const dev = scene.byId.get(instance);
     const pad = dev && dev.geom.pads.find((p) => p.kind === kind && p.port === port);
     return dev && pad ? { x: dev.x + pad.x, y: dev.y + pad.y } : null;
+}
+
+// World position where the wire of a terminal leaves.
+export function termPoint(scene: Scene, owner: string, term: string): { x: number; y: number } | null {
+    const dev = scene.byId.get(owner);
+    if (!dev) return null;
+    for (const b of dev.geom.blocks) {
+        const t = b.terms.find((x) => x.id === term);
+        if (t) return { x: dev.x + t.x, y: dev.y + t.y };
+    }
+    return null;
 }

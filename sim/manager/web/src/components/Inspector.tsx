@@ -1,15 +1,18 @@
 import { act, removeInstance } from '../actions';
 import { patchUi, uiStore, type InspectorTab } from '../ui';
-import type { Instance } from '../types';
+import type { FieldDevice, Instance } from '../types';
 import { Icon } from './icons';
 import { ConsoleTab } from './tabs/ConsoleTab';
 import { IoTab } from './tabs/IoTab';
 import { LogTab } from './tabs/LogTab';
 import { PropertiesTab } from './tabs/PropertiesTab';
+import { TibbitsTab } from './tabs/TibbitsTab';
 import { WiresTab } from './tabs/WiresTab';
+import { FieldPanel } from './FieldPanel';
 
 const TABS: Array<[InspectorTab, string]> = [
     ['properties', 'Properties'],
+    ['tibbits', 'Tibbits'],
     ['console', 'Console'],
     ['io', 'IO'],
     ['log', 'Renode log'],
@@ -18,10 +21,11 @@ const TABS: Array<[InspectorTab, string]> = [
 
 interface Props {
     inst: Instance | null;
+    field?: FieldDevice | null;
     onUpload: (inst: Instance) => void;
 }
 
-export function Inspector({ inst, onUpload }: Props) {
+export function Inspector({ inst, field, onUpload }: Props) {
     const ui = uiStore.use();
 
     const startResize = (e: React.PointerEvent) => {
@@ -36,6 +40,8 @@ export function Inspector({ inst, onUpload }: Props) {
         window.addEventListener('pointermove', move);
         window.addEventListener('pointerup', up);
     };
+
+    if (field) return <FieldPanel field={field} />;
 
     const running = inst && (inst.status === 'running' || inst.status === 'starting');
     const needsDevice = ui.tab !== 'wires';
@@ -91,9 +97,11 @@ export function Inspector({ inst, onUpload }: Props) {
             {!ui.collapsed && (
                 <div className="insp-body">
                     {needsDevice && !inst ? (
-                        <p className="empty-note">Select a device on the rail to see its {ui.tab === 'properties' ? 'properties' : ui.tab === 'io' ? 'GPIO' : ui.tab}.</p>
+                        <p className="empty-note">Select a device on the rail to see its {ui.tab === 'properties' ? 'properties' : ui.tab === 'io' ? 'GPIO' : ui.tab === 'tibbits' ? 'Tibbits' : ui.tab}.</p>
                     ) : ui.tab === 'properties' && inst ? (
                         <PropertiesTab key={inst.id} inst={inst} />
+                    ) : ui.tab === 'tibbits' && inst ? (
+                        <TibbitsTab key={inst.id} inst={inst} />
                     ) : ui.tab === 'console' && inst ? (
                         <ConsoleTab key={inst.id} inst={inst} />
                     ) : ui.tab === 'io' && inst ? (

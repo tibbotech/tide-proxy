@@ -1,0 +1,656 @@
+[
+ {
+  "model": "00_1",
+  "name": "Four direct I/O lines",
+  "form": "M1S",
+  "category": "empty"
+ },
+ {
+  "model": "00_2",
+  "name": "Three direct I/O lines and ground",
+  "form": "M1S",
+  "category": "empty"
+ },
+ {
+  "model": "00_3",
+  "name": "Two direct I/O lines, +5V power, ground",
+  "form": "M1S",
+  "category": "empty"
+ },
+ {
+  "model": "01",
+  "name": "Four-line RS232 port",
+  "form": "M1S",
+  "category": "io",
+  "lines": [
+   "TX",
+   "RX",
+   "RTS",
+   "CTS"
+  ]
+ },
+ {
+  "model": "02",
+  "name": "RS232/422/485 port",
+  "form": "M2S",
+  "category": "io"
+ },
+ {
+  "model": "03_1",
+  "name": "Two low-power relays (configuration 1)",
+  "form": "M1S",
+  "category": "output"
+ },
+ {
+  "model": "03_2",
+  "name": "Two low-power relays (configuration 2)",
+  "form": "M1S",
+  "category": "output"
+ },
+ {
+  "model": "04_1",
+  "name": "Two isolated inputs",
+  "form": "M1S",
+  "category": "input",
+  "lines": [
+   "2V~5V",
+   "",
+   "",
+   ""
+  ]
+ },
+ {
+  "model": "04_2",
+  "name": "Three isolated inputs, common (-)",
+  "form": "M1S",
+  "category": "input",
+  "lines": [
+   "2V~5V",
+   "",
+   "",
+   ""
+  ]
+ },
+ {
+  "model": "04_3",
+  "name": "Three isolated inputs, common (+)",
+  "form": "M1S",
+  "category": "input",
+  "lines": [
+   "2V~5V",
+   "",
+   "",
+   ""
+  ]
+ },
+ {
+  "model": "04_4",
+  "name": "Four opto-inputs, common ground",
+  "form": "M1S",
+  "category": "input",
+  "lines": [
+   "2V~5V",
+   "",
+   "",
+   ""
+  ]
+ },
+ {
+  "model": "04_5",
+  "name": "Two 24V isolated inputs",
+  "form": "M1S",
+  "category": "input",
+  "lines": [
+   "2V~5V",
+   "",
+   "",
+   ""
+  ]
+ },
+ {
+  "model": "04_6",
+  "name": "Three 24V isolated inputs, common (-)",
+  "form": "M1S",
+  "category": "input",
+  "lines": [
+   "2V~5V",
+   "",
+   "",
+   ""
+  ]
+ },
+ {
+  "model": "04_7",
+  "name": "Three 24V isolated inputs, common (+)",
+  "form": "M1S",
+  "category": "input",
+  "lines": [
+   "2V~5V",
+   "",
+   "",
+   ""
+  ]
+ },
+ {
+  "model": "04_8",
+  "name": "Four 24V isolated inputs, common ground",
+  "form": "M1S",
+  "category": "input",
+  "lines": [
+   "2V~5V",
+   "",
+   "",
+   ""
+  ]
+ },
+ {
+  "model": "05",
+  "name": "RS485 port",
+  "form": "M1S",
+  "category": "io",
+  "lines": [
+   "485+",
+   "485-",
+   "VCC",
+   "GND"
+  ]
+ },
+ {
+  "model": "06",
+  "name": "Two high-power relays",
+  "form": "M2T",
+  "category": "output",
+  "lines": [
+   "",
+   "",
+   "",
+   ""
+  ]
+ },
+ {
+  "model": "07",
+  "name": "Two solid state relays",
+  "form": "M1S",
+  "category": "output",
+  "lines": [
+   "",
+   "",
+   "",
+   ""
+  ]
+ },
+ {
+  "model": "08",
+  "name": "Wiegand and clock/data reader port",
+  "form": "M1S",
+  "category": "io",
+  "lines": [
+   "W0",
+   "W1",
+   "",
+   ""
+  ]
+ },
+ {
+  "model": "09",
+  "name": "Low-power 5V supply, 12V input",
+  "form": "M1S",
+  "category": "power",
+  "lines": [
+   "",
+   "",
+   "+",
+   "-"
+  ]
+ },
+ {
+  "model": "10",
+  "name": "Medium-power 5V supply, 12V input",
+  "form": "M1T",
+  "category": "power",
+  "lines": [
+   "",
+   "",
+   "+",
+   "-"
+  ]
+ },
+ {
+  "model": "11",
+  "name": "Four open collector outputs",
+  "form": "M1S",
+  "category": "output",
+  "lines": [
+   "",
+   "",
+   "",
+   ""
+  ]
+ },
+ {
+  "model": "12",
+  "name": "Low-power +15/-15V power supply, 5V input",
+  "form": "M1S",
+  "category": "power",
+  "lines": [
+   "",
+   "",
+   "+",
+   "-"
+  ]
+ },
+ {
+  "model": "13",
+  "name": "Four-channel ADC",
+  "form": "M1S",
+  "category": "input",
+  "lines": [
+   "",
+   "",
+   "",
+   ""
+  ]
+ },
+ {
+  "model": "14",
+  "name": "Four-channel DAC",
+  "form": "M1S",
+  "category": "output",
+  "lines": [
+   "",
+   "",
+   "",
+   ""
+  ]
+ },
+ {
+  "model": "15",
+  "name": "High-voltage AC solid state relay",
+  "form": "H1",
+  "category": "output",
+  "lines": [
+   "",
+   "",
+   "",
+   ""
+  ]
+ },
+ {
+  "model": "16",
+  "name": "Three PWMs with open collector outputs",
+  "form": "M1S",
+  "category": "output",
+  "lines": [
+   "",
+   "",
+   "",
+   ""
+  ]
+ },
+ {
+  "model": "17",
+  "name": "Three PWMs with power outputs",
+  "form": "M1S",
+  "category": "output",
+  "lines": [
+   "",
+   "",
+   "",
+   ""
+  ]
+ },
+ {
+  "model": "18",
+  "name": "Power input",
+  "form": "C1",
+  "category": "connector"
+ },
+ {
+  "model": "19",
+  "name": "DB9M connector",
+  "form": "C2",
+  "category": "connector"
+ },
+ {
+  "model": "20",
+  "name": "Nine terminal blocks",
+  "form": "C2",
+  "category": "connector"
+ },
+ {
+  "model": "21",
+  "name": "Four terminal blocks",
+  "form": "C1",
+  "category": "connector"
+ },
+ {
+  "model": "22",
+  "name": "RTD Temperature Meter",
+  "form": "M1S",
+  "category": "input",
+  "lines": [
+   "",
+   "",
+   "",
+   ""
+  ]
+ },
+ {
+  "model": "23",
+  "name": "Isolated PoE power supply, 5V output",
+  "form": "M2T",
+  "category": "power"
+ },
+ {
+  "model": "25",
+  "name": "High-power 5V supply, 12/24/48V input",
+  "form": "M2T",
+  "category": "power",
+  "lines": [
+   "",
+   "",
+   "+",
+   "-"
+  ]
+ },
+ {
+  "model": "26",
+  "name": "IR code processor",
+  "form": "M1S",
+  "category": "io"
+ },
+ {
+  "model": "27",
+  "name": "IR Receiver/Transmitter",
+  "form": "C1",
+  "category": "connector"
+ },
+ {
+  "model": "28",
+  "name": "Ambient light sensor",
+  "form": "C1",
+  "category": "connector"
+ },
+ {
+  "model": "29",
+  "name": "Ambient temperature meter",
+  "form": "C1",
+  "category": "connector"
+ },
+ {
+  "model": "30",
+  "name": "Temperature/humidity meter",
+  "form": "C1",
+  "category": "connector"
+ },
+ {
+  "model": "31",
+  "name": "PIC coprocessor",
+  "form": "M1S",
+  "category": "io"
+ },
+ {
+  "model": "33",
+  "name": "Wide input range power supply",
+  "form": "M1T",
+  "category": "power",
+  "lines": [
+   "",
+   "",
+   "+",
+   "-"
+  ]
+ },
+ {
+  "model": "35",
+  "name": "Barometric pressure sensor",
+  "form": "C1",
+  "category": "connector"
+ },
+ {
+  "model": "36",
+  "name": "3-axis accelerometer",
+  "form": "C1",
+  "category": "connector"
+ },
+ {
+  "model": "37",
+  "name": "RF connector",
+  "form": "C1",
+  "category": "connector"
+ },
+ {
+  "model": "38",
+  "name": "Pushbutton",
+  "form": "C1",
+  "category": "connector"
+ },
+ {
+  "model": "39_1",
+  "name": "Large green LED (low brightness)",
+  "form": "C1",
+  "category": "connector"
+ },
+ {
+  "model": "39_2",
+  "name": "Large red LED (high brightness)",
+  "form": "C1",
+  "category": "connector"
+ },
+ {
+  "model": "39_3",
+  "name": "Large yellow LED (low brightness)",
+  "form": "C1",
+  "category": "connector"
+ },
+ {
+  "model": "39_4",
+  "name": "Large blue LED (high brightness)",
+  "form": "C1",
+  "category": "connector"
+ },
+ {
+  "model": "40_1",
+  "name": "Digital potentiometer, 5KOhm",
+  "form": "M1S",
+  "category": "io"
+ },
+ {
+  "model": "40_2",
+  "name": "Digital potentiometer, 10KOhm",
+  "form": "M1S",
+  "category": "io"
+ },
+ {
+  "model": "40_3",
+  "name": "Digital potentiometer, 50KOhm",
+  "form": "M1S",
+  "category": "io"
+ },
+ {
+  "model": "40_4",
+  "name": "Digital potentiometer, 100KOhm",
+  "form": "M1S",
+  "category": "io"
+ },
+ {
+  "model": "41",
+  "name": "8-bit port (supplied with 200mm cable)",
+  "form": "C1",
+  "category": "connector"
+ },
+ {
+  "model": "42",
+  "name": "RTC and NVRAM with backup",
+  "form": "M1S",
+  "category": "io"
+ },
+ {
+  "model": "43_1",
+  "name": "4-Channel Streaming ADC ±10V",
+  "form": "M1S",
+  "category": "input"
+ },
+ {
+  "model": "43_2",
+  "name": "4-Channel Streaming ADC ±100V",
+  "form": "M1S",
+  "category": "input"
+ },
+ {
+  "model": "44_1",
+  "name": "Isolated RS232/422/485 port",
+  "form": "H2",
+  "category": "connector"
+ },
+ {
+  "model": "44_2",
+  "name": "Isolated RS232/422/485 port",
+  "form": "H2",
+  "category": "connector"
+ },
+ {
+  "model": "45_1",
+  "name": "LTE (4G) Modem (SA)",
+  "form": "H2",
+  "category": "io"
+ },
+ {
+  "model": "45_2",
+  "name": "LTE (4G) Modem (E)",
+  "form": "H2",
+  "category": "io"
+ },
+ {
+  "model": "45_3",
+  "name": "LTE (4G) Modem (A)",
+  "form": "H2",
+  "category": "io"
+ },
+ {
+  "model": "46",
+  "name": "Cat-M1/NB-IoT Modem",
+  "form": "H2",
+  "category": "io"
+ },
+ {
+  "model": "48",
+  "name": "Audio In/Out",
+  "form": "H2",
+  "category": "io"
+ },
+ {
+  "model": "49",
+  "name": "Micro SD card slot",
+  "form": "C2",
+  "category": "connector"
+ },
+ {
+  "model": "50",
+  "name": "Mini type B USB port",
+  "form": "C1",
+  "category": "connector"
+ },
+ {
+  "model": "52",
+  "name": "Four-channel isolated +/-10V ADC",
+  "form": "M2T",
+  "category": "input"
+ },
+ {
+  "model": "53",
+  "name": "Isolated 4-20mA ADC",
+  "form": "M2T",
+  "category": "input",
+  "lines": [
+   "",
+   "",
+   "",
+   ""
+  ]
+ },
+ {
+  "model": "54",
+  "name": "Four dry contact inputs",
+  "form": "M1S",
+  "category": "input"
+ },
+ {
+  "model": "57",
+  "name": "FPGA Tibbit",
+  "form": "M1S",
+  "category": "io"
+ },
+ {
+  "model": "58",
+  "name": "Two 24V NPN isolated open collector outputs",
+  "form": "M1S",
+  "category": "output",
+  "lines": [
+   "",
+   "24V/0.5A",
+   "",
+   ""
+  ]
+ },
+ {
+  "model": "59",
+  "name": "Two 24V PNP isolated open collector outputs",
+  "form": "M1S",
+  "category": "output",
+  "lines": [
+   "",
+   "24V/0.5A",
+   "",
+   ""
+  ]
+ },
+ {
+  "model": "61_1",
+  "name": "ISOLATED ±10V, 4-20mA ADC Tibbit with 24V Output",
+  "form": "H2",
+  "category": "io"
+ },
+ {
+  "model": "61_2",
+  "name": "ISOLATED ±10V, 4-20mA ADC Tibbit",
+  "form": "H2",
+  "category": "input"
+ },
+ {
+  "model": "62",
+  "name": "Two 1-Wire/Single-Wire Ports",
+  "form": "M1T",
+  "category": "io"
+ },
+ {
+  "model": "63_1",
+  "name": "AC Voltage Detector (110V)",
+  "form": "H1",
+  "category": "input"
+ },
+ {
+  "model": "63_2",
+  "name": "AC Voltage Detector (220V)",
+  "form": "H1",
+  "category": "input"
+ },
+ {
+  "model": "WA2000C",
+  "name": "WA2000C Wi-Fi Add-on Module with on-board antenna",
+  "form": "WIFI",
+  "category": "empty"
+ },
+ {
+  "model": "WA2000U",
+  "name": "WA2000U Wi-Fi Add-on Module",
+  "form": "WIFI",
+  "category": "empty"
+ },
+ {
+  "model": "WM6256",
+  "name": "WM6256 Wi-Fi Add-on Module",
+  "form": "WIFI",
+  "category": "empty"
+ }
+]

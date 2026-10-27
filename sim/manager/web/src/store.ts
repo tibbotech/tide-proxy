@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { api } from './api';
 import { handleLcd } from './lcd';
-import type { Generation, Instance, InstState, Link, LinkStats, MonitorInfo, PinConfig, SimInfo } from './types';
+import type { Catalog, FieldDevice, Generation, Instance, InstState, Link, LinkStats, MonitorInfo, PinConfig, SimInfo, Wiring } from './types';
 
 // Live data from the manager: REST for the slow things, one websocket for everything else.
 // The 40 ms 'state' stream is keyed per instance, so only the device showing that state re-renders.
@@ -32,6 +32,9 @@ const states = new Map<string, InstState>();
 const pinConfigs = new Map<string, PinConfig | null>();
 let links: Link[] = [];
 let linkStats: Record<string, LinkStats> = {};
+let fields: FieldDevice[] = [];
+let wiring: Wiring = { wires: [], warnings: [], pins: {} };
+let catalog: Catalog | null = null;
 let monitors: Partial<Record<Generation, MonitorInfo>> = {};
 let info: SimInfo | null = null;
 let connected = false;
@@ -45,6 +48,9 @@ export const useInstanceState = (id: string) => useSyncExternalStore(sig(`state:
 export const usePinConfig = (id: string) => useSyncExternalStore(sig(`pins:${id}`).subscribe, () => pinConfigs.get(id) || undefined);
 export const useLinks = () => useSyncExternalStore(sig('links').subscribe, () => links);
 export const useLinkStats = () => useSyncExternalStore(sig('linkStats').subscribe, () => linkStats);
+export const useFields = () => useSyncExternalStore(sig('fields').subscribe, () => fields);
+export const useWiring = () => useSyncExternalStore(sig('wiring').subscribe, () => wiring);
+export const useCatalog = () => useSyncExternalStore(sig('catalog').subscribe, () => catalog);
 export const useMonitors = () => useSyncExternalStore(sig('monitors').subscribe, () => monitors);
 export const useInfo = () => useSyncExternalStore(sig('info').subscribe, () => info);
 export const useConnected = () => useSyncExternalStore(sig('conn').subscribe, () => connected);
@@ -53,6 +59,24 @@ export const useNotice = () => useSyncExternalStore(sig('notice').subscribe, () 
 
 export const getInstances = () => instances;
 export const getLinks = () => links;
+export const getFields = () => fields;
+export const getWiring = () => wiring;
+
+// Everything that sits on a rail: the TPPs and the field devices.
+let placeables: Array<Instance | FieldDevice> = [];
+let placeablesFrom: [Instance[], FieldDevice[]] | null = null;
+export const getPlaceables = () => {
+    if (!placeablesFrom || placeablesFrom[0] !== instances || placeablesFrom[1] !== fields) {
+        placeablesFrom = [instances, fields];
+        placeables = [...instances, ...fields];
+    }
+    return placeables;
+};
+export const usePlaceables = () => {
+    useInstances();
+    useFields();
+    return getPlaceables();
+};
 export const getMonitors = () => monitors;
 
 let noticeSeq = 0;
@@ -173,6 +197,14 @@ function onMessage(ev: MessageEvent) {
         linkStats = msg.stats;
         sig('linkStats').emit();
         break;
+    case 'fields':
+        fields = msg.devices;
+        sig('fields').emit();
+        break;
+    case 'wiring':
+        wiring = { wires: msg.wires, warnings: msg.warnings, pins: msg.pins };
+        sig('wiring').emit();
+        break;
     case 'uart':
         if (msg.id === detail) pushConsole(msg.id, msg.uart, b64(msg.data));
         break;
@@ -231,6 +263,11 @@ export async function loadMonitors() {
     sig('monitors').emit();
 }
 
+export async function loadCatalog() {
+    catalog = await api<Catalog>('GET', '/api/tibbits').catch(() => null);
+    sig('catalog').emit();
+}
+
 export async function loadInfo() {
     info = await api<SimInfo>('GET', '/api/info').catch(() => null);
     sig('info').emit();
@@ -242,6 +279,7 @@ export function startStore() {
     started = true;
     connect();
     loadMonitors();
+    loadCatalog();
     loadInfo();
     setInterval(loadInfo, 5000);
 }

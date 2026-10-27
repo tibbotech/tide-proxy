@@ -1,7 +1,7 @@
 import { api } from './api';
 import { DEVICE_GAP, deviceWidth, moveDevice } from './scene';
 import { loadMonitors, notify } from './store';
-import type { Generation, Instance, Link, LinkKind } from './types';
+import type { FieldDevice, FieldKind, Generation, Instance, Link, LinkKind, TermRef } from './types';
 
 // Calls whose failure is shown as a notice rather than handled by the caller.
 const guard = async <T>(p: Promise<T>): Promise<T | undefined> => {
@@ -101,6 +101,29 @@ export async function removeWire(link: Link, ep: number) {
 
 export const deleteLink = (id: string) => guard(api('DELETE', `/api/links/${id}`));
 export const renameLink = (id: string, name: string) => guard(api('PATCH', `/api/links/${id}`, { name }));
+
+// ---- Tibbits, field devices, terminal wires ----
+export const setTibbits = (id: string, tibbits: Record<string, string | null>) => guard(api('PUT', `/api/instances/${id}/tibbits`, { tibbits }));
+
+export async function importTibbits(id: string, project: unknown) {
+    const res = await guard(api<{ skipped: string[]; projectDevice?: string }>('POST', `/api/instances/${id}/tibbits/import`, { project }));
+    if (res && res.skipped.length) notify(`Imported, but skipped: ${res.skipped.join('; ')}`, 'info');
+    return res;
+}
+
+export const addFieldDevice = (kind: FieldKind, place?: { rail: string; x: number }) =>
+    guard(
+        api<FieldDevice>('POST', '/api/devices', { kind }).then((d) => {
+            if (place) moveDevice(d.id, place.rail, place.x);
+            return d;
+        }),
+    );
+export const patchFieldDevice = (id: string, body: { name?: string; props?: Record<string, unknown> }) => guard(api('PATCH', `/api/devices/${id}`, body));
+export const removeFieldDevice = (id: string) => guard(api('DELETE', `/api/devices/${id}`));
+export const swipeCard = (id: string, body: Record<string, unknown> = {}) => guard(api('POST', `/api/devices/${id}/swipe`, body));
+
+export const wireTerminals = (a: TermRef, b: TermRef) => guard(api('POST', '/api/wires', { a, b }));
+export const removeTerminalWire = (id: string) => guard(api('DELETE', `/api/wires/${id}`));
 
 // ---- creating ----
 // Creates instances; each lands where `place` says (a rail and x), or at the end of the first

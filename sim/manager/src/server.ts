@@ -6,14 +6,19 @@ import { WebSocketServer, WebSocket } from 'ws';
 
 import { config } from './config';
 import { Generation } from './firmware';
+import { FieldDeviceManager } from './fielddevices';
 import { FirmwareUpload, Instance, InstanceManager } from './instances';
 import { LinkManager } from './links';
 import { deleteMonitor, listMonitors, monitorJSON, setMonitor } from './monitor';
+import { allSockets, placementsFromProject, tibbitCatalog } from './tibbits';
+import { WiringManager } from './wiring';
 import { UdpRelay } from './udpRelay';
 import { UdpDebugConsole } from './udpConsole';
 
 const manager = new InstanceManager();
 const links = new LinkManager(manager);
+const fields = new FieldDeviceManager();
+const wiring = new WiringManager(manager, fields);
 const udpConsole = new UdpDebugConsole();
 const relay = new UdpRelay(udpConsole);
 const app = express();
@@ -201,6 +206,54 @@ app.post('/api/instances/:id/:action(start|stop|restart|reflash|reset|pause|resu
     return inst;
 }));
 
+// ---- Tibbits and field wiring ----
+
+// Every Tibbit (with its form and, for simulated ones, flag) and each board's sockets.
+app.get('/api/tibbits', api(() => ({ tibbits: tibbitCatalog(), sockets: allSockets() })));
+
+// Body: { tibbits: { "<socket>": "<model>" | null } }, replacing the Tibbits in the TPP's sockets.
+// A #20/#21 terminal block in a connector socket gives the Tibbit next to it wire terminals.
+app.put('/api/instances/:id/tibbits', api((req) => {
+    const inst = manager.setTibbits(instance(req).id, (req.body || {}).tibbits || {});
+    wiring.refresh();
+    return inst;
+}));
+
+// Body: a Cody project (its .json export), or { project }. Takes the Tibbits it places in sockets.
+app.post('/api/instances/:id/tibbits/import', api((req) => {
+    const inst = instance(req);
+    const project = req.body?.project || req.body;
+    const { placements, skipped } = placementsFromProject(inst.cfg.board, project);
+    manager.setTibbits(inst.id, placements);
+    wiring.refresh();
+    return { instance: inst, projectDevice: project?.device, skipped };
+}));
+
+app.get('/api/devices', api(() => fields.toJSON()));
+
+// Body: { kind: 'wiegand-reader'|'modbus-slave'|'io-panel', name?, props? }
+app.post('/api/devices', api((req) => fields.create(req.body || {})));
+
+// Body: { name?, props? }; props as in fielddevices.ts (a Modbus slave's registers, a panel's channels, ...)
+app.patch('/api/devices/:id', api((req) => fields.update(req.params.id, req.body || {})));
+
+app.delete('/api/devices/:id', api((req) => {
+    fields.remove(req.params.id);
+}));
+
+// Body: { format?: 26|34|37|'raw', facility?, card?, bits? }; defaults come from the reader's props.
+app.post('/api/devices/:id/swipe', api((req) => {
+    const { bits } = fields.swipe(req.params.id, req.body || {});
+    return { bits, reached: wiring.swipe(req.params.id, bits) };
+}));
+
+// Wires between terminals: { a: { owner, term }, b: { owner, term } }. owner is an instance or a device id.
+app.get('/api/wires', api(() => wiring.snapshot()));
+app.post('/api/wires', api((req) => wiring.create(req.body?.a, req.body?.b)));
+app.delete('/api/wires/:id', api((req) => {
+    wiring.remove(req.params.id);
+}));
+
 // Body: { attached: bool }. Reading debug print dequeues it, so the reader only runs once the
 // user attaches it; otherwise the entries stay for a tide-proxy client to fetch.
 app.put('/api/instances/:id/debug-print', api((req) => {
@@ -278,7 +331,8 @@ function applyInput(inst: Instance, body: any): void {
 //                        {t:'console', id, uart, data}
 // Server -> client JSON: {t:'instances', list}, {t:'state', id, state}, {t:'uart', id, uart, data},
 //                        {t:'log', id, line}, {t:'backlog', id, uart, data},
-//                        {t:'links', links, stats}, {t:'linkStats', stats}, {t:'pinConfig', id, pinConfig}
+//                        {t:'links', links, stats}, {t:'linkStats', stats}, {t:'pinConfig', id, pinConfig},
+//                        {t:'fields', devices}, {t:'wiring', wires, warnings, pins}
 // Server -> client binary: [idLength u8][id utf8][x u16][y u16][w u16][h u16][RGB888...]
 
 interface Client {
@@ -319,12 +373,31 @@ function broadcastLinks() {
     clients.forEach((c) => send(c, msg));
 }
 
+function broadcastWiring() {
+    const msg = { t: 'wiring', ...wiring.snapshot() };
+    clients.forEach((c) => send(c, msg));
+}
+
+// Register writes from a master can come in bursts: send the devices at most every 150 ms.
+let fieldsTimer: NodeJS.Timeout | undefined;
+function broadcastFields() {
+    if (fieldsTimer) {
+        return;
+    }
+    fieldsTimer = setTimeout(() => {
+        fieldsTimer = undefined;
+        const msg = { t: 'fields', devices: fields.toJSON() };
+        clients.forEach((c) => send(c, msg));
+    }, 150);
+}
+
 function attach(inst: Instance) {
     if ((inst as any).__wsAttached) {
         return;
     }
     (inst as any).__wsAttached = true;
     links.attach(inst);
+    wiring.attach(inst);
     inst.on('state', (state) => clients.forEach((c) => send(c, { t: 'state', id: inst.id, state })));
     inst.on('lcd', (payload: Buffer) => clients.forEach((c) => wantsLcd(c, inst.id) && sendLcd(c, inst.id, payload)));
     inst.on('uart', (uart: string, data: Buffer) =>
@@ -351,7 +424,18 @@ manager.on('changed', (inst: Instance) => {
 manager.on('removed', (inst: Instance) => {
     udpConsole.detach(inst.tibboMac);
     links.removeInstance(inst.id);
+    wiring.refresh();
 });
+
+fields.on('changed', () => {
+    wiring.refresh();
+    broadcastFields();
+});
+fields.on('removed', () => {
+    wiring.refresh();
+    broadcastFields();
+});
+wiring.on('changed', broadcastWiring);
 
 links.on('changed', broadcastLinks);
 links.on('stats', (stats) => clients.forEach((c) => send(c, { t: 'linkStats', stats })));
@@ -361,6 +445,8 @@ wss.on('connection', (ws) => {
     clients.add(client);
     send(client, { t: 'instances', list: manager.list().map((i) => i.toJSON()) });
     send(client, { t: 'links', links: links.list(), stats: links.statsJSON() });
+    send(client, { t: 'fields', devices: fields.toJSON() });
+    send(client, { t: 'wiring', ...wiring.snapshot() });
     manager.list().forEach((inst) => {
         const full = inst.fullLcdPayload();
         if (full) {
@@ -415,6 +501,8 @@ wss.on('connection', (ws) => {
 async function main() {
     manager.load();
     links.load();
+    fields.load();
+    wiring.load();
     manager.list().forEach(attach);
     udpConsole.start();
     relay.start();
