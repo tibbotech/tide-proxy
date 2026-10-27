@@ -52,6 +52,8 @@ export class Instance extends EventEmitter {
     lcd?: LcdFrame;
     log: string[] = [];
     exitCode?: number | null;
+    // The user attached the UDP debug-print reader (not persisted; survives restarts).
+    debugPrintAttached = false;
 
     private proc?: ChildProcess;
     private bridge?: net.Socket;
@@ -171,6 +173,7 @@ export class Instance extends EventEmitter {
             flashWrites: flashWrites(this.dir).writes,
             canStart: this.canStart,
             consoles: this.consoles,
+            debugPrintAttached: this.debugPrintAttached,
             state: this.state,
         };
     }

@@ -74,7 +74,10 @@
             <div class="tabs">
                 <button class="tab active" data-tab="console">Console</button>
                 <button class="tab" data-tab="log">Renode log</button>
-                <select id="dUart" class="uart-select"></select>
+                <div class="console-tools" id="dConsoleTools">
+                    <select id="dUart" class="uart-select"></select>
+                    <button class="btn small" id="dUdpAttach"></button>
+                </div>
             </div>
             <div class="tabpane" id="paneConsole"><div id="term"></div></div>
             <div class="tabpane" id="paneLog" hidden><pre id="renodeLog"></pre></div>

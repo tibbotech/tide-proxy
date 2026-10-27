@@ -197,6 +197,16 @@ app.post('/api/instances/:id/:action(start|stop|restart|reflash|reset|pause|resu
     return inst;
 }));
 
+// Body: { attached: bool }. Reading debug print dequeues it, so the reader only runs once the
+// user attaches it; otherwise the entries stay for a tide-proxy client to fetch.
+app.put('/api/instances/:id/debug-print', api((req) => {
+    const inst = instance(req);
+    inst.debugPrintAttached = !!(req.body || {}).attached;
+    syncUdpConsole(inst);
+    broadcastInstances();
+    return inst;
+}));
+
 // Wiring between instances. Body: { kind: 'uart'|'gpio', name?, endpoints: [{ instance, port }] }
 // (gpio: endpoints[0] drives the rest).
 app.get('/api/links', api(() => ({ links: links.list(), stats: links.statsJSON() })));
@@ -312,9 +322,9 @@ function attach(inst: Instance) {
     inst.on('log', (line: string) => clients.forEach((c) => c.detail === inst.id && send(c, { t: 'log', id: inst.id, line })));
 }
 
-// Debug-print reader runs while the instance is up.
+// Debug-print reader runs while the instance is up and the user has attached it.
 function syncUdpConsole(inst: Instance) {
-    if (inst.status === 'running') {
+    if (inst.status === 'running' && inst.debugPrintAttached) {
         udpConsole.attach({ tibboMac: inst.tibboMac, onText: (t) => inst.appendConsole('udp', Buffer.from(t, 'utf8')) });
     } else {
         udpConsole.detach(inst.tibboMac);

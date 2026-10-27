@@ -473,7 +473,18 @@ function renderDetail() {
         $('#renodeLog').textContent = '';
         subscribe();
     }
+    updateUdpAttach(inst);
     updateIndicators(inst);
+}
+
+// The debug-print reader dequeues entries, so it only runs when the user attaches it.
+function updateUdpAttach(inst) {
+    const btn = $('#dUdpAttach');
+    btn.hidden = S.uart !== 'udp';
+    btn.textContent = inst.debugPrintAttached ? 'Detach' : 'Attach';
+    btn.title = inst.debugPrintAttached
+        ? 'Stop reading debug print (leaves it for a tide-proxy client)'
+        : 'Read debug print here (takes it away from a tide-proxy client)';
 }
 
 function hwButton(inst, b) {
@@ -815,13 +826,21 @@ function setup() {
         document.querySelectorAll('.tab').forEach((x) => x.classList.toggle('active', x === t));
         $('#paneConsole').hidden = t.dataset.tab !== 'console';
         $('#paneLog').hidden = t.dataset.tab !== 'log';
-        $('#dUart').style.visibility = t.dataset.tab === 'console' ? 'visible' : 'hidden';
+        $('#dConsoleTools').style.visibility = t.dataset.tab === 'console' ? 'visible' : 'hidden';
         if (t.dataset.tab === 'console') setTimeout(() => fit && fit.fit(), 0);
         else $('#renodeLog').scrollTop = $('#renodeLog').scrollHeight;
     }));
 
+    $('#dUdpAttach').onclick = async () => {
+        const inst = S.instances.find((i) => i.id === S.detail);
+        if (!inst) return;
+        await api('PUT', `/api/instances/${inst.id}/debug-print`, { attached: !inst.debugPrintAttached }).catch((e) => alert(e.message));
+    };
+
     $('#dUart').addEventListener('change', (e) => {
         S.uart = e.target.value;
+        const inst = S.instances.find((i) => i.id === S.detail);
+        if (inst) updateUdpAttach(inst);
         // Re-subscribe to receive this UART's backlog.
         const id = S.detail;
         S.detail = null;

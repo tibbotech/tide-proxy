@@ -77,11 +77,8 @@ export declare class TIDEProxy {
     networkWatcherTimer?: NodeJS.Timeout;
     lastInterfaceState: string;
     toolPaths: TIDEProxyToolPaths;
-<<<<<<< HEAD
     gdbProxyServer?: GdbProxyServer;
-=======
     simRelay?: SimRelay;
->>>>>>> feature/simulator
     constructor(serverAddress: string, proxyName: string, port?: number, targetInterface?: string, options?: TIDEProxyOptions);
     constructor(options: TIDEProxyOptions);
     initInterfaces(targetInterface?: any): void;

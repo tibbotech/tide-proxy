@@ -266,7 +266,8 @@ select, input {
 .tabs { display: flex; gap: 4px; align-items: center; border-bottom: 1px solid var(--border); }
 .tab { border: 0; background: none; color: var(--muted); padding: 8px 10px; font: inherit; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
 .tab.active { color: var(--text); border-bottom-color: var(--accent); }
-.uart-select { margin-left: auto; padding: 3px 6px; font-size: 12.5px; }
+.console-tools { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+.uart-select { padding: 3px 6px; font-size: 12.5px; }
 
 .tabpane { background: #0b0d12; border-radius: var(--radius); padding: 8px; min-height: 360px; }
 #term { height: 420px; }
