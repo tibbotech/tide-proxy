@@ -35,12 +35,12 @@ Renode needs Linux TAP devices, so the container runs with `NET_ADMIN` and `/dev
 
 ## Use
 
-1. **Create instances.** Choose **New instance** and pick the device: **TPP2G2** or **TPP3G2** (STM32F207), **TPP2G3** or **TPP3G3** (STM32F439). You can create several at once.
+1. **Create instances.** Drag a board from the **Catalog** onto a DIN rail (its **+** adds one at the end of the first rail with room; its upload icon opens the dialog with firmware files), or choose **New device**. The devices: **TPP2G2** or **TPP3G2** (STM32F207), **TPP2G3** or **TPP3G3** (STM32F439). You can create several at once.
    - Each instance gets a MAC, a DHCP-reserved IP `10.77.0.(10+n)` on the simulated LAN, and its own flash/EEPROM.
    - Optionally pick files in the same dialog, as for an upload (below); each instance gets its own copy.
    - The faceplate follows the device (TPP3: `tps3`). Without a DTS, the TPP defaults for it are used; only TPP2 gets the LCD.
    - Without an app, an instance boots into its monitor's Loader, ready for an upload from TIDE ([Monitor](#monitor)). With no monitor either, it is created stopped until it gets one or an app.
-2. **Upload firmware to an instance** with **Upload firmware** in its detail view (or on its card when it has nothing to boot). Pick any of these together; they are told apart by extension:
+2. **Upload firmware to an instance** with **Upload firmware** in the inspector (a device with nothing to boot says *no firmware* on its nameplate). Pick any of these together; they are told apart by extension:
    - **`.elf`**: the app, e.g. `build/zephyr/zephyr.elf` from a Zephyr build for that board.
    - **`.dts`**: its devicetree, `build/zephyr/zephyr.dts`.
    - **`.bin`**: raw bytes written into the instance's flash at the address you give (hex, default 0x08000000), as a programmer would. The address field suggests the usual places:
@@ -51,14 +51,14 @@ Renode needs Linux TAP devices, so the container runs with `NET_ADMIN` and `/dev
      | App image with TiOS header | 0x08008000 | 0x08040000 |
      | App | 0x08008200 | 0x08040200 |
 
-     - At 0x08000000 the `.bin` must be a plain image starting with a vector table, such as `TPP2WG2_RELEASE_MON.bin` (the encrypted `*_ENC.bin` is rejected). Anything written into the monitor area replaces the default monitor for this instance; **Use default** in the detail view brings the default back.
+     - At 0x08000000 the `.bin` must be a plain image starting with a vector table, such as `TPP2WG2_RELEASE_MON.bin` (the encrypted `*_ENC.bin` is rejected). Anything written into the monitor area replaces the default monitor for this instance; **Use default** in Properties brings the default back.
      - A `.bin` in the app area stays until a new `.elf` is uploaded or the app is reflashed, like an app uploaded from TIDE. `.bin` data the new app doesn't cover (a data image near the end of flash, say) is written back after it.
-     - The writes are listed in the detail view under **Flash .bin**. A `.bin` must fit in the generation's flash (1 MB for G2, 2 MB for G3).
+     - The writes are listed in Properties under **Flash .bin**. A `.bin` must fit in the generation's flash (1 MB for G2, 2 MB for G3).
    - The ELF must be linked for the instance's generation (detected from its flash address), and a DTS whose `compatible` names a TPP board must name the instance's (a `tpp3g2` DTS is rejected on a `tpp2g2` instance).
    - The DTS tells the simulator the board, the console UART, and the gpio-keys/gpio-leds to show. Leave it out to keep the instance's current DTS (handy when rebuilding the same project). An instance that never got one uses the TPP defaults.
    - A running instance restarts. API: `PUT /api/instances/<id>/firmware` with `{ elf?: base64, elfName?, dts?: text, bin?: base64, binName?, binAddress?: "0x08008000" | number }`; `POST /api/instances` takes `{ board: 'tpp2g2'|'tpp3g2'|'tpp2g3'|'tpp3g3', name?, count?, index?, ...the same files }` (`index`, with one instance, picks its number *n*, so its MAC, IP and ports are known in advance; it must be free); `DELETE /api/instances/<id>/monitor` goes back to the default monitor.
-3. **Open an instance** to see the LCD, LEDs, blue bar and console, and to press buttons.
-   - The device is drawn as its faceplate ([manager/public/boards](manager/public/boards)): `tps3` for a TPP3 instance, `tps2l` (LCD and 4 keys) for a TPP2 build with a display, `tps2` otherwise. Its LEDs follow the simulated pins; the keys and the MD pinhole can be pressed.
+3. **Select a device** on the rail (or in the Devices list) to open the inspector below it: **Properties**, **Console**, **IO**, **Renode log** and **Wires**. The device itself shows its LCD, LEDs and blue bar, and its keys can be pressed.
+   - The device is drawn as its faceplate ([manager/web/src/assets/boards](manager/web/src/assets/boards)): `tps3` for a TPP3 instance, `tps2l` (LCD and 4 keys) for a TPP2 build with a display, `tps2` otherwise. Its LEDs follow the simulated pins; the keys and the MD pinhole can be pressed.
    - Hold a button to keep it pressed; shift+click latches it.
    - The Renode log tab shows the emulator's own output.
    - The **IO** tab shows every GPIO port (PA-PI) live: level, mode (output, alternate function number, analog), and whether something outside the MCU (a button, a wire, the EEPROM, you) drives the line. Pins the board or the DTS uses are outlined and listed below with a 10 s trace; **Watch** adds any other pin to the list. Select a pin to drive it high or low, or release it. A push-pull output wins over an external drive, so driving is for inputs and open-drain lines. Levels come from the 40 ms state stream, so faster toggling shows as activity, not as individual edges.
@@ -66,9 +66,9 @@ Renode needs Linux TAP devices, so the container runs with `NET_ADMIN` and `/dev
      - Reading dequeues entries, so the reader pauses while a tide-proxy client is fetching debug print through the relay. During that time it rebuilds the lines from the client's traffic, so nothing is lost on either side.
      - UARTs with a socket (for example the `zephyr,console` one) are in the same dropdown and accept typing.
 
-4. **Wire instances together** under **Wiring**. Drag from a port on one instance to a port on another; click a wire and press Delete (or ×) to remove it. The list under the canvas shows the same connections and can add them by name.
+4. **Wire devices together** on the rail. Under each device is a strip of terminals: its UARTs, the pins its DTS names (buttons, LEDs) and any pin you add with **+ pin**. Drag from a terminal to one on another device; click a wire and press Delete (or ×) to remove it. The **Wires** tab lists the same connections and can add them by name. Drag a device by its nameplate to move it along the rail (neighbours make room) or to another rail (**Add rail**); scroll to zoom, drag the background to pan. The arrangement is kept in the browser.
    - **UART:** bytes one end transmits reach every other end's RX. Two ends act as a crossed serial cable, more as an RS485-style bus. Only UARTs enabled in the firmware's DTS have a port. There is no baud rate, flow control or RS485 direction pin, and the instances don't share a clock, so timing-sensitive framing (Modbus RTU's 3.5-character gap) is approximate.
-   - **GPIO:** the first pin drives the others while it is an output and releases them otherwise. Buttons and LEDs from the DTS are listed; add any other pin (`PA0`…`PI15`) in the box. Changes travel with the 40 ms state stream, so use it for slow signals, not bit-banged buses or pulses.
+   - **GPIO:** the first pin drives the others while it is an output and releases them otherwise. Buttons and LEDs from the DTS have terminals; add any other pin (`PA0`…`PI15`) with **+ pin**. Changes travel with the 40 ms state stream, so use it for slow signals, not bit-banged buses or pulses.
    - Connections are stored in `sim-data/links.json` and re-applied when instances restart. API: `GET/POST /api/links`, `PATCH/DELETE /api/links/<id>` with `{ kind: 'uart'|'gpio', name?, endpoints: [{ instance, port }] }`.
 
 The same actions are available over HTTP:
@@ -110,6 +110,17 @@ This adds a `renode-sim` interface. Discovery, `X`, state, buzz, reboot and othe
 
 `TIDE_PROXY_SIM_URL` (default `http://localhost:3100`) is the link shown on the tide-proxy page.
 
+## Web UI development
+
+The UI is React + TypeScript in [manager/web](manager/web) and is built into `manager/public`, which the manager serves (the Docker build does this).
+
+```sh
+cd sim/manager
+npm install
+npm run build     # server (tsc) and UI (vite build)
+npm run dev:web   # UI on :5173 with hot reload; /api and /ws go to a running manager (SIM_MANAGER_URL, default http://localhost:3100)
+```
+
 ## Limits
 
 - **Without a monitor, firmware is loaded by the simulator,** by uploading an ELF to an instance. Uploading through TIDE/tide-proxy (`QF`/`D`/`N`) needs the real monitor ([Monitor](#monitor)).
@@ -122,7 +133,7 @@ This adds a `renode-sim` interface. Discovery, `X`, state, buzz, reboot and othe
 sim/
   docker/      Dockerfile (Renode 1.17 + sim-manager), entrypoint (bridge, DHCP), compose file
   renode/      tibbo_base.repl, tibbo_g2.repl, tibbo_g3.repl, peripherals/TibboSim.cs
-  manager/     Node/TypeScript sim-manager: instances, UDP relay, REST + WebSocket, web UI (public/)
+  manager/     Node/TypeScript sim-manager: instances, UDP relay, REST + WebSocket; web/ is the UI (React + Vite), built into public/
 ```
 
 Renode 1.17 or newer is required. Earlier Synopsys Ethernet MAC models keep the ETH interrupt asserted while DMA interrupts are disabled, which hangs the G3 (STM32F4 HAL v2) Ethernet driver.

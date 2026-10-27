@@ -1,21 +1,31 @@
 {
-  "name": "@tibbo/tide-sim-manager",
-  "version": "0.1.0",
-  "description": "Runs Renode-simulated Tibbo TPP boards and serves their web UI",
-  "private": true,
-  "main": "lib/server.js",
-  "scripts": {
-    "build": "tsc",
-    "start": "node lib/server.js"
-  },
-  "dependencies": {
-    "express": "^4.18.2",
-    "ws": "^8.18.0"
-  },
-  "devDependencies": {
-    "@types/express": "^4.17.21",
-    "@types/node": "^18.19.0",
-    "@types/ws": "^8.5.12",
-    "typescript": "^5.4.5"
-  }
+    "name": "@tibbo/tide-sim-manager",
+    "version": "0.1.0",
+    "description": "Runs Renode-simulated Tibbo TPP boards and serves their web UI",
+    "private": true,
+    "main": "lib/server.js",
+    "scripts": {
+        "build": "tsc && npm run build:web",
+        "build:web": "tsc -p web/tsconfig.json && vite build --config web/vite.config.ts",
+        "dev:web": "vite --config web/vite.config.ts",
+        "start": "node lib/server.js"
+    },
+    "dependencies": {
+        "express": "^4.18.2",
+        "ws": "^8.18.0"
+    },
+    "devDependencies": {
+        "@types/express": "^4.17.21",
+        "@types/node": "^18.19.0",
+        "@types/react": "^18.3.12",
+        "@types/react-dom": "^18.3.1",
+        "@types/ws": "^8.5.12",
+        "@vitejs/plugin-react": "^4.3.4",
+        "@xterm/addon-fit": "^0.10.0",
+        "@xterm/xterm": "^5.5.0",
+        "react": "^18.3.1",
+        "react-dom": "^18.3.1",
+        "typescript": "^5.4.5",
+        "vite": "^5.4.11"
+    }
 }

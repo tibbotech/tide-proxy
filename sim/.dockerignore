@@ -1,3 +1,4 @@
 manager/node_modules
 manager/lib
 docker/sim-data
+manager/public
