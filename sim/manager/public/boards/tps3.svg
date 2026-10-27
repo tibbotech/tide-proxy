@@ -1,0 +1,209 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 400" width="100%" height="100%">
+  <defs>
+    <!-- Matte orange outer casing -->
+    <linearGradient id="orangeRim" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF8A00" />
+      <stop offset="100%" stop-color="#D05F00" />
+    </linearGradient>
+    
+    <!-- Dark industrial plastic chassis -->
+    <linearGradient id="darkChassis" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#3A3F42" />
+      <stop offset="50%" stop-color="#2B2E30" />
+      <stop offset="100%" stop-color="#1F2122" />
+    </linearGradient>
+    
+    <!-- Metallic industrial screw heads -->
+    <radialGradient id="screwHead" cx="30%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#7A8285" />
+      <stop offset="60%" stop-color="#43474A" />
+      <stop offset="100%" stop-color="#202224" />
+    </radialGradient>
+    
+    <!-- Semi-translucent white panel bays -->
+    <linearGradient id="whitePanel" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FDFEFE" />
+      <stop offset="100%" stop-color="#EAECEE" />
+    </linearGradient>
+    
+    <!-- Diagonal hatch pattern for system slots (TPB3 and 02) -->
+    <pattern id="diagonalHatch" width="8" height="8" patternTransform="rotate(45 0 0)" patternUnits="userSpaceOnUse">
+      <line x1="0" y1="0" x2="0" y2="8" stroke="#D5DBDB" stroke-width="2.5" />
+    </pattern>
+  </defs>
+
+  <!-- Outer Orange Polycarbonate Rim (Widescreen TPB3 aspect ratio) -->
+  <rect x="10" y="10" width="620" height="380" rx="46" fill="url(#orangeRim)" stroke="#A04000" stroke-width="1.5"/>
+
+  <!-- Main Dark Matte Housing -->
+  <rect x="15" y="15" width="610" height="370" rx="38" fill="url(#darkChassis)" stroke="#111213" stroke-width="2"/>
+  
+  <!-- Inner Frame Shadow and Bezel Cutout -->
+  <rect x="48" y="48" width="544" height="304" rx="18" fill="none" stroke="#181A1B" stroke-width="5" opacity="0.8"/>
+  <rect x="52" y="52" width="536" height="296" rx="14" fill="#0D0E0F" />
+
+  <!-- Industrial Corner Screws -->
+  <!-- Top Left -->
+  <g transform="translate(42, 42)">
+    <circle cx="0" cy="0" r="11" fill="url(#screwHead)" stroke="#111" stroke-width="1"/>
+    <circle cx="0" cy="0" r="7.5" fill="none" stroke="#222" stroke-width="0.75"/>
+    <line x1="-4.5" y1="-4.5" x2="4.5" y2="4.5" stroke="#1A1B1C" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="-4.5" y1="4.5" x2="4.5" y2="-4.5" stroke="#1A1B1C" stroke-width="2.5" stroke-linecap="round"/>
+  </g>
+  <!-- Top Right -->
+  <g transform="translate(598, 42)">
+    <circle cx="0" cy="0" r="11" fill="url(#screwHead)" stroke="#111" stroke-width="1"/>
+    <circle cx="0" cy="0" r="7.5" fill="none" stroke="#222" stroke-width="0.75"/>
+    <line x1="-4.5" y1="-1.5" x2="4.5" y2="1.5" stroke="#1A1B1C" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="-1.5" y1="4.5" x2="1.5" y2="-4.5" stroke="#1A1B1C" stroke-width="2.5" stroke-linecap="round"/>
+  </g>
+  <!-- Bottom Left -->
+  <g transform="translate(42, 358)">
+    <circle cx="0" cy="0" r="11" fill="url(#screwHead)" stroke="#111" stroke-width="1"/>
+    <circle cx="0" cy="0" r="7.5" fill="none" stroke="#222" stroke-width="0.75"/>
+    <line x1="-1.5" y1="-4.5" x2="1.5" y2="4.5" stroke="#1A1B1C" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="-4.5" y1="-1.5" x2="4.5" y2="1.5" stroke="#1A1B1C" stroke-width="2.5" stroke-linecap="round"/>
+  </g>
+  <!-- Bottom Right -->
+  <g transform="translate(598, 358)">
+    <circle cx="0" cy="0" r="11" fill="url(#screwHead)" stroke="#111" stroke-width="1"/>
+    <circle cx="0" cy="0" r="7.5" fill="none" stroke="#222" stroke-width="0.75"/>
+    <line x1="-4.5" y1="-4.5" x2="4.5" y2="4.5" stroke="#1A1B1C" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="-4.5" y1="4.5" x2="4.5" y2="-4.5" stroke="#1A1B1C" stroke-width="2.5" stroke-linecap="round"/>
+  </g>
+
+  <!-- Left Side Diagnostic Status LEDs -->
+  <!-- MD button pinhole (transparent ring = simulator hit area) -->
+  <g data-part="md">
+    <circle cx="30" cy="105" r="9" fill="transparent"/>
+    <circle cx="30" cy="105" r="1.5" fill="#151718"/>
+  </g>
+  <!-- Ethernet link (orange) -->
+  <g data-part="link-led">
+    <circle cx="30" cy="130" r="4" fill="#f68200" stroke="#005511" stroke-width="1"/>
+    <circle cx="28.5" cy="128.5" r="1" fill="#FFF" opacity="0.7"/>
+  </g>
+  <!-- Blue bar, 5 segments, top = first shifted bit -->
+  <g data-part="blue-led-0">
+    <circle cx="30" cy="151" r="4" fill="#0033FF" stroke="#001155" stroke-width="1"/>
+    <circle cx="28.5" cy="149.5" r="1" fill="#FFF" opacity="0.7"/>
+  </g>
+  <g data-part="blue-led-1">
+    <circle cx="30" cy="170" r="4" fill="#0033FF" stroke="#001155" stroke-width="1"/>
+    <circle cx="28.5" cy="168.5" r="1" fill="#FFF" opacity="0.7"/>
+  </g>
+  <g data-part="blue-led-2">
+    <circle cx="30" cy="189" r="4" fill="#0033FF" stroke="#001155" stroke-width="1"/>
+    <circle cx="28.5" cy="187.5" r="1" fill="#FFF" opacity="0.7"/>
+  </g>
+  <g data-part="blue-led-3">
+    <circle cx="30" cy="208" r="4" fill="#0033FF" stroke="#001155" stroke-width="1"/>
+    <circle cx="28.5" cy="206.5" r="1" fill="#FFF" opacity="0.7"/>
+  </g>
+  <g data-part="blue-led-4">
+    <circle cx="30" cy="227" r="4" fill="#0033FF" stroke="#001155" stroke-width="1"/>
+    <circle cx="28.5" cy="225.5" r="1" fill="#FFF" opacity="0.7"/>
+  </g>
+  <!-- Status red / green -->
+  <g data-part="red-led">
+    <circle cx="30" cy="250" r="4" fill="#FF0000" stroke="#0A1A0F" stroke-width="1"/>
+    <circle cx="28.5" cy="248.5" r="1" fill="#FFF" opacity="0.7"/>
+  </g>
+  <g data-part="green-led">
+    <circle cx="30" cy="270" r="4" fill="#00FF00" stroke="#0A1A0F" stroke-width="1"/>
+    <circle cx="28.5" cy="268.5" r="1" fill="#FFF" opacity="0.7"/>
+  </g>
+
+  <!-- Right Side Molded Extraction Channels -->
+  <path d="M 610 176 L 592 176 A 3.5 3.5 0 1 1 592 169 L 610 169" fill="none" stroke="#1A1B1C" stroke-width="2" stroke-linecap="round"/>
+  <path d="M 610 201 L 592 201 A 3.5 3.5 0 1 1 592 194 L 610 194" fill="none" stroke="#1A1B1C" stroke-width="2" stroke-linecap="round"/>
+
+  <!-- Main Viewport Window (8 Bay Matrix Array) -->
+  <g transform="translate(56, 56)">
+    <!-- Top Modular Bay Array -->
+    <rect x="0" y="0" width="528" height="96" fill="url(#whitePanel)"/>
+    
+    <!-- Bottom Modular Bay Array -->
+    <rect x="0" y="192" width="528" height="96" fill="url(#whitePanel)"/>
+    
+    <!-- Center Dark Core Bus Bar -->
+    <rect x="0" y="96" width="528" height="96" fill="#050607"/>
+    <!-- Specular sheen reflection -->
+    <path d="M 0 96 L 220 96 L 125 192 L 0 192 Z" fill="#FFFFFF" opacity="0.04"/>
+
+    <!-- ================= TOP ROW SLOTS (TPB3 / 29 / 28 / 26 / 24 / 22 / 20 / 18) ================= -->
+    <!-- Slot 01: TPB3 (Hatched) -->
+    <rect x="2" y="2" width="62" height="92" fill="url(#diagonalHatch)"/>
+    <text x="33" y="60" font-family="'Arial Black', Gadget, sans-serif" font-size="14" font-weight="900" fill="#FFFFFF" text-anchor="middle" letter-spacing="-0.5">TPB3</text>
+    
+    <!-- Slot 29 -->
+    <line x1="66" y1="4" x2="66" y2="92" stroke="#D5DBDB" stroke-width="1.5"/>
+    <text x="99" y="62" font-family="'Arial Black', Gadget, sans-serif" font-size="20" font-weight="900" fill="#FFFFFF" text-anchor="middle">29</text>
+    
+    <!-- Slot 28 -->
+    <line x1="132" y1="4" x2="132" y2="92" stroke="#D5DBDB" stroke-width="1.5"/>
+    <text x="165" y="62" font-family="'Arial Black', Gadget, sans-serif" font-size="20" font-weight="900" fill="#FFFFFF" text-anchor="middle">28</text>
+    
+    <!-- Slot 26 (Dashed) -->
+    <line x1="198" y1="4" x2="198" y2="92" stroke="#D5DBDB" stroke-width="1.5" stroke-dasharray="3 3"/>
+    <text x="231" y="62" font-family="'Arial Black', Gadget, sans-serif" font-size="20" font-weight="900" fill="#FFFFFF" text-anchor="middle">26</text>
+    
+    <!-- Slot 24 -->
+    <line x1="264" y1="4" x2="264" y2="92" stroke="#D5DBDB" stroke-width="1.5"/>
+    <text x="297" y="62" font-family="'Arial Black', Gadget, sans-serif" font-size="20" font-weight="900" fill="#FFFFFF" text-anchor="middle">24</text>
+
+    <!-- Slot 22 (Dashed) -->
+    <line x1="330" y1="4" x2="330" y2="92" stroke="#D5DBDB" stroke-width="1.5" stroke-dasharray="3 3"/>
+    <text x="363" y="62" font-family="'Arial Black', Gadget, sans-serif" font-size="20" font-weight="900" fill="#FFFFFF" text-anchor="middle">22</text>
+
+    <!-- Slot 20 -->
+    <line x1="396" y1="4" x2="396" y2="92" stroke="#D5DBDB" stroke-width="1.5"/>
+    <text x="429" y="62" font-family="'Arial Black', Gadget, sans-serif" font-size="20" font-weight="900" fill="#FFFFFF" text-anchor="middle">20</text>
+
+    <!-- Slot 18 -->
+    <line x1="462" y1="4" x2="462" y2="92" stroke="#D5DBDB" stroke-width="1.5"/>
+    <text x="495" y="62" font-family="'Arial Black', Gadget, sans-serif" font-size="20" font-weight="900" fill="#FFFFFF" text-anchor="middle">18</text>
+
+
+    <!-- ================= BOTTOM ROW SLOTS (02 / 04 / 06 / 08 / 10 / 12 / 14 / 16) ================= -->
+    <!-- Slot 02 (Hatched) -->
+    <rect x="2" y="194" width="62" height="92" fill="url(#diagonalHatch)"/>
+    <text x="33" y="254" font-family="'Arial Black', Gadget, sans-serif" font-size="20" font-weight="900" fill="#FFFFFF" text-anchor="middle">02</text>
+    
+    <!-- Slot 04 -->
+    <line x1="66" y1="196" x2="66" y2="284" stroke="#D5DBDB" stroke-width="1.5"/>
+    <text x="99" y="254" font-family="'Arial Black', Gadget, sans-serif" font-size="20" font-weight="900" fill="#FFFFFF" text-anchor="middle">04</text>
+    
+    <!-- Slot 06 -->
+    <line x1="132" y1="196" x2="132" y2="284" stroke="#D5DBDB" stroke-width="1.5"/>
+    <text x="165" y="254" font-family="'Arial Black', Gadget, sans-serif" font-size="20" font-weight="900" fill="#FFFFFF" text-anchor="middle">06</text>
+    
+    <!-- Slot 08 (Dashed) -->
+    <line x1="198" y1="196" x2="198" y2="284" stroke="#D5DBDB" stroke-width="1.5" stroke-dasharray="3 3"/>
+    <text x="231" y="254" font-family="'Arial Black', Gadget, sans-serif" font-size="20" font-weight="900" fill="#FFFFFF" text-anchor="middle">08</text>
+    
+    <!-- Slot 10 -->
+    <line x1="264" y1="196" x2="264" y2="284" stroke="#D5DBDB" stroke-width="1.5"/>
+    <text x="297" y="254" font-family="'Arial Black', Gadget, sans-serif" font-size="20" font-weight="900" fill="#FFFFFF" text-anchor="middle">10</text>
+
+    <!-- Slot 12 (Dashed) -->
+    <line x1="330" y1="196" x2="330" y2="284" stroke="#D5DBDB" stroke-width="1.5" stroke-dasharray="3 3"/>
+    <text x="363" y="254" font-family="'Arial Black', Gadget, sans-serif" font-size="20" font-weight="900" fill="#FFFFFF" text-anchor="middle">12</text>
+
+    <!-- Slot 14 -->
+    <line x1="396" y1="196" x2="396" y2="284" stroke="#D5DBDB" stroke-width="1.5"/>
+    <text x="429" y="254" font-family="'Arial Black', Gadget, sans-serif" font-size="20" font-weight="900" fill="#FFFFFF" text-anchor="middle">14</text>
+
+    <!-- Slot 16 -->
+    <line x1="462" y1="196" x2="462" y2="284" stroke="#D5DBDB" stroke-width="1.5"/>
+    <text x="495" y="254" font-family="'Arial Black', Gadget, sans-serif" font-size="20" font-weight="900" fill="#FFFFFF" text-anchor="middle">16</text>
+
+    <!-- Pin Alignment Hardware Indicators (Top and Bottom Rows) -->
+    <g fill="#D5DBDB">
+      <!-- Top Alignment Arrows -->
+      <path d="M 91 6 L 94 11 L 88 11 Z M 107 6 L 110 11 L 104 11 Z M 157 6 L 160 11 L 154 11 Z M 173 6 L 176 11 L 170 11 Z M 223 6 L 226 11 L 220 11 Z M 239 6 L 242 11 L 236 11 Z M 289 6 L 292 11 L 286 11 Z M 305 6 L 308 11 L 302 11 Z M 355 6 L 358 11 L 352 11 Z M 371 6 L 374 11 L 368 11 Z M 421 6 L 424 11 L 418 11 Z M 437 6 L 440 11 L 434 11 Z M 487 6 L 490 11 L 484 11 Z M 503 6 L 506 11 L 500 11 Z"/>
+      <!-- Bottom Alignment Arrows -->
+      <path d="M 91 282 L 94 277 L 88 277 Z M 107 282 L 110 277 L 104 277 Z M 157 282 L 160 277 L 154 277 Z M 173 282 L 176 277 L 170 277 Z M 223 282 L 226 277 L 220 277 Z M 239 282 L 242 277 L 236 277 Z M 289 282 L 292 277 L 286 277 Z M 305 282 L 308 277 L 302 277 Z M 355 282 L 358 277 L 352 277 Z M 371 282 L 374 277 L 368 277 Z M 421 282 L 424 277 L 418 277 Z M 437 282 L 440 277 L 434 277 Z M 487 282 L 490 277 L 484 277 Z M 503 282 L 506 277 L 500 277 Z"/>
+    </g>
+  </g>
+</svg>

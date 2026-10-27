@@ -1,0 +1,139 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="100%" height="100%">
+  <defs>
+    <!-- Matte orange outer casing -->
+    <linearGradient id="orangeRim" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF8A00" />
+      <stop offset="100%" stop-color="#D05F00" />
+    </linearGradient>
+    
+    <!-- Dark industrial plastic chassis -->
+    <linearGradient id="darkChassis" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#3A3F42" />
+      <stop offset="50%" stop-color="#2B2E30" />
+      <stop offset="100%" stop-color="#1F2122" />
+    </linearGradient>
+    
+    <!-- Metallic industrial screw heads -->
+    <radialGradient id="screwHead" cx="30%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#7A8285" />
+      <stop offset="60%" stop-color="#43474A" />
+      <stop offset="100%" stop-color="#202224" />
+    </radialGradient>
+
+    <!-- LCD Screen subtle matrix gradient -->
+    <linearGradient id="lcdScreen" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#090A0A" />
+      <stop offset="100%" stop-color="#020202" />
+    </linearGradient>
+  </defs>
+
+  <!-- Outer Orange Polycarbonate Rim -->
+  <rect x="10" y="10" width="380" height="380" rx="46" fill="url(#orangeRim)" stroke="#A04000" stroke-width="1.5"/>
+
+  <!-- Main Dark Matte Housing -->
+  <rect x="15" y="15" width="370" height="370" rx="38" fill="url(#darkChassis)" stroke="#111213" stroke-width="2"/>
+  
+  <!-- Inner Frame Shadow and Bezel Cutout -->
+  <rect x="48" y="48" width="304" height="304" rx="18" fill="none" stroke="#181A1B" stroke-width="5" opacity="0.8"/>
+  <rect x="52" y="52" width="296" height="296" rx="14" fill="#1C1E20" />
+
+  <!-- Industrial Corner Screws -->
+  <!-- Top Left -->
+  <g transform="translate(42, 42)">
+    <circle cx="0" cy="0" r="11" fill="url(#screwHead)" stroke="#111" stroke-width="1"/>
+    <circle cx="0" cy="0" r="7.5" fill="none" stroke="#222" stroke-width="0.75"/>
+    <line x1="-4.5" y1="-4.5" x2="4.5" y2="4.5" stroke="#1A1B1C" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="-4.5" y1="4.5" x2="4.5" y2="-4.5" stroke="#1A1B1C" stroke-width="2.5" stroke-linecap="round"/>
+  </g>
+  <!-- Top Right -->
+  <g transform="translate(358, 42)">
+    <circle cx="0" cy="0" r="11" fill="url(#screwHead)" stroke="#111" stroke-width="1"/>
+    <circle cx="0" cy="0" r="7.5" fill="none" stroke="#222" stroke-width="0.75"/>
+    <line x1="-4.5" y1="-1.5" x2="4.5" y2="1.5" stroke="#1A1B1C" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="-1.5" y1="4.5" x2="1.5" y2="-4.5" stroke="#1A1B1C" stroke-width="2.5" stroke-linecap="round"/>
+  </g>
+  <!-- Bottom Left -->
+  <g transform="translate(42, 358)">
+    <circle cx="0" cy="0" r="11" fill="url(#screwHead)" stroke="#111" stroke-width="1"/>
+    <circle cx="0" cy="0" r="7.5" fill="none" stroke="#222" stroke-width="0.75"/>
+    <line x1="-1.5" y1="-4.5" x2="1.5" y2="4.5" stroke="#1A1B1C" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="-4.5" y1="-1.5" x2="4.5" y2="1.5" stroke="#1A1B1C" stroke-width="2.5" stroke-linecap="round"/>
+  </g>
+  <!-- Bottom Right -->
+  <g transform="translate(358, 358)">
+    <circle cx="0" cy="0" r="11" fill="url(#screwHead)" stroke="#111" stroke-width="1"/>
+    <circle cx="0" cy="0" r="7.5" fill="none" stroke="#222" stroke-width="0.75"/>
+    <line x1="-4.5" y1="-4.5" x2="4.5" y2="4.5" stroke="#1A1B1C" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="-4.5" y1="4.5" x2="4.5" y2="-4.5" stroke="#1A1B1C" stroke-width="2.5" stroke-linecap="round"/>
+  </g>
+
+  <!-- Left Side Web Diagnostic Status LEDs -->
+  <!-- MD button pinhole (transparent ring = simulator hit area) -->
+  <g data-part="md">
+    <circle cx="30" cy="105" r="9" fill="transparent"/>
+    <circle cx="30" cy="105" r="1.5" fill="#151718"/>
+  </g>
+  <!-- Ethernet link (orange) -->
+  <g data-part="link-led">
+    <circle cx="30" cy="130" r="4" fill="#f68200" stroke="#005511" stroke-width="1"/>
+    <circle cx="28.5" cy="128.5" r="1" fill="#FFF" opacity="0.7"/>
+  </g>
+  <!-- Blue bar, 5 segments, top = first shifted bit -->
+  <g data-part="blue-led-0">
+    <circle cx="30" cy="151" r="4" fill="#0033FF" stroke="#001155" stroke-width="1"/>
+    <circle cx="28.5" cy="149.5" r="1" fill="#FFF" opacity="0.7"/>
+  </g>
+  <g data-part="blue-led-1">
+    <circle cx="30" cy="170" r="4" fill="#0033FF" stroke="#001155" stroke-width="1"/>
+    <circle cx="28.5" cy="168.5" r="1" fill="#FFF" opacity="0.7"/>
+  </g>
+  <g data-part="blue-led-2">
+    <circle cx="30" cy="189" r="4" fill="#0033FF" stroke="#001155" stroke-width="1"/>
+    <circle cx="28.5" cy="187.5" r="1" fill="#FFF" opacity="0.7"/>
+  </g>
+  <g data-part="blue-led-3">
+    <circle cx="30" cy="208" r="4" fill="#0033FF" stroke="#001155" stroke-width="1"/>
+    <circle cx="28.5" cy="206.5" r="1" fill="#FFF" opacity="0.7"/>
+  </g>
+  <g data-part="blue-led-4">
+    <circle cx="30" cy="227" r="4" fill="#0033FF" stroke="#001155" stroke-width="1"/>
+    <circle cx="28.5" cy="225.5" r="1" fill="#FFF" opacity="0.7"/>
+  </g>
+  <!-- Status red / green -->
+  <g data-part="red-led">
+    <circle cx="30" cy="250" r="4" fill="#FF0000" stroke="#0A1A0F" stroke-width="1"/>
+    <circle cx="28.5" cy="248.5" r="1" fill="#FFF" opacity="0.7"/>
+  </g>
+  <g data-part="green-led">
+    <circle cx="30" cy="270" r="4" fill="#00FF00" stroke="#0A1A0F" stroke-width="1"/>
+    <circle cx="28.5" cy="268.5" r="1" fill="#FFF" opacity="0.7"/>
+  </g>
+
+  <!-- Right Side Molded Extraction Guide Channels -->
+  <path d="M 370 176 L 352 176 A 3.5 3.5 0 1 1 352 169 L 370 169" fill="none" stroke="#1A1B1C" stroke-width="2" stroke-linecap="round"/>
+  <path d="M 370 201 L 352 201 A 3.5 3.5 0 1 1 352 194 L 370 194" fill="none" stroke="#1A1B1C" stroke-width="2" stroke-linecap="round"/>
+
+  <!-- Main Faceplate Elements Inner Window -->
+  <g transform="translate(56, 56)">
+    <!-- Device Model Label (Top Right Configuration) -->
+    <text x="276" y="26" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="bold" fill="#8A99A0" text-anchor="end" letter-spacing="0.5">TPB2L</text>
+
+    <!-- Central Integrated LCD Display Screen -->
+    <rect data-part="lcd" x="12" y="42" width="264" height="190" fill="url(#lcdScreen)" stroke="#111314" stroke-width="1.5" rx="2"/>
+    
+    <!-- Glossy reflection overlay on display screen -->
+    <path d="M 12 42 L 160 42 L 70 232 L 12 232 Z" fill="#FFFFFF" opacity="0.03"/>
+
+    <!-- Bottom Menu Navigation Keys (4 tactile square buttons) -->
+    <g fill="none" stroke="#616F75" stroke-width="2">
+      <!-- Button 1 -->
+      <rect data-part="key-0" x="28" y="248" width="22" height="22" rx="4"/>
+      <!-- Button 2 -->
+      <rect data-part="key-1" x="98" y="248" width="22" height="22" rx="4"/>
+      <!-- Button 3 -->
+      <rect data-part="key-2" x="168" y="248" width="22" height="22" rx="4"/>
+      <!-- Button 4 -->
+      <rect data-part="key-3" x="238" y="248" width="22" height="22" rx="4"/>
+    </g>
+  </g>
+</svg>

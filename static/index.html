@@ -380,6 +380,7 @@
                         <button type="submit">Set Interface</button>
                     </div>
                 </form>
+                <p id="simLink" hidden>Simulated devices (interface <code>renode-sim</code>): <a target="_blank" rel="noopener">open simulator</a></p>
             </div>
 
             <!-- Proxy Config -->
@@ -783,12 +784,25 @@
             return false;
         }
 
+        async function getSim() {
+            try {
+                const sim = await (await fetch('/sim')).json();
+                if (sim.relay) {
+                    const p = document.getElementById('simLink');
+                    p.querySelector('a').href = sim.url;
+                    p.hidden = false;
+                }
+            } catch (e) {
+            }
+        }
+
         // Initialize
         initSocket();
         getProxy();
         getInterfaces();
         refresh();
         getADKs();
+        getSim();
 
         // Add event listener for target device input
         document.getElementById('targetDevice').addEventListener('change', handleTargetDeviceChange);

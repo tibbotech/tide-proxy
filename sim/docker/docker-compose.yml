@@ -1,0 +1,25 @@
+# Renode simulator for Tibbo TPP boards.
+#   docker compose -f sim/docker/docker-compose.yml up --build
+# Web UI: http://localhost:3100   tide-proxy relay: udp://localhost:65530
+services:
+  tpp-sim:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: tibbo/tpp-sim:latest
+    container_name: tpp-sim
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    sysctls:
+      net.ipv4.conf.all.rp_filter: "0"
+      net.ipv4.conf.default.rp_filter: "0"
+    ports:
+      - "3100:3100/tcp"
+      - "65530:65530/udp"
+      # Instance n's device web server (port 80) on 18000+n.
+      - "18001-18032:18001-18032/tcp"
+    volumes:
+      - ./sim-data:/data
+    restart: unless-stopped

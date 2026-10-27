@@ -55,11 +55,33 @@ export interface TIDEProxyOptions {
     port?: number;
     targetInterface?: string;
     toolPaths?: TIDEProxyToolPaths;
+    /** host:port of the Renode simulator's UDP relay (sim/). Defaults to TIDE_PROXY_SIM_RELAY. */
+    simRelay?: string;
+}
+
+/** Interface name under which simulated devices (sim/ Renode relay) appear. */
+export const SIM_RELAY_INTERFACE = 'renode-sim';
+
+interface SimRelay {
+    host: string;
+    port: number;
 }
 
 interface TBNetworkInterface {
     socket: dgram.Socket,
-    netInterface: any
+    netInterface: any,
+    /** Set for the simulator relay: packets go unicast to the relay instead of broadcast. */
+    relay?: SimRelay
+}
+
+function parseSimRelay(value?: string): SimRelay | undefined {
+    if (!value) {
+        return undefined;
+    }
+    const idx = value.lastIndexOf(':');
+    const host = idx > 0 ? value.slice(0, idx) : value;
+    const port = idx > 0 ? parseInt(value.slice(idx + 1), 10) : 65530;
+    return { host, port: port || 65530 };
 }
 
 const LOG_SILENT = process.env.TIDE_PROXY_VERBOSE ? false : true;
@@ -280,6 +302,7 @@ export class TIDEProxy {
     lastInterfaceState: string = '';
     toolPaths: TIDEProxyToolPaths;
     gdbProxyServer?: GdbProxyServer;
+    simRelay?: SimRelay;
 
     constructor(serverAddress: string, proxyName: string, port?: number, targetInterface?: string, options?: TIDEProxyOptions);
     constructor(options: TIDEProxyOptions);
@@ -296,6 +319,7 @@ export class TIDEProxy {
         let actualPort: number;
         let actualTargetInterface: string | undefined;
         let toolPaths: TIDEProxyToolPaths;
+        let simRelay: string | undefined;
 
         if (typeof serverAddressOrOptions === 'object') {
             // New options-based constructor
@@ -304,6 +328,7 @@ export class TIDEProxy {
             actualPort = serverAddressOrOptions.port || 3535;
             actualTargetInterface = serverAddressOrOptions.targetInterface;
             toolPaths = serverAddressOrOptions.toolPaths || {};
+            simRelay = serverAddressOrOptions.simRelay;
         } else {
             // Legacy constructor
             serverAddress = serverAddressOrOptions;
@@ -311,7 +336,9 @@ export class TIDEProxy {
             actualPort = port;
             actualTargetInterface = targetInterface;
             toolPaths = options?.toolPaths || {};
+            simRelay = options?.simRelay;
         }
+        this.simRelay = parseSimRelay(simRelay || process.env.TIDE_PROXY_SIM_RELAY);
 
         // Set default tool paths based on platform
         const isWindows = process.platform === 'win32';
@@ -406,8 +433,43 @@ export class TIDEProxy {
             }
         }
 
+        if (this.simRelay) {
+            const int = this.createSimRelayInterface(this.simRelay);
+            this.interfaces.push(int);
+            if (targetInterface === SIM_RELAY_INTERFACE) {
+                this.currentInterface = int;
+            }
+        }
+
         // Clean up old interfaces after new ones are ready
         this.cleanupOldInterfaces(oldInterfaces);
+    }
+
+    /** Pseudo-interface reaching simulated devices through the Renode simulator's UDP relay. */
+    private createSimRelayInterface(relay: SimRelay): TBNetworkInterface {
+        const socket = dgram.createSocket({ type: 'udp4' });
+        const int: TBNetworkInterface = {
+            socket: socket,
+            netInterface: {
+                name: SIM_RELAY_INTERFACE,
+                address: `${relay.host}:${relay.port}`,
+                netmask: '255.255.255.255',
+                family: 'IPv4',
+                internal: false,
+            },
+            relay: relay,
+        };
+        socket.on('error', (err) => {
+            logger.error(`Simulator relay socket error:\n${err.stack}`);
+            socket.close();
+        });
+        socket.on('message', (msg: Buffer, info) => {
+            this.handleMessage(msg, info, int);
+        });
+        socket.bind(0, () => {
+            logger.info(`Simulator relay at ${relay.host}:${relay.port}`);
+        });
+        return int;
     }
 
     private clearPendingOperations(): void {
@@ -2149,6 +2211,20 @@ export class TIDEProxy {
     }
 
     /**
+     * Where a packet for this interface goes: the subnet broadcast on port 65535,
+     * or the simulator relay (which rebroadcasts on the simulated LAN).
+     */
+    private getDestination(int: TBNetworkInterface): { address: string, port: number } {
+        if (int.relay) {
+            return { address: int.relay.host, port: int.relay.port };
+        }
+        return {
+            address: this.getBroadcastAddress(int.netInterface.address, int.netInterface.netmask),
+            port: PORT,
+        };
+    }
+
+    /**
      * Calculate the broadcast address for a given IP and netmask
      */
     private getBroadcastAddress(ipAddress: string, netmask: string): string {
@@ -2221,12 +2297,9 @@ export class TIDEProxy {
         }
 
         try {
-            const broadcastAddress = this.getBroadcastAddress(
-                targetInterface.netInterface.address,
-                targetInterface.netInterface.netmask
-            );
+            const dest = this.getDestination(targetInterface);
 
-            this.sendToSocket(targetInterface.socket, message, broadcastAddress, PORT)
+            this.sendToSocket(targetInterface.socket, message, dest.address, dest.port)
                 .catch(err => {
                     logger.error('Error sending to specific interface:', err.message);
                 });
@@ -2246,12 +2319,9 @@ export class TIDEProxy {
             }
 
             try {
-                const broadcastAddress = this.getBroadcastAddress(
-                    interfaceItem.netInterface.address,
-                    interfaceItem.netInterface.netmask
-                );
+                const dest = this.getDestination(interfaceItem);
 
-                this.sendToSocket(interfaceItem.socket, message, broadcastAddress, PORT)
+                this.sendToSocket(interfaceItem.socket, message, dest.address, dest.port)
                     .catch(err => {
                         logger.error(`Error sending to interface ${index}:`, err.message);
                     });

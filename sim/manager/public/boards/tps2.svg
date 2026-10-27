@@ -1,0 +1,175 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="100%" height="100%">
+  <defs>
+    <!-- Matte orange outer casing -->
+    <linearGradient id="orangeRim" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF8A00" />
+      <stop offset="100%" stop-color="#D05F00" />
+    </linearGradient>
+    
+    <!-- Dark industrial plastic chassis -->
+    <linearGradient id="darkChassis" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#3A3F42" />
+      <stop offset="50%" stop-color="#2B2E30" />
+      <stop offset="100%" stop-color="#1F2122" />
+    </linearGradient>
+    
+    <!-- Metallic industrial screw heads -->
+    <radialGradient id="screwHead" cx="30%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#7A8285" />
+      <stop offset="60%" stop-color="#43474A" />
+      <stop offset="100%" stop-color="#202224" />
+    </radialGradient>
+    
+    <!-- Semi-translucent white panel bays -->
+    <linearGradient id="whitePanel" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FDFEFE" />
+      <stop offset="100%" stop-color="#EAECEE" />
+    </linearGradient>
+    
+    <!-- Diagonal hatch pattern for system slots (TPB2 and 02) -->
+    <pattern id="diagonalHatch" width="8" height="8" patternTransform="rotate(45 0 0)" patternUnits="userSpaceOnUse">
+      <line x1="0" y1="0" x2="0" y2="8" stroke="#D5DBDB" stroke-width="2.5" />
+    </pattern>
+  </defs>
+
+  <!-- Outer Orange Polycarbonate Rim -->
+  <rect x="10" y="10" width="380" height="380" rx="46" fill="url(#orangeRim)" stroke="#A04000" stroke-width="1.5"/>
+
+  <!-- Main Dark Matte Housing -->
+  <rect x="15" y="15" width="370" height="370" rx="38" fill="url(#darkChassis)" stroke="#111213" stroke-width="2"/>
+  
+  <!-- Inner Frame Shadow and Bezel Cutout -->
+  <rect x="48" y="48" width="304" height="304" rx="18" fill="none" stroke="#181A1B" stroke-width="5" opacity="0.8"/>
+  <rect x="52" y="52" width="296" height="296" rx="14" fill="#0D0E0F" />
+
+  <!-- Industrial Corner Screws -->
+  <!-- Top Left -->
+  <g transform="translate(42, 42)">
+    <circle cx="0" cy="0" r="11" fill="url(#screwHead)" stroke="#111" stroke-width="1"/>
+    <circle cx="0" cy="0" r="7.5" fill="none" stroke="#222" stroke-width="0.75"/>
+    <line x1="-4.5" y1="-4.5" x2="4.5" y2="4.5" stroke="#1A1B1C" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="-4.5" y1="4.5" x2="4.5" y2="-4.5" stroke="#1A1B1C" stroke-width="2.5" stroke-linecap="round"/>
+  </g>
+  <!-- Top Right -->
+  <g transform="translate(358, 42)">
+    <circle cx="0" cy="0" r="11" fill="url(#screwHead)" stroke="#111" stroke-width="1"/>
+    <circle cx="0" cy="0" r="7.5" fill="none" stroke="#222" stroke-width="0.75"/>
+    <line x1="-4.5" y1="-1.5" x2="4.5" y2="1.5" stroke="#1A1B1C" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="-1.5" y1="4.5" x2="1.5" y2="-4.5" stroke="#1A1B1C" stroke-width="2.5" stroke-linecap="round"/>
+  </g>
+  <!-- Bottom Left -->
+  <g transform="translate(42, 358)">
+    <circle cx="0" cy="0" r="11" fill="url(#screwHead)" stroke="#111" stroke-width="1"/>
+    <circle cx="0" cy="0" r="7.5" fill="none" stroke="#222" stroke-width="0.75"/>
+    <line x1="-1.5" y1="-4.5" x2="1.5" y2="4.5" stroke="#1A1B1C" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="-4.5" y1="-1.5" x2="4.5" y2="1.5" stroke="#1A1B1C" stroke-width="2.5" stroke-linecap="round"/>
+  </g>
+  <!-- Bottom Right -->
+  <g transform="translate(358, 358)">
+    <circle cx="0" cy="0" r="11" fill="url(#screwHead)" stroke="#111" stroke-width="1"/>
+    <circle cx="0" cy="0" r="7.5" fill="none" stroke="#222" stroke-width="0.75"/>
+    <line x1="-4.5" y1="-4.5" x2="4.5" y2="4.5" stroke="#1A1B1C" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="-4.5" y1="4.5" x2="4.5" y2="-4.5" stroke="#1A1B1C" stroke-width="2.5" stroke-linecap="round"/>
+  </g>
+
+  <!-- Left Side Web Diagnostic Status LEDs -->
+  <!-- MD button pinhole (transparent ring = simulator hit area) -->
+  <g data-part="md">
+    <circle cx="30" cy="105" r="9" fill="transparent"/>
+    <circle cx="30" cy="105" r="1.5" fill="#151718"/>
+  </g>
+  <!-- Ethernet link (orange) -->
+  <g data-part="link-led">
+    <circle cx="30" cy="130" r="4" fill="#f68200" stroke="#005511" stroke-width="1"/>
+    <circle cx="28.5" cy="128.5" r="1" fill="#FFF" opacity="0.7"/>
+  </g>
+  <!-- Blue bar, 5 segments, top = first shifted bit -->
+  <g data-part="blue-led-0">
+    <circle cx="30" cy="151" r="4" fill="#0033FF" stroke="#001155" stroke-width="1"/>
+    <circle cx="28.5" cy="149.5" r="1" fill="#FFF" opacity="0.7"/>
+  </g>
+  <g data-part="blue-led-1">
+    <circle cx="30" cy="170" r="4" fill="#0033FF" stroke="#001155" stroke-width="1"/>
+    <circle cx="28.5" cy="168.5" r="1" fill="#FFF" opacity="0.7"/>
+  </g>
+  <g data-part="blue-led-2">
+    <circle cx="30" cy="189" r="4" fill="#0033FF" stroke="#001155" stroke-width="1"/>
+    <circle cx="28.5" cy="187.5" r="1" fill="#FFF" opacity="0.7"/>
+  </g>
+  <g data-part="blue-led-3">
+    <circle cx="30" cy="208" r="4" fill="#0033FF" stroke="#001155" stroke-width="1"/>
+    <circle cx="28.5" cy="206.5" r="1" fill="#FFF" opacity="0.7"/>
+  </g>
+  <g data-part="blue-led-4">
+    <circle cx="30" cy="227" r="4" fill="#0033FF" stroke="#001155" stroke-width="1"/>
+    <circle cx="28.5" cy="225.5" r="1" fill="#FFF" opacity="0.7"/>
+  </g>
+  <!-- Status red / green -->
+  <g data-part="red-led">
+    <circle cx="30" cy="250" r="4" fill="#FF0000" stroke="#0A1A0F" stroke-width="1"/>
+    <circle cx="28.5" cy="248.5" r="1" fill="#FFF" opacity="0.7"/>
+  </g>
+  <g data-part="green-led">
+    <circle cx="30" cy="270" r="4" fill="#00FF00" stroke="#0A1A0F" stroke-width="1"/>
+    <circle cx="28.5" cy="268.5" r="1" fill="#FFF" opacity="0.7"/>
+  </g>
+
+  <!-- Right Side Molded Extraction Guide Channels -->
+  <path d="M 370 176 L 352 176 A 3.5 3.5 0 1 1 352 169 L 370 169" fill="none" stroke="#1A1B1C" stroke-width="2" stroke-linecap="round"/>
+  <path d="M 370 201 L 352 201 A 3.5 3.5 0 1 1 352 194 L 370 194" fill="none" stroke="#1A1B1C" stroke-width="2" stroke-linecap="round"/>
+
+  <!-- Main Viewport Window (Sub-bays & Processor Bar) -->
+  <g transform="translate(56, 56)">
+    <!-- Top Modular Bay Array -->
+    <rect x="0" y="0" width="288" height="96" fill="url(#whitePanel)"/>
+    
+    <!-- Bottom Modular Bay Array -->
+    <rect x="0" y="192" width="288" height="96" fill="url(#whitePanel)"/>
+    
+    <!-- Center Glossy Core Bus Bar -->
+    <rect x="0" y="96" width="288" height="96" fill="#050607"/>
+    <!-- Diagnostic specular sheen highlight -->
+    <path d="M 0 96 L 140 96 L 45 192 L 0 192 Z" fill="#FFFFFF" opacity="0.04"/>
+
+    <!-- ================= TOP ROW SLOTS ================= -->
+    <!-- Slot 01 / Main Identifier (Hatched) -->
+    <rect x="2" y="2" width="70" height="92" fill="url(#diagonalHatch)"/>
+    <text x="37" y="60" font-family="'Arial Black', Gadget, sans-serif" font-size="15" font-weight="900" fill="#FFFFFF" text-anchor="middle" letter-spacing="-0.5">TPB2</text>
+    
+    <!-- Slot 13 -->
+    <line x1="74" y1="4" x2="74" y2="92" stroke="#D5DBDB" stroke-width="1.5"/>
+    <text x="111" y="62" font-family="'Arial Black', Gadget, sans-serif" font-size="22" font-weight="900" fill="#FFFFFF" text-anchor="middle">13</text>
+    
+    <!-- Slot 12 (Dashed Boundary) -->
+    <line x1="148" y1="4" x2="148" y2="92" stroke="#D5DBDB" stroke-width="1.5" stroke-dasharray="3 3"/>
+    <text x="185" y="62" font-family="'Arial Black', Gadget, sans-serif" font-size="22" font-weight="900" fill="#FFFFFF" text-anchor="middle">12</text>
+    
+    <!-- Slot 10 -->
+    <line x1="222" y1="4" x2="222" y2="92" stroke="#D5DBDB" stroke-width="1.5"/>
+    <text x="259" y="62" font-family="'Arial Black', Gadget, sans-serif" font-size="22" font-weight="900" fill="#FFFFFF" text-anchor="middle">10</text>
+
+
+    <!-- ================= BOTTOM ROW SLOTS ================= -->
+    <!-- Slot 02 (Hatched) -->
+    <rect x="2" y="194" width="70" height="92" fill="url(#diagonalHatch)"/>
+    <text x="37" y="254" font-family="'Arial Black', Gadget, sans-serif" font-size="22" font-weight="900" fill="#FFFFFF" text-anchor="middle">02</text>
+    
+    <!-- Slot 04 -->
+    <line x1="74" y1="196" x2="74" y2="284" stroke="#D5DBDB" stroke-width="1.5"/>
+    <text x="111" y="254" font-family="'Arial Black', Gadget, sans-serif" font-size="22" font-weight="900" fill="#FFFFFF" text-anchor="middle">04</text>
+    
+    <!-- Slot 06 -->
+    <line x1="148" y1="196" x2="148" y2="284" stroke="#D5DBDB" stroke-width="1.5"/>
+    <text x="185" y="254" font-family="'Arial Black', Gadget, sans-serif" font-size="22" font-weight="900" fill="#FFFFFF" text-anchor="middle">06</text>
+    
+    <!-- Slot 08 (Dashed Boundary) -->
+    <line x1="222" y1="196" x2="222" y2="284" stroke="#D5DBDB" stroke-width="1.5" stroke-dasharray="3 3"/>
+    <text x="259" y="254" font-family="'Arial Black', Gadget, sans-serif" font-size="22" font-weight="900" fill="#FFFFFF" text-anchor="middle">08</text>
+
+    <!-- Pin Alignment Indicators (Siemens Micro-Arrows) -->
+    <!-- Top row indicators -->
+    <path d="M 103 6 L 106 11 L 100 11 Z M 119 6 L 122 11 L 116 11 Z M 177 6 L 180 11 L 174 11 Z M 193 6 L 196 11 L 190 11 Z M 251 6 L 254 11 L 248 11 Z M 267 6 L 270 11 L 264 11 Z" fill="#D5DBDB"/>
+    <!-- Bottom row indicators -->
+    <path d="M 103 282 L 106 277 L 100 277 Z M 119 282 L 122 277 L 116 277 Z M 177 282 L 180 277 L 174 277 Z M 193 282 L 196 277 L 190 277 Z M 251 282 L 254 277 L 248 277 Z M 267 282 L 270 277 L 264 277 Z" fill="#D5DBDB"/>
+  </g>
+</svg>
