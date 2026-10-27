@@ -20,7 +20,7 @@ ARG TARGETARCH
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        ca-certificates curl iproute2 iputils-ping dnsmasq-base libicu74 python3 \
+        ca-certificates curl iproute2 iptables iputils-ping dnsmasq-base libicu74 python3 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN case "${TARGETARCH:-$(dpkg --print-architecture)}" in \
