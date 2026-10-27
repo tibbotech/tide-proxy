@@ -46,8 +46,8 @@ export function defaultProfile(board: Board): BoardProfile {
         uarts: ['usart1', 'usart2', 'usart3', 'uart5', 'usart6'],
         buttons: [{ id: 'mdbutton', label: 'MD', port: 'B', pin: 10, activeLow: true }],
         leds: [
-            { id: 'green_led_gpio', label: 'green', port: 'B', pin: 14, activeLow: false },
-            { id: 'red_led_gpio', label: 'red', port: 'B', pin: 15, activeLow: false },
+            { id: 'green_led_gpio', label: 'green', port: 'B', pin: 14, activeLow: true },
+            { id: 'red_led_gpio', label: 'red', port: 'B', pin: 15, activeLow: true },
         ],
         lcd: board.startsWith('tpp2') ? { width: 320, height: 240 } : undefined,
     };
@@ -70,6 +70,13 @@ export function loadFirmware(dir: string): FirmwareInfo | undefined {
     }
     const info = JSON.parse(fs.readFileSync(meta, 'utf8')) as FirmwareInfo;
     info.elfPath = path.join(dir, 'zephyr.elf');
+    // Re-read the DTS rather than trust the saved profile, so parser fixes reach existing instances.
+    const dtsPath = path.join(dir, 'zephyr.dts');
+    if (info.hasDts && fs.existsSync(dtsPath)) {
+        info.profile = boardProfile(fs.readFileSync(dtsPath, 'utf8'));
+    } else if (!info.hasDts && isBoard(info.profile.board)) {
+        info.profile = defaultProfile(info.profile.board);
+    }
     return info;
 }
 

@@ -190,6 +190,8 @@ function gpioRef(value: string | true | undefined, byLabel: Map<string, DtsNode>
     return { port, pin: toNum(c[1]), activeLow: (toNum(c[2]) & 1) === 1 };
 }
 
+const STATUS_LEDS = new Set(['green_led_gpio', 'red_led_gpio']);
+
 function okay(node: DtsNode): boolean {
     const s = strings(node.props['status'])[0];
     return s === undefined || s === 'okay';
@@ -246,10 +248,14 @@ export function boardProfile(dtsText: string): BoardProfile {
             for (const k of n.children) {
                 const ref = gpioRef(k.props['gpios'], byLabel);
                 if (ref) {
+                    const id = k.labels[0] || k.name;
                     profile.leds.push({
-                        id: k.labels[0] || k.name,
+                        id,
                         label: strings(k.props['label'])[0] || k.name.replace(/_gpio$/, '').replace(/_/g, ' '),
                         ...ref,
+                        // tpp_g2/g3.dtsi declare these GPIO_ACTIVE_HIGH, but the board sinks them (the
+                        // app inverts in software, LED_ACTIVE_LOW in led_pattern.c): a low pin is lit.
+                        activeLow: STATUS_LEDS.has(id) || ref.activeLow,
                     });
                 }
             }
