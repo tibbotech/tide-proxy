@@ -142,17 +142,21 @@ function parseAddress(v: any): number | undefined {
     return n;
 }
 
-// Body: { board: 'tpp2g2'|'tpp3g2'|'tpp2g3'|'tpp3g3', name?, count?, start?, ...files (see firmwareUpload) }.
+// Body: { board: 'tpp2g2'|'tpp3g2'|'tpp2g3'|'tpp3g3', name?, count?, start?, index?, ...files (see firmwareUpload) }.
 // Without an elf the instance has no app: it boots into its monitor's Loader for an upload over UDP,
 // or waits for an upload. Without a bin it uses the generation's default monitor, if one is set.
+// index (with count 1) picks the instance number, and so its MAC, IP and ports; it must be free.
 app.post('/api/instances', api(async (req) => {
-    const { board, name, count, start } = req.body || {};
+    const { board, name, count, start, index } = req.body || {};
     const upload = firmwareUpload(req.body);
     const n = Math.max(1, Math.min(16, parseInt(count, 10) || 1));
+    if (index !== undefined && n > 1) {
+        throw new Error('index needs count 1');
+    }
     const created: Instance[] = [];
     try {
         for (let i = 0; i < n; i++) {
-            created.push(await manager.create({ board, upload, name: n > 1 && name ? `${name} ${i + 1}` : name, start }));
+            created.push(await manager.create({ board, upload, name: n > 1 && name ? `${name} ${i + 1}` : name, start, index }));
         }
     } finally {
         broadcastInstances();

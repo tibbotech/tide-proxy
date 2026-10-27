@@ -598,12 +598,23 @@ export class InstanceManager extends EventEmitter {
         board: Board;
         upload?: FirmwareUpload;
         start?: boolean;
+        // Fixes the instance's number, and so its MAC, IP and ports (for firmware built for known addresses).
+        index?: number;
     }): Promise<Instance> {
         if (!isBoard(opts.board)) {
             throw new Error('board must be tpp2g2, tpp3g2, tpp2g3 or tpp3g3');
         }
         const used = new Set(this.list().map((i) => i.cfg.index));
         let index = 1;
+        if (opts.index !== undefined) {
+            index = Number(opts.index);
+            if (!Number.isInteger(index) || index < 1 || index > config.maxInstances) {
+                throw new Error(`index must be 1-${config.maxInstances}`);
+            }
+            if (used.has(index)) {
+                throw new Error(`index ${index} is in use`);
+            }
+        }
         while (used.has(index)) {
             index++;
         }
