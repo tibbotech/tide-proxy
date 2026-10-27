@@ -23,6 +23,9 @@ export const config = {
     monitorPortBase: num('SIM_MONITOR_PORT_BASE', 41000),
     bridgePortBase: num('SIM_BRIDGE_PORT_BASE', 42000),
     uartPortBase: num('SIM_UART_PORT_BASE', 43000),
+    // CPU speed (MIPS) while an instance runs the Tibbo monitor/Loader, whose busy loop is expensive
+    // to emulate; the app runs at the board's speed. Lower it if the Loader runs slower than real time.
+    monitorMips: num('SIM_MONITOR_MIPS', 6),
     // MAC prefix for instance n: <prefix>:<n hex>. 00:24:77 is Tibbo's OUI.
     macPrefix: process.env.SIM_MAC_PREFIX || '00:24:77:fe:00',
     // Manage TAP devices and dnsmasq host entries (off when running without root/bridge).

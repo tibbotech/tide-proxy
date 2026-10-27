@@ -17,6 +17,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -25,6 +26,8 @@ using System.Threading;
 using Antmicro.Renode.Core;
 using Antmicro.Renode.Logging;
 using Antmicro.Renode.Peripherals.Bus;
+using Antmicro.Renode.Peripherals.CPU;
+using Antmicro.Renode.Peripherals.Timers;
 
 namespace Antmicro.Renode.Peripherals.GPIOPort
 {
@@ -750,6 +753,33 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             }
         }
 
+        // Instances booted through the Tibbo monitor: its Loader never sleeps, it polls the RX
+        // descriptors and the PHY (over MDIO) in a loop. Each MDIO access is a call into the MAC model
+        // that takes host time but almost no virtual time, so at full speed the Loader runs many times
+        // slower than real time. Every 10 ms of virtual time the CPU is set to monitorMips while it
+        // executes the monitor (flash below monitorEnd) and to appMips while it executes the app.
+        public void ThrottleMonitor(ulong monitorEnd, uint monitorMips, uint appMips)
+        {
+            var cpu = machine.SystemBus.GetCPUs().OfType<BaseCPU>().FirstOrDefault();
+            if(cpu == null)
+            {
+                throw new InvalidOperationException("No CPU to throttle");
+            }
+            if(throttleTimer != null)
+            {
+                throttleTimer.Enabled = false;
+            }
+            throttleTimer = new LimitTimer(machine.ClockSource, 1000, this, "monitorThrottle", 10, enabled: true, eventEnabled: true);
+            throttleTimer.LimitReached += () =>
+            {
+                var pc = (ulong)cpu.PC;
+                if(pc >= 0x08000000UL && pc < 0x08000000UL + (ulong)FlashSize)
+                {
+                    cpu.PerformanceInMips = pc < monitorEnd ? monitorMips : appMips;
+                }
+            };
+        }
+
         // Setting the port starts listening (0.0.0.0:<port>).
         public int Port
         {
@@ -774,6 +804,10 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         public void Dispose()
         {
             running = false;
+            if(throttleTimer != null)
+            {
+                throttleTimer.Enabled = false;
+            }
             try
             {
                 listener?.Stop();
@@ -978,6 +1012,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         private int blueBar;
         private int listenPort;
         private TcpListener listener;
+        private LimitTimer throttleTimer;
 
         private readonly IMachine machine;
         private readonly Video.TibboSSD1963 lcd;

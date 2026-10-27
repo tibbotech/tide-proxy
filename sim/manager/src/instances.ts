@@ -356,6 +356,7 @@ export class Instance extends EventEmitter {
         const r = config.renodeDir;
         const hex = (n: number) => '0x' + (n >>> 0).toString(16).padStart(8, '0');
         const gen = this.generation;
+        const mips = gen === 'g3' ? 180 : 120;
         const flash = prepareFlash(this.dir, gen, getMonitor(gen), fw);
         this.monitorBoot = flash.boot === 'monitor';
         let boot: string[];
@@ -367,6 +368,9 @@ export class Instance extends EventEmitter {
                 `sysbus LoadBinary @${flash.file} 0x08000000`,
                 `bridge FlashSize ${FLASH_SIZE[gen]}`,
                 `bridge FlashFile @${flash.file}`,
+                // The monitor's Loader polls the PHY without ever sleeping: run it slowly enough to
+                // keep up with real time, and the app (at APP_BASE - 0x200 and up) at full speed.
+                `bridge ThrottleMonitor ${hex(APP_BASE[gen] - 0x200)} ${config.monitorMips} ${mips}`,
             ];
             // No app to start: power up as if an app had asked for a UDP upload (QF), so the
             // monitor's network Loader waits for one instead of blinking "Update system".
@@ -407,7 +411,7 @@ export class Instance extends EventEmitter {
             `logLevel 3 sysbus.ethernet`,
             `logLevel 3 sysbus.ethernet.phy`,
             ...boot,
-            `cpu PerformanceInMips ${gen === 'g3' ? 180 : 120}`,
+            `cpu PerformanceInMips ${mips}`,
             `eeprom BackingFile @${path.join(this.dir, 'eeprom.bin')}`,
             `eeprom InitMac "${this.mac}"`,
             `spi1.at45 BackingFile @${path.join(this.dir, 'at45.bin')}`,

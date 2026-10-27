@@ -171,11 +171,17 @@ function tiosImage(app: Buffer): Buffer {
 }
 
 // The monitor's check of the installed app: a size header in range and the image's big-endian
-// 16-bit words summing to 0xFFFF (see tiosImage).
+// 16-bit words summing to 0xFFFF (see tiosImage). The monitor doesn't check where the app is linked,
+// so an app built for the other generation (a G2 app uploaded to a G3) passes and crashes into the
+// monitor; such an app, with its reset handler below the app base, counts as no app here.
 function hasValidApp(flash: Buffer, gen: Generation): boolean {
     const hdr = headerOffset(gen);
     const total = (flash[hdr] << 16) | (flash[hdr + 1] << 8) | flash[hdr + 2];
     if (total < 5 || hdr + total > flash.length) {
+        return false;
+    }
+    const appOffset = APP_BASE[gen] - FLASH_START;
+    if (!hasVectors(flash, appOffset, flash.length) || flash.readUInt32LE(appOffset + 4) < APP_BASE[gen]) {
         return false;
     }
     let sum = 0;
