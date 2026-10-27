@@ -60,7 +60,14 @@ function connect() {
                 inst.state = msg.state;
                 updateIndicators(inst);
                 if (S.wiring) updateWiringLive();
+                if (msg.id === S.detail) ioUpdate(inst);
             }
+            break;
+        }
+        case 'pinConfig': {
+            IO.cfg[msg.id] = msg.pinConfig;
+            const inst = S.instances.find((i) => i.id === msg.id);
+            if (inst && msg.id === S.detail) ioUpdate(inst);
             break;
         }
         case 'links':
@@ -471,10 +478,12 @@ function renderDetail() {
         uartSel.hidden = consoles.length < 2;
         termReset();
         $('#renodeLog').textContent = '';
+        ioBuild(inst);
         subscribe();
     }
     updateUdpAttach(inst);
     updateIndicators(inst);
+    ioUpdate(inst);
 }
 
 // The debug-print reader dequeues entries, so it only runs when the user attaches it.
@@ -826,9 +835,14 @@ function setup() {
         document.querySelectorAll('.tab').forEach((x) => x.classList.toggle('active', x === t));
         $('#paneConsole').hidden = t.dataset.tab !== 'console';
         $('#paneLog').hidden = t.dataset.tab !== 'log';
+        $('#paneIo').hidden = t.dataset.tab !== 'io';
         $('#dConsoleTools').style.visibility = t.dataset.tab === 'console' ? 'visible' : 'hidden';
         if (t.dataset.tab === 'console') setTimeout(() => fit && fit.fit(), 0);
-        else $('#renodeLog').scrollTop = $('#renodeLog').scrollHeight;
+        else if (t.dataset.tab === 'log') $('#renodeLog').scrollTop = $('#renodeLog').scrollHeight;
+        else {
+            const inst = S.instances.find((i) => i.id === S.detail);
+            if (inst) ioUpdate(inst);
+        }
     }));
 
     $('#dUdpAttach').onclick = async () => {

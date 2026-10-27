@@ -234,6 +234,12 @@ app.post('/api/instances/:id/input', api((req) => {
 
 app.get('/api/instances/:id/log', api((req) => instance(req).log));
 
+// Pin levels and output masks per port, plus each port's [moder, otyper, pupdr, afrl, afrh, extDriven, extLevel].
+app.get('/api/instances/:id/io', api((req) => {
+    const inst = instance(req);
+    return { pins: inst.state?.pins ?? null, out: inst.state?.out ?? null, config: inst.pinConfig ?? null };
+}));
+
 app.get('/api/instances/:id/console/:uart', (req, res) => {
     const inst = manager.get(req.params.id);
     if (!inst) {
@@ -272,7 +278,7 @@ function applyInput(inst: Instance, body: any): void {
 //                        {t:'console', id, uart, data}
 // Server -> client JSON: {t:'instances', list}, {t:'state', id, state}, {t:'uart', id, uart, data},
 //                        {t:'log', id, line}, {t:'backlog', id, uart, data},
-//                        {t:'links', links, stats}, {t:'linkStats', stats}
+//                        {t:'links', links, stats}, {t:'linkStats', stats}, {t:'pinConfig', id, pinConfig}
 // Server -> client binary: [idLength u8][id utf8][x u16][y u16][w u16][h u16][RGB888...]
 
 interface Client {
@@ -324,6 +330,7 @@ function attach(inst: Instance) {
     inst.on('uart', (uart: string, data: Buffer) =>
         clients.forEach((c) => c.detail === inst.id && send(c, { t: 'uart', id: inst.id, uart, data: data.toString('base64') })));
     inst.on('log', (line: string) => clients.forEach((c) => c.detail === inst.id && send(c, { t: 'log', id: inst.id, line })));
+    inst.on('pinConfig', (pinConfig) => clients.forEach((c) => c.detail === inst.id && send(c, { t: 'pinConfig', id: inst.id, pinConfig })));
 }
 
 // Debug-print reader runs while the instance is up and the user has attached it.
@@ -381,6 +388,7 @@ wss.on('connection', (ws) => {
                             send(client, { t: 'backlog', id: d.id, uart, data: d.consoleBacklog(uart).toString('base64') });
                         }
                         send(client, { t: 'logBacklog', id: d.id, lines: d.log });
+                        send(client, { t: 'pinConfig', id: d.id, pinConfig: d.pinConfig || null });
                         const full = d.fullLcdPayload();
                         if (full) {
                             sendLcd(client, d.id, full);

@@ -61,6 +61,7 @@ Renode needs Linux TAP devices, so the container runs with `NET_ADMIN` and `/dev
    - The device is drawn as its faceplate ([manager/public/boards](manager/public/boards)): `tps3` for a TPP3 instance, `tps2l` (LCD and 4 keys) for a TPP2 build with a display, `tps2` otherwise. Its LEDs follow the simulated pins; the keys and the MD pinhole can be pressed.
    - Hold a button to keep it pressed; shift+click latches it.
    - The Renode log tab shows the emulator's own output.
+   - The **IO** tab shows every GPIO port (PA-PI) live: level, mode (output, alternate function number, analog), and whether something outside the MCU (a button, a wire, the EEPROM, you) drives the line. Pins the board or the DTS uses are outlined and listed below with a 10 s trace; **Watch** adds any other pin to the list. Select a pin to drive it high or low, or release it. A push-pull output wins over an external drive, so driving is for inputs and open-drain lines. Levels come from the 40 ms state stream, so faster toggling shows as activity, not as individual edges.
    - **Console** defaults to **udp (debug print)**: the device's `log_udp` buffer, read with the same UDP commands TIDE uses (`PC` → `GM0000,02` → `GM0002,10`… → `PR`).
      - Reading dequeues entries, so the reader pauses while a tide-proxy client is fetching debug print through the relay. During that time it rebuilds the lines from the client's traffic, so nothing is lost on either side.
      - UARTs with a socket (for example the `zephyr,console` one) are in the same dropdown and accept typing.
@@ -78,6 +79,7 @@ curl -X POST localhost:3100/api/instances/<id>/input -H 'Content-Type: applicati
      -d '{"button":"mdbutton","pressed":true}'
 curl -X POST localhost:3100/api/instances/<id>/reset
 curl localhost:3100/api/instances/<id>/screen.png -o screen.png
+curl localhost:3100/api/instances/<id>/io   # levels, output masks, [MODER, OTYPER, PUPDR, AFRL, AFRH, ext-driven, ext-level] per port
 ```
 
 ## Monitor

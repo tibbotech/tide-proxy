@@ -73,6 +73,7 @@
             <dl class="facts" id="dFacts"></dl>
             <div class="tabs">
                 <button class="tab active" data-tab="console">Console</button>
+                <button class="tab" data-tab="io">IO</button>
                 <button class="tab" data-tab="log">Renode log</button>
                 <div class="console-tools" id="dConsoleTools">
                     <select id="dUart" class="uart-select"></select>
@@ -80,6 +81,7 @@
                 </div>
             </div>
             <div class="tabpane" id="paneConsole"><div id="term"></div></div>
+            <div class="tabpane io-pane" id="paneIo" hidden></div>
             <div class="tabpane" id="paneLog" hidden><pre id="renodeLog"></pre></div>
         </div>
     </div>
@@ -171,5 +173,6 @@
 <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js"></script>
 <script src="app.js"></script>
 <script src="wiring.js"></script>
+<script src="io.js"></script>
 </body>
 </html>

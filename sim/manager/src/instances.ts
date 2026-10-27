@@ -49,6 +49,8 @@ function hex2(n: number): string {
 export class Instance extends EventEmitter {
     status: InstanceStatus = 'stopped';
     state: any;
+    // Per port: [moder, otyper, pupdr, afrl, afrh, extDriven, extLevel] (see TibboGPIOPort.Config).
+    pinConfig?: Record<string, number[]>;
     lcd?: LcdFrame;
     log: string[] = [];
     exitCode?: number | null;
@@ -214,6 +216,7 @@ export class Instance extends EventEmitter {
         this.stopping = false;
         this.exitCode = undefined;
         this.state = undefined;
+        this.pinConfig = undefined;
         this.lcd = undefined;
         this.consoleHistory.clear();
         this.setStatus('starting');
@@ -472,6 +475,9 @@ export class Instance extends EventEmitter {
                         this.onState(JSON.parse(payload.toString('utf8')));
                     } else if (type === 2) {
                         this.onLcdRect(Buffer.from(payload));
+                    } else if (type === 3) {
+                        this.pinConfig = JSON.parse(payload.toString('utf8'));
+                        this.emit('pinConfig', this.pinConfig);
                     }
                 }
             });

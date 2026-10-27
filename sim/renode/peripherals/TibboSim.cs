@@ -58,6 +58,10 @@ namespace Antmicro.Renode.Peripherals.GPIOPort
 
         public ushort OutputPins => outMask;
 
+        // Pin configuration for the IO view: MODER, OTYPER, PUPDR, AFRL, AFRH, and which lines an
+        // external device (button, wire, I2C slave, UI) drives and to what.
+        public uint[] Config => new uint[] { moder, otyper, pupdr, afrl, afrh, extDriven, extLevel };
+
         public override void Reset()
         {
             base.Reset();
@@ -685,7 +689,8 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
     }
 
     // TCP endpoint for the sim-manager. Outbound frames: [type:u8][length:u32 LE][payload]
-    //   type 1: JSON state, type 2: LCD rectangle (x,y,w,h as u16 LE, then RGB888 rows).
+    //   type 1: JSON state, type 2: LCD rectangle (x,y,w,h as u16 LE, then RGB888 rows),
+    //   type 3: JSON pin configuration (sent when it changes; it rarely does, unlike the levels).
     // Inbound: text lines "drive <port> <pin> <0|1>", "release <port> <pin>", "full",
     //   "reset", "pause", "resume".
     public class TibboSimBridge : IDoubleWordPeripheral, IKnownSize, IDisposable
@@ -879,6 +884,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
 
             var full = true;
             string lastJson = null;
+            string lastPinConfig = null;
             try
             {
                 while(running && alive)
@@ -886,6 +892,12 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
                     if(Interlocked.Exchange(ref fullRequested, 0) != 0)
                     {
                         full = true;
+                    }
+                    var pinConfig = PinConfigJson();
+                    if(pinConfig != lastPinConfig)
+                    {
+                        WriteFrame(stream, 3, Encoding.UTF8.GetBytes(pinConfig));
+                        lastPinConfig = pinConfig;
                     }
                     var json = StateJson();
                     if(json != lastJson)
@@ -954,6 +966,21 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
                 blueBar, lcd.DisplayOn ? "true" : "false", lcd.Backlight ? "true" : "false", lcd.Width, lcd.Height);
             sb.AppendFormat(",\"vtime\":{0}}}", (long)machine.ElapsedVirtualTime.TimeElapsed.TotalMilliseconds);
             return sb.ToString();
+        }
+
+        // {"A":[moder,otyper,pupdr,afrl,afrh,extDriven,extLevel],...}
+        private string PinConfigJson()
+        {
+            var sb = new StringBuilder("{");
+            for(var i = 0; i < ports.Length; i++)
+            {
+                if(i > 0)
+                {
+                    sb.Append(',');
+                }
+                sb.AppendFormat("\"{0}\":[{1}]", (char)('A' + i), string.Join(",", ports[i].Config));
+            }
+            return sb.Append('}').ToString();
         }
 
         private void HandleCommand(string line)
