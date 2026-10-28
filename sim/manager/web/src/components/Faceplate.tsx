@@ -72,7 +72,7 @@ export const Faceplate = memo(function Faceplate({ inst, state }: { inst: Instan
             titled(link, 'Ethernet link');
         }
         const md = profile.buttons.find((b) => b.id === 'mdbutton');
-        const keys = profile.buttons.filter((b) => b.id !== 'mdbutton');
+        const key = (i: number) => profile.buttons.find((b) => b.port === 'E' && b.pin === 12 + i);
         const bind = (node: SVGElement | null, b?: { id: string; label: string; port: string; pin: number }) => {
             if (!node) return;
             if (!b) {
@@ -85,7 +85,7 @@ export const Faceplate = memo(function Faceplate({ inst, state }: { inst: Instan
             titled(node, `${b.label} — P${b.port}${b.pin}`);
         };
         bind(part('md'), md);
-        for (let i = 0; i < 4; i++) bind(part(`key-${i}`), keys[i]);
+        for (let i = 0; i < 4; i++) bind(part(`key-${i}`), key(i));
     }, [html, profile]);
 
     // Live indicators.

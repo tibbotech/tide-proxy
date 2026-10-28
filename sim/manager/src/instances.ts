@@ -7,7 +7,7 @@ import { spawn, ChildProcess } from 'child_process';
 
 import { config, instancesDir, legacyFirmwareDir } from './config';
 import { BoardProfile } from './dts';
-import { APP_BASE, Board, FLASH_SIZE, FirmwareInfo, Generation, boardGeneration, defaultProfile, isBoard, loadFirmware, saveFirmware } from './firmware';
+import { APP_BASE, Board, FLASH_SIZE, FirmwareInfo, Generation, boardGeneration, defaultProfile, isBoard, loadFirmware, saveFirmware, withKeypad } from './firmware';
 import {
     FLASH_START, LOADER_SIGNATURE, LOADER_SIGNATURE_ADDRESS, checkFlashWrite, flashWrites, forgetFlashApp, getMonitor,
     prepareFlash, useDefaultMonitor, writeFlash,
@@ -132,9 +132,10 @@ export class Instance extends EventEmitter {
         return this.fw || undefined;
     }
 
-    // Buttons, LEDs and UARTs: from the firmware's DTS, else the TPP defaults for the board.
+    // Buttons, LEDs and UARTs: from the firmware's DTS, else the TPP defaults for the board. A TPP2
+    // with the LCD always has its keypad.
     get profile(): BoardProfile {
-        return this.firmware?.profile || defaultProfile(this.cfg.board);
+        return withKeypad(this.cfg.board, this.firmware?.profile || defaultProfile(this.cfg.board));
     }
 
     get tibbits(): Placements {

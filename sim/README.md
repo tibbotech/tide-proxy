@@ -16,7 +16,7 @@ The simulator runs the **unmodified** `zephyr.elf` that you would flash to the b
 - **AT24C16 EEPROM** on bit-banged I2C (PB8/PB9), file-backed. Each instance is seeded with its own MAC (`00:24:77:fe:00:NN`), which `udp_fwloader` reads at boot.
 - **STM32 GPIO with open-drain, pulls and external drivers**, plus a SYSCFG/EXTICR multiplexer.
 - **RMII PHY** at address 1, using Renode's Synopsys Ethernet MAC.
-- **Buttons, LEDs, and the blue LED bar** (5-bit shift register on PA10-12).
+- **Buttons, LEDs, and the blue LED bar** (5-bit shift register on PA10-12). On a TPP2 with the LCD, the 4-key keypad's return lines (PE12-15, active low, leftmost key first) are there whether or not the DTS declares them.
 - A boot stub at 0x08000000 that stands in for the Tibbo monitor, so resets and `EC` reboot work. Or the real monitor, see [Monitor](#monitor).
 
 ## Run
