@@ -268,11 +268,29 @@ app.put('/api/instances/:id/debug-print', api((req) => {
 // (gpio: endpoints[0] drives the rest).
 app.get('/api/links', api(() => ({ links: links.list(), stats: links.statsJSON() })));
 
-app.post('/api/links', api((req) => links.create(req.body || {})));
+// A port that terminal wires already carry can't be linked too: it would get everything twice.
+function checkNotWired(kind: 'uart' | 'gpio', endpoints: Array<{ instance: string; port: string }> | undefined) {
+    for (const e of endpoints || []) {
+        const why = e && wiring.wiredPort(e.instance, e.port, kind);
+        if (why) {
+            throw Object.assign(new Error(`${why}; a link would carry it twice`), { status: 409 });
+        }
+    }
+}
+
+app.post('/api/links', api((req) => {
+    const body = req.body || {};
+    checkNotWired(body.kind, body.endpoints);
+    return links.create(body);
+}));
 
 // Body: { name?, endpoints? }
 app.patch('/api/links/:id', api((req) => {
     const { name, endpoints } = req.body || {};
+    const link = links.list().find((l) => l.id === req.params.id);
+    if (link) {
+        checkNotWired(link.kind, endpoints);
+    }
     return links.update(req.params.id, { name, endpoints });
 }));
 
@@ -437,7 +455,10 @@ fields.on('removed', () => {
 });
 wiring.on('changed', broadcastWiring);
 
-links.on('changed', broadcastLinks);
+links.on('changed', () => {
+    wiring.refresh();
+    broadcastLinks();
+});
 links.on('stats', (stats) => clients.forEach((c) => send(c, { t: 'linkStats', stats })));
 
 wss.on('connection', (ws) => {
@@ -503,6 +524,7 @@ async function main() {
     links.load();
     fields.load();
     wiring.load();
+    wiring.setLinks(() => links.list());
     manager.list().forEach(attach);
     udpConsole.start();
     relay.start();

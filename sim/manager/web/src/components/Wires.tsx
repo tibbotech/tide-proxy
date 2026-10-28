@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { padPoint, type Scene } from '../scene';
+import { portPoint, type Scene } from '../scene';
 import type { Instance, Link, LinkKind, LinkStats } from '../types';
 
 interface Pt {
@@ -20,16 +20,31 @@ export const colorOf = (id: string) => {
     return PALETTE[Math.abs(h) % PALETTE.length];
 };
 
-// Both ends leave their terminal downwards, so a wire hangs below the rail like a patch cable.
-export function hang(a: Pt, b: Pt, lane: number) {
+// Both ends leave their terminal downwards, so a wire hangs below the rail like a patch cable. An end on
+// a top-edge terminal (dir -1) leaves upwards instead: two such ends make an arch above, and a wire from
+// the top edge to a bottom one goes round the side of the top end's device (`span`, its x range).
+export function hang(a: Pt, b: Pt, lane: number, da: 1 | -1 = 1, db: 1 | -1 = 1, span?: { l: number; r: number }) {
+    if (da !== db) {
+        const [u, w] = da === -1 ? [a, b] : [b, a];
+        const reach = 40 + lane * 8;
+        const top = u.y - reach;
+        const bottom = w.y + reach;
+        const l = span ? span.l : u.x;
+        const r = span ? span.r : u.x;
+        const ex = w.x >= (l + r) / 2 ? r + 10 + lane * 3 : l - 10 - lane * 3;
+        const mid = { x: ex, y: (top + bottom) / 2 };
+        return { d: `M${u.x},${u.y} C${u.x},${top} ${ex},${top} ${ex},${mid.y} C${ex},${bottom} ${w.x},${bottom} ${w.x},${w.y}`, mid };
+    }
     const drop = 70 + Math.min(Math.abs(b.x - a.x) * 0.22, 150) + lane * 10;
-    const d = `M${a.x},${a.y} C${a.x},${a.y + drop} ${b.x},${b.y + drop} ${b.x},${b.y}`;
+    const ay = a.y + da * drop;
+    const by = b.y + db * drop;
+    const d = `M${a.x},${a.y} C${a.x},${ay} ${b.x},${by} ${b.x},${b.y}`;
     // The cubic at t = 0.5.
-    const mid = { x: (a.x + b.x) / 2, y: (a.y + 3 * (a.y + drop) + 3 * (b.y + drop) + b.y) / 8 };
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + 3 * ay + 3 * by + b.y) / 8 };
     return { d, mid };
 }
 
-// A bus member runs down from its terminal and into the junction sideways.
+// A bus member runs down from its port and into the junction sideways.
 function toJunction(a: Pt, j: Pt) {
     const d = `M${a.x},${a.y} C${a.x},${j.y} ${a.x + (j.x - a.x) * 0.5},${j.y} ${j.x},${j.y}`;
     return { d, mid: { x: (a.x + 3 * a.x + 3 * (a.x + (j.x - a.x) * 0.5) + j.x) / 8, y: (a.y + 3 * j.y + 3 * j.y + j.y) / 8 } };
@@ -43,7 +58,7 @@ interface Seg {
 }
 
 function segmentsOf(link: Link, scene: Scene, lane: number): { segs: Seg[]; junction?: Pt } {
-    const pts = link.endpoints.map((e) => padPoint(scene, e.instance, e.port, link.kind));
+    const pts = link.endpoints.map((e) => portPoint(scene, e.instance, e.port, link.kind));
     const segs: Seg[] = [];
     if (link.kind === 'gpio' || link.endpoints.length === 2) {
         const src = pts[0];
@@ -67,7 +82,7 @@ function segmentsOf(link: Link, scene: Scene, lane: number): { segs: Seg[]; junc
 const linkTitle = (link: Link, nameOf: (id: string) => string) => {
     const eps = link.endpoints.map((e) => `${nameOf(e.instance)} ${e.port}`);
     const what = link.kind === 'gpio' ? `${eps[0]} drives ${eps.slice(1).join(', ')}` : eps.join(' ↔ ');
-    return `${link.name ? link.name + ': ' : ''}${what}`;
+    return `Link · ${link.name ? link.name + ': ' : ''}${what}`;
 };
 
 interface Props {
@@ -76,19 +91,19 @@ interface Props {
     stats: Record<string, LinkStats>;
     instances: Instance[];
     selected: WireSel | null;
-    temp: { from: Pt; to: Pt; kind: LinkKind } | null;
     onSelect: (sel: WireSel) => void;
     onDelete: (sel: WireSel) => void;
 }
 
-export function Wires({ scene, links, stats, instances, selected, temp, onSelect, onDelete }: Props) {
+// Links between port chips. They are dashed: a direct connection between MCUs, not a wire on terminals.
+export function LinkWires({ scene, links, stats, instances, selected, onSelect, onDelete }: Props) {
     const nameOf = (id: string) => {
         const i = instances.find((x) => x.id === id);
         return i ? i.name || i.id : id;
     };
     const status = (id: string) => (instances.find((x) => x.id === id) || ({} as Instance)).status;
 
-    // UART wires glow for a second after traffic.
+    // UART links glow for a second after traffic.
     const prev = useRef<Record<string, number>>({});
     const until = useRef<Record<string, number>>({});
     const [, bump] = useState(0);
@@ -116,20 +131,19 @@ export function Wires({ scene, links, stats, instances, selected, temp, onSelect
         const { segs, junction } = segmentsOf(link, scene, i % 6);
         const st = stats[link.id] || { bytes: 0, level: null };
         const running = link.endpoints.every((e) => status(e.instance) === 'running');
-        const color = colorOf(link.id);
         const cls = [
             'wire',
-            link.kind,
+            'link',
+            link.kind as LinkKind,
             !running && 'off',
             link.kind === 'uart' && (until.current[link.id] || 0) > now && 'active',
             link.kind === 'gpio' && st.level === true && 'hi',
-            link.kind === 'gpio' && st.level === null && 'z',
         ]
             .filter(Boolean)
             .join(' ');
         const title = linkTitle(link, nameOf);
         return (
-            <g key={link.id} className={cls} style={{ ['--wc' as string]: color }}>
+            <g key={link.id} className={cls} style={{ ['--wc' as string]: colorOf(link.id) }}>
                 {segs.map((s) => {
                     const sel = !!selected && selected.link === link.id && selected.ep === s.ep;
                     if (sel) delAt = s.mid;
@@ -144,23 +158,21 @@ export function Wires({ scene, links, stats, instances, selected, temp, onSelect
                     );
                 })}
                 {link.endpoints.map((e, k) => {
-                    const p = padPoint(scene, e.instance, e.port, link.kind);
-                    return p ? <circle key={k} className="wire-end" cx={p.x} cy={p.y} r={5} /> : null;
+                    const p = portPoint(scene, e.instance, e.port, link.kind);
+                    return p ? <circle key={k} className="wire-end" cx={p.x} cy={p.y} r={4.5} /> : null;
                 })}
-                {junction && <circle className="wire-junction" cx={junction.x} cy={junction.y} r={6} data-link={link.id} />}
+                {junction && <circle className="wire-junction" cx={junction.x} cy={junction.y} r={6} />}
             </g>
         );
     });
 
-    const hangTemp = temp ? hang(temp.from, temp.to, 0).d : null;
     const del = delAt as Pt | null;
     return (
         <svg className="wires" width={1} height={1} style={{ overflow: 'visible' }}>
             {items}
-            {temp && hangTemp && <path className={`wire-line temp ${temp.kind}`} d={hangTemp} />}
             {selected && del && (
                 <g className="wire-del" transform={`translate(${del.x},${del.y})`} data-nopan onPointerDown={(e) => { e.stopPropagation(); onDelete(selected); }}>
-                    <title>Remove this wire (Delete)</title>
+                    <title>Remove this end of the link (Delete)</title>
                     <circle r={11} />
                     <path d="M-4,-4 L4,4 M4,-4 L-4,4" />
                 </g>

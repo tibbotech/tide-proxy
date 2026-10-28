@@ -1,17 +1,17 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import { connectPorts, deleteLink, removeWire, renameLink } from '../../actions';
-import { extraPinsStore, padsOf } from '../../scene';
+import { padsOf } from '../../scene';
 import { useInstances, useLinks, useLinkStats } from '../../store';
 import type { Link, LinkKind } from '../../types';
 
 const formatBytes = (n: number) => (n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} kB` : `${(n / 1048576).toFixed(1)} MB`);
 
-// Every connection, with its traffic or level; and a form to add one by name.
+// Links: an instance's UART or pin joined straight to another's, without a Tibbit (usart1, the MD button,
+// the LEDs, any pin). Every link with its traffic or level, and a form to add one by name.
 export function WiresTab() {
     const instances = useInstances();
     const links = useLinks();
     const stats = useLinkStats();
-    const extra = extraPinsStore.use();
     const [kind, setKind] = useState<LinkKind>('uart');
     const [from, setFrom] = useState('');
     const [to, setTo] = useState('');
@@ -27,10 +27,10 @@ export function WiresTab() {
     const toId = instances.some((i) => i.id === to) ? to : instances[1]?.id || instances[0]?.id || '';
     const portsFor = (id: string) => {
         const inst = instances.find((i) => i.id === id);
-        return inst ? padsOf(inst, extra[id] || [], links).filter((p) => p.kind === kind) : [];
+        return inst ? padsOf(inst, links).filter((p) => p.kind === kind) : [];
     };
-    const fromPorts = useMemo(() => portsFor(fromId), [fromId, kind, instances, links, extra]);
-    const toPorts = useMemo(() => portsFor(toId), [toId, kind, instances, links, extra]);
+    const fromPorts = useMemo(() => portsFor(fromId), [fromId, kind, instances, links]);
+    const toPorts = useMemo(() => portsFor(toId), [toId, kind, instances, links]);
 
     const submit = async (e: FormEvent) => {
         e.preventDefault();
@@ -57,7 +57,7 @@ export function WiresTab() {
     return (
         <div className="wires-tab">
             <div className="link-list">
-                {!links.length && <p className="muted">No connections yet. Drag from a terminal under one device to a terminal under another, or add one below.</p>}
+                {!links.length && <p className="muted">No links. Wire Tibbit terminals on the rail; a link here joins a UART or pin directly, for one that no terminal reaches (usart1, the MD button, an LED).</p>}
                 {links.map((link) => {
                     const st = stats[link.id] || { bytes: 0, level: null };
                     return (

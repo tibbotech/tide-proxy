@@ -27,7 +27,7 @@ const ROLE_TITLE: Record<string, string> = {
 
 export function TerminalBlock({ block, wired, dragging, onDown }: Props) {
     return (
-        <div className="tblock" style={{ left: block.x, top: block.y, width: block.w, height: TERM_HEAD_H + TERM_BLOCK_H }}>
+        <div className={`tblock ${block.edge}`} style={{ left: block.x, top: block.y, width: block.w, height: TERM_HEAD_H + TERM_BLOCK_H }}>
             {block.terms.map((t) => {
                 const key = `${t.owner}/${t.id}`;
                 const self = !!dragging && dragging.owner === t.owner && dragging.term === t.id;

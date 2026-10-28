@@ -82,6 +82,7 @@ export class WiringManager extends EventEmitter {
     private ioInstances = new Set<string>();
     private applied = new Map<string, { inst: Instance; pin: McuPin; level: boolean | null }>();
     private lastJson = '';
+    private links: () => Array<{ kind: 'uart' | 'gpio'; endpoints: Array<{ instance: string; port: string }> }> = () => [];
 
     constructor(private instances: InstanceManager, private fields: FieldDeviceManager) {
         super();
@@ -134,6 +135,23 @@ export class WiringManager extends EventEmitter {
     // A device or instance went away, or its terminals changed: wires to terminals that are gone go too.
     refresh(): void {
         this.rebuild();
+    }
+
+    // The links (/api/links), so a port that is both linked and wired can be reported.
+    setLinks(get: () => Array<{ kind: 'uart' | 'gpio'; endpoints: Array<{ instance: string; port: string }> }>): void {
+        this.links = get;
+        this.rebuild();
+    }
+
+    // If wires already carry an instance's UART (an RS485/RS232 Tibbit's terminals) or pin (a terminal's
+    // MCU line), says which terminals; a link on it as well would deliver everything twice.
+    wiredPort(instance: string, port: string, kind: 'uart' | 'gpio'): string | null {
+        const inst = this.instances.get(instance);
+        if (!inst) {
+            return null;
+        }
+        const t = inst.terminals.find((x) => (kind === 'uart' ? x.uart === port && x.role && ['a', 'b', 'tx', 'rx'].includes(x.role) : x.mcu && pinName(x.mcu) === port) && this.netOf.has(`${instance}/${x.id}`));
+        return t ? `${inst.cfg.name} ${port} is already wired through terminal ${t.n} of socket ${t.block}` : null;
     }
 
     // ---- wiring to hardware ----
@@ -246,6 +264,14 @@ export class WiringManager extends EventEmitter {
         this.checkNets();
         this.buildBuses();
         this.buildSerial();
+        for (const link of this.links()) {
+            for (const e of link.endpoints) {
+                const why = this.wiredPort(e.instance, e.port, link.kind);
+                if (why) {
+                    this.warnings.push({ text: `${why} and also linked in the Links tab: ${link.kind === 'uart' ? 'its bytes arrive twice' : 'two things drive it'}. Delete the link.`, wires: [] });
+                }
+            }
+        }
         this.ioInstances = new Set();
         for (const net of this.nets.values()) {
             if (net.some((n) => n.mcu)) {

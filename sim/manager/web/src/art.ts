@@ -15,9 +15,28 @@ export interface Art {
     h: number;
     // The screen window, in art units, if the art has one.
     lcd?: { x: number; y: number; w: number; h: number };
+    slots: Slots;
 }
 
-function parse(name: ArtName, raw: string): Art {
+// Where the connector sockets sit on the faceplate, as numbered on the art: equal slots from x0, left to
+// right, along the bottom and the top edge (null is a slot without a socket). A terminal block plugs into
+// its socket's edge; the top row is mounted the other way round.
+export interface Slots {
+    x0: number;
+    pitch: number;
+    bottom: Array<string | null>;
+    top: Array<string | null>;
+}
+
+const TPS2_SLOTS: Slots = { x0: 56, pitch: 74, bottom: ['2', '4', '6', '8'], top: [null, '13', '12', '10'] };
+const TPS3_SLOTS: Slots = {
+    x0: 56,
+    pitch: 66,
+    bottom: ['2', '4', '6', '8', '10', '12', '14', '16'],
+    top: [null, '29', '28', '26', '24', '22', '20', '18'],
+};
+
+function parse(name: ArtName, raw: string, slots: Slots): Art {
     const doc = new DOMParser().parseFromString(raw, 'image/svg+xml');
     const [, , w, h] = (doc.documentElement.getAttribute('viewBox') || '0 0 400 400').split(/\s+/).map(Number);
     const lcd = doc.querySelector('[data-part="lcd"]');
@@ -39,13 +58,14 @@ function parse(name: ArtName, raw: string): Art {
         lcd: lcd
             ? { x: dx + Number(lcd.getAttribute('x')), y: dy + Number(lcd.getAttribute('y')), w: Number(lcd.getAttribute('width')), h: Number(lcd.getAttribute('height')) }
             : undefined,
+        slots,
     };
 }
 
 const ART: Record<ArtName, Art> = {
-    tps2: parse('tps2', tps2),
-    tps2l: parse('tps2l', tps2l),
-    tps3: parse('tps3', tps3),
+    tps2: parse('tps2', tps2, TPS2_SLOTS),
+    tps2l: parse('tps2l', tps2l, TPS2_SLOTS), // same case, the screen is in the lid
+    tps3: parse('tps3', tps3, TPS3_SLOTS),
 };
 
 export function artFor(inst: Instance): Art {

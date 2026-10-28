@@ -5,6 +5,8 @@ import { colorOf, hang } from './Wires';
 interface Pt {
     x: number;
     y: number;
+    dir?: 1 | -1;
+    span?: { l: number; r: number };
 }
 
 interface Props {
@@ -18,7 +20,8 @@ interface Props {
     onDelete: (id: string) => void;
 }
 
-// Wires between terminals. Like the pin wires they leave their terminal downwards and hang below the rail.
+// Wires between terminals. Like the pin wires they leave their terminal downwards and hang below the rail
+// (upwards from a top-edge terminal).
 export function TermWires({ scene, wires, warnings, items, selected, temp, onSelect, onDelete }: Props) {
     const warned = new Set(warnings.flatMap((w) => w.wires));
     const name = (owner: string) => {
@@ -35,7 +38,7 @@ export function TermWires({ scene, wires, warnings, items, selected, temp, onSel
         const a = termPoint(scene, w.a.owner, w.a.term);
         const b = termPoint(scene, w.b.owner, w.b.term);
         if (!a || !b) return null;
-        const { d, mid } = hang(a, b, i % 6);
+        const { d, mid } = hang(a, b, i % 6, a.dir, b.dir, a.dir === -1 ? a.span : b.span);
         const sel = selected === w.id;
         if (sel) delAt = mid;
         return (
@@ -53,7 +56,7 @@ export function TermWires({ scene, wires, warnings, items, selected, temp, onSel
     return (
         <svg className="wires" width={1} height={1} style={{ overflow: 'visible' }}>
             {items2}
-            {temp && <path className="wire-line temp" d={hang(temp.from, temp.to, 0).d} />}
+            {temp && <path className="wire-line temp" d={hang(temp.from, temp.to, 0, temp.from.dir, 1, temp.from.span).d} />}
             {selected && del && (
                 <g className="wire-del" transform={`translate(${del.x},${del.y})`} data-nopan onPointerDown={(e) => { e.stopPropagation(); onDelete(selected); }}>
                     <title>Remove this wire (Delete)</title>

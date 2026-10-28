@@ -16,7 +16,7 @@ const TABS: Array<[InspectorTab, string]> = [
     ['console', 'Console'],
     ['io', 'IO'],
     ['log', 'Renode log'],
-    ['wires', 'Wires'],
+    ['wires', 'Links'],
 ];
 
 interface Props {

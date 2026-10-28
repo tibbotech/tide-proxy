@@ -1,17 +1,17 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import { addFieldDevice, connectPorts, createInstances, removeTerminalWire, removeWire, wireTerminals } from '../actions';
+import { addFieldDevice, createInstances, removeTerminalWire, removeWire, wireTerminals } from '../actions';
 import { loadLocal, saveLocal } from '../local';
 import {
-    ensurePlacements, addRail, BOARD_MIME, buildScene, commitMove, deviceWidthForBoard, extraPinsStore, FACE_H, FIELD_MIME, FIELD_W, HEAD_H, layoutStore, padPoint, railBandY, railXFor, RAIL_BAND, RAIL_TOP, removeRail, snap, termPoint,
-    type DragPreview, type PlacedPad, type PlacedTerm,
+    ensurePlacements, addRail, BOARD_MIME, buildScene, commitMove, deviceWidthForBoard, FACE_H, FIELD_MIME, FIELD_W, HEAD_H, layoutStore, railBandY, railXFor, RAIL_BAND, RAIL_TOP, removeRail, snap, termPoint,
+    type DragPreview, type PlacedTerm,
 } from '../scene';
-import { getInstances, getLinks, getPlaceables, notify, useConnected, useInstances, useLinks, useLinkStats, usePlaceables, useWiring } from '../store';
-import type { FieldKind, Instance, LinkKind, TermRef } from '../types';
-import { Device, type WireDrag } from './Device';
+import { getLinks, getPlaceables, notify, useConnected, useInstances, useLinks, useLinkStats, usePlaceables, useWiring } from '../store';
+import type { FieldKind, TermRef } from '../types';
+import { Device } from './Device';
 import { FieldDeviceView } from './FieldDeviceView';
 import { Icon } from './icons';
 import { TermWires } from './TermWires';
-import { Wires, type WireSel } from './Wires';
+import { LinkWires, type WireSel } from './Wires';
 
 interface View {
     x: number;
@@ -46,22 +46,20 @@ export const Workspace = forwardRef<WorkspaceHandle, Props>(function Workspace({
     const links = useLinks();
     const stats = useLinkStats();
     const layout = layoutStore.use();
-    const extra = extraPinsStore.use();
     const connected = useConnected();
 
     const vp = useRef<HTMLDivElement>(null);
     const saved = useRef(loadLocal<View | null>('sim.view', null));
     const [view, setView] = useState<View>(saved.current || { x: 100, y: 20, k: 0.8 });
     const [drag, setDrag] = useState<DragPreview | null>(null);
-    const [wire, setWire] = useState<{ from: WireDrag; start: Pt; cursor: Pt } | null>(null);
-    const [selWire, setSelWire] = useState<WireSel | null>(null);
     const [selTWire, setSelTWire] = useState<string | null>(null);
+    const [selLink, setSelLink] = useState<WireSel | null>(null);
     const [termWire, setTermWire] = useState<{ from: TermRef; start: Pt; cursor: Pt } | null>(null);
     const [panning, setPanning] = useState(false);
 
     useEffect(() => ensurePlacements(items), [items, layout.rails.length]);
 
-    const scene = useMemo(() => buildScene(layout, items, extra, links, drag), [layout, items, extra, links, drag]);
+    const scene = useMemo(() => buildScene(layout, items, links, drag), [layout, items, links, drag]);
 
     // Handlers below are stable (they are props of memoised devices) and read the latest through refs.
     const viewRef = useRef(view);
@@ -176,8 +174,8 @@ export const Workspace = forwardRef<WorkspaceHandle, Props>(function Workspace({
             setPanning(false);
             if (!moved) {
                 onSelectRef.current(null);
-                setSelWire(null);
                 setSelTWire(null);
+                setSelLink(null);
             }
         };
         window.addEventListener('pointermove', move);
@@ -186,8 +184,8 @@ export const Workspace = forwardRef<WorkspaceHandle, Props>(function Workspace({
 
     // ---- moving a device along the rails ----
     const onSelectDevice = useCallback((id: string) => {
-        setSelWire(null);
         setSelTWire(null);
+        setSelLink(null);
         onSelectRef.current(id);
     }, []);
 
@@ -206,7 +204,7 @@ export const Workspace = forwardRef<WorkspaceHandle, Props>(function Workspace({
             const move = (ev: PointerEvent) => {
                 if (!last && Math.hypot(ev.clientX - sx, ev.clientY - sy) < 4) return;
                 const p = toWorld(ev.clientX, ev.clientY);
-                const rail = railForTop(dev.y + p.y - p0.y);
+                const rail = railForTop(dev.y + dev.geom.faceY - HEAD_H + p.y - p0.y);
                 const x = snap(x0 + p.x - p0.x);
                 last = { id, rail: rail.id, x };
                 setDrag(last);
@@ -223,33 +221,6 @@ export const Workspace = forwardRef<WorkspaceHandle, Props>(function Workspace({
         [toWorld, railForTop],
     );
 
-    // ---- drawing a wire from a terminal ----
-    const onPadDown = useCallback(
-        (e: React.PointerEvent, inst: Instance, pad: PlacedPad) => {
-            if (e.button !== 0) return;
-            e.stopPropagation();
-            e.preventDefault();
-            const start = padPoint(sceneRef.current, inst.id, pad.port, pad.kind);
-            if (!start) return;
-            const from: WireDrag = { instance: inst.id, port: pad.port, kind: pad.kind };
-            setSelWire(null);
-            setWire({ from, start, cursor: start });
-            const move = (ev: PointerEvent) => setWire((w) => (w ? { ...w, cursor: toWorld(ev.clientX, ev.clientY) } : w));
-            const up = (ev: PointerEvent) => {
-                window.removeEventListener('pointermove', move);
-                window.removeEventListener('pointerup', up);
-                setWire(null);
-                const target = (document.elementFromPoint(ev.clientX, ev.clientY) as Element | null)?.closest<HTMLElement>('[data-pad]');
-                if (!target || !target.dataset.inst) return;
-                const nameOf = (id: string) => getInstances().find((i) => i.id === id)?.name || id;
-                connectPorts(getLinks(), nameOf, from, { instance: target.dataset.inst, port: target.dataset.port!, kind: target.dataset.kind as LinkKind }).catch((err) => notify(err.message));
-            };
-            window.addEventListener('pointermove', move);
-            window.addEventListener('pointerup', up);
-        },
-        [toWorld],
-    );
-
     // ---- drawing a wire from a terminal block ----
     const onTermDown = useCallback(
         (e: React.PointerEvent, t: PlacedTerm) => {
@@ -259,8 +230,8 @@ export const Workspace = forwardRef<WorkspaceHandle, Props>(function Workspace({
             const start = termPoint(sceneRef.current, t.owner, t.id);
             if (!start) return;
             const from: TermRef = { owner: t.owner, term: t.id };
-            setSelWire(null);
             setSelTWire(null);
+            setSelLink(null);
             setTermWire({ from, start, cursor: start });
             const move = (ev: PointerEvent) => setTermWire((w) => (w ? { ...w, cursor: toWorld(ev.clientX, ev.clientY) } : w));
             const up = (ev: PointerEvent) => {
@@ -283,27 +254,27 @@ export const Workspace = forwardRef<WorkspaceHandle, Props>(function Workspace({
         removeTerminalWire(id);
     }, []);
 
-    const deleteWire = useCallback((sel: WireSel) => {
+    const deleteLink = useCallback((sel: WireSel) => {
         const link = getLinks().find((l) => l.id === sel.link);
-        setSelWire(null);
+        setSelLink(null);
         if (link) removeWire(link, sel.ep);
     }, []);
 
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
-            if ((!selWire && !selTWire) || (e.target as Element).closest('input, select, textarea')) return;
+            if ((!selTWire && !selLink) || (e.target as Element).closest('input, select, textarea')) return;
             if (e.key === 'Delete' || e.key === 'Backspace') {
                 e.preventDefault();
-                if (selWire) deleteWire(selWire);
-                else if (selTWire) deleteTWire(selTWire);
+                if (selTWire) deleteTWire(selTWire);
+                else if (selLink) deleteLink(selLink);
             } else if (e.key === 'Escape') {
-                setSelWire(null);
                 setSelTWire(null);
+                setSelLink(null);
             }
         };
         document.addEventListener('keydown', onKey);
         return () => document.removeEventListener('keydown', onKey);
-    }, [selWire, selTWire, deleteWire, deleteTWire]);
+    }, [selTWire, selLink, deleteTWire, deleteLink]);
 
     // ---- dropping a board from the catalog ----
     const onDragOver = (e: React.DragEvent) => {
@@ -329,8 +300,6 @@ export const Workspace = forwardRef<WorkspaceHandle, Props>(function Workspace({
         createInstances({ board }, { rail: rail.id, x: railXFor(getPlaceables(), rail.id, p.x - w / 2, w) }).catch((err) => notify(err.message));
     };
 
-    const wiringProp = useMemo(() => (wire ? wire.from : null), [wire && wire.from]);
-    const tempWire = wire ? { from: wire.start, to: wire.cursor, kind: wire.from.kind } : null;
     const tempTermWire = termWire ? { from: termWire.start, to: termWire.cursor } : null;
     const termDrag = useMemo(() => (termWire ? termWire.from : null), [termWire && termWire.from]);
     const gridSize = 24 * view.k;
@@ -338,7 +307,7 @@ export const Workspace = forwardRef<WorkspaceHandle, Props>(function Workspace({
     return (
         <div
             ref={vp}
-            className={`workspace${panning ? ' panning' : ''}${wire ? ` wiring-${wire.from.kind}` : ''}${termWire ? ' wiring-term' : ''}`}
+            className={`workspace${panning ? ' panning' : ''}${termWire ? ' wiring-term' : ''}`}
             style={{ backgroundSize: `${gridSize}px ${gridSize}px`, backgroundPosition: `${view.x}px ${view.y}px` }}
             onPointerDown={onViewportDown}
             onDragOver={onDragOver}
@@ -402,19 +371,17 @@ export const Workspace = forwardRef<WorkspaceHandle, Props>(function Workspace({
                             y={d.y}
                             selected={selected === d.id}
                             dragging={!!drag && drag.id === d.id}
-                            wiring={wiringProp}
                             termWires={wiring.wires}
                             termDrag={termDrag}
                             onTermDown={onTermDown}
                             onSelect={onSelectDevice}
                             onMoveStart={onMoveStart}
-                            onPadDown={onPadDown}
                         />
                     ),
                 )}
 
-                <Wires scene={scene} links={links} stats={stats} instances={instances} selected={selWire} temp={tempWire} onSelect={(sel) => { setSelTWire(null); setSelWire(sel); }} onDelete={deleteWire} />
-                <TermWires scene={scene} wires={wiring.wires} warnings={wiring.warnings} items={items} selected={selTWire} temp={tempTermWire} onSelect={(id) => { setSelWire(null); setSelTWire(id); }} onDelete={deleteTWire} />
+                <LinkWires scene={scene} links={links} stats={stats} instances={instances} selected={selLink} onSelect={(sel) => { setSelTWire(null); setSelLink(sel); }} onDelete={deleteLink} />
+                <TermWires scene={scene} wires={wiring.wires} warnings={wiring.warnings} items={items} selected={selTWire} temp={tempTermWire} onSelect={(id) => { setSelLink(null); setSelTWire(id); }} onDelete={deleteTWire} />
             </div>
 
             {wiring.warnings.length > 0 && (
