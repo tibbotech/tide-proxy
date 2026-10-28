@@ -25,6 +25,8 @@ const ROLE_TITLE: Record<string, string> = {
     gnd: 'ground',
 };
 
+const IO_TITLE: Record<string, string> = { out: 'digital output', in: 'digital input' };
+
 export function TerminalBlock({ block, wired, dragging, onDown }: Props) {
     return (
         <div className={`tblock ${block.edge}`} style={{ left: block.x, top: block.y, width: block.w, height: TERM_HEAD_H + TERM_BLOCK_H }}>
@@ -32,7 +34,7 @@ export function TerminalBlock({ block, wired, dragging, onDown }: Props) {
                 const key = `${t.owner}/${t.id}`;
                 const self = !!dragging && dragging.owner === t.owner && dragging.term === t.id;
                 const cls = ['tterm', t.role, !t.wirable && 'inert', wired.has(key) && 'wired', dragging && t.wirable && !self && 'target', dragging && !t.wirable && 'dim', self && 'self'].filter(Boolean).join(' ');
-                const title = t.wirable ? `${t.label || t.n}${t.role ? ` · ${ROLE_TITLE[t.role] || t.role}` : ''}\nDrag to another terminal to wire it` : `Terminal ${t.n}: nothing simulated behind it`;
+                const title = t.wirable ? `${t.label || t.n}${t.role ? ` · ${IO_TITLE[t.io || ''] || ROLE_TITLE[t.role] || t.role}` : ''}\nDrag to another terminal to wire it` : `Terminal ${t.n}: nothing simulated behind it`;
                 return (
                     <div
                         key={t.id}

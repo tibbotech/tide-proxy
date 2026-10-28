@@ -243,6 +243,7 @@ export interface PlacedTerm {
     n: number;
     label: string;
     role?: Role;
+    io?: 'in' | 'out'; // an output Tibbit (relay, ...) or an input Tibbit
     x: number;
     y: number;
     dir: 1 | -1; // the wire leaves downwards (bottom edge) or upwards (top edge)
@@ -274,7 +275,7 @@ const geomCache = new Map<string, DeviceGeom>();
 interface BlockInput {
     id: string;
     caption: string;
-    terms: Array<{ id: string; n: number; label: string; role?: Role; wirable: boolean }>;
+    terms: Array<{ id: string; n: number; label: string; role?: Role; io?: 'in' | 'out'; wirable: boolean }>;
 }
 
 const placeTerms = (owner: string, b: BlockInput, x: number, y: number, w: number, edge: 'top' | 'bottom'): PlacedBlock => {
@@ -353,7 +354,7 @@ function blockInputs(inst: Instance): BlockInput[] {
     return [...groups.entries()].map(([block, terms]) => {
         const served = [...new Set(terms.map((t) => t.socket).filter(Boolean))] as string[];
         const caption = served.map((s) => `S${s}${inst.tibbits[s] ? ` · #${inst.tibbits[s]}` : ''}`).join('  ') || `S${block}`;
-        return { id: block, caption, terms: terms.map((t) => ({ id: t.id, n: t.n, label: t.label, role: t.role, wirable: !!t.role })) };
+        return { id: block, caption, terms: terms.map((t) => ({ id: t.id, n: t.n, label: t.label, role: t.role, io: t.dir, wirable: !!t.role })) };
     });
 }
 

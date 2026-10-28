@@ -35,12 +35,22 @@ export interface TibbitInfo {
 // lines (MCU inputs); io: a plain MCU pin.
 export type Role = 'a' | 'b' | 'tx' | 'rx' | 'rts' | 'cts' | 'w0' | 'w1' | 'io' | 'vcc' | 'gnd';
 
+// Which way an io terminal works, when only one way: 'out' (a relay, an open collector) is driven by its
+// MCU pin and never by the net; 'in' (an isolated or dry contact input) drives its pin from the net,
+// pulled up when nothing drives it.
+export type Dir = 'in' | 'out';
+
 interface SimLine {
     label: string;
     role: Role;
+    dir?: Dir;
 }
 
 const L = (label: string, role: Role): SimLine => ({ label, role });
+// Digital outputs and inputs: the terminal and the MCU pin behind it are at the same level.
+const OUT = (label: string): SimLine => ({ label, role: 'io', dir: 'out' });
+const IN = (label: string): SimLine => ({ label, role: 'io', dir: 'in' });
+const ins = (n: number) => [1, 2, 3, 4].slice(0, n).map((i) => IN(`IN${i}`));
 
 // Simulated Tibbits: what each of the four socket lines is, as it appears on a terminal block.
 const SIM: Record<string, SimLine[]> = {
@@ -50,6 +60,24 @@ const SIM: Record<string, SimLine[]> = {
     '00_1': [L('1', 'io'), L('2', 'io'), L('3', 'io'), L('4', 'io')],
     '00_2': [L('1', 'io'), L('2', 'io'), L('3', 'io'), L('GND', 'gnd')],
     '00_3': [L('1', 'io'), L('2', 'io'), L('5V', 'vcc'), L('GND', 'gnd')],
+    // Relays, open collector outputs.
+    '03_1': [OUT('RL1'), OUT('RL2')],
+    '03_2': [OUT('RL1'), OUT('RL2')],
+    '06': [OUT('RL1'), OUT('RL2')],
+    '07': [OUT('RL1'), OUT('RL2')],
+    '11': [OUT('OUT1'), OUT('OUT2'), OUT('OUT3'), OUT('OUT4')],
+    '58': [OUT('OUT1'), OUT('OUT2')],
+    '59': [OUT('OUT1'), OUT('OUT2')],
+    // Isolated inputs (two, three with a common, four), dry contact inputs.
+    '04_1': ins(2),
+    '04_2': ins(3),
+    '04_3': ins(3),
+    '04_4': ins(4),
+    '04_5': ins(2),
+    '04_6': ins(3),
+    '04_7': ins(3),
+    '04_8': ins(4),
+    '54': ins(4),
 };
 
 export const TERMINAL_BLOCKS = ['20', '21'];
@@ -116,6 +144,7 @@ export interface Terminal {
     line?: number; // 0-3 on that socket
     mcu?: McuPin; // the MCU pin behind it, when it is one
     uart?: string; // the UART of the socket, on a serial Tibbit
+    dir?: Dir;
 }
 
 // The wire terminals a board offers: those of the terminal blocks in its connector sockets, labelled
@@ -145,6 +174,9 @@ export function terminalsOf(board: Board, placed: Placements): Terminal[] {
                 const n = serve.at(line);
                 const def = sim && sim[line];
                 const t: Terminal = { id: `T${block}.${n}`, n, block, label: def ? def.label : '', role: def?.role, socket: serve.socket, line };
+                if (def?.dir) {
+                    t.dir = def.dir;
+                }
                 if (def && def.role !== 'vcc' && def.role !== 'gnd') {
                     t.mcu = info.lines[line] || undefined;
                     if (info.uart && (def.role === 'a' || def.role === 'b' || def.role === 'tx' || def.role === 'rx')) {

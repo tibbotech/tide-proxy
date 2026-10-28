@@ -6,7 +6,7 @@ import { EventEmitter } from 'events';
 import { config } from './config';
 import { FieldDevice, FieldDeviceManager } from './fielddevices';
 import { Instance, InstanceManager } from './instances';
-import { McuPin, Role } from './tibbits';
+import { Dir, McuPin, Role } from './tibbits';
 
 // Field wiring: wires between terminals, kept in <data>/wires.json. A terminal is on a terminal-block
 // Tibbit of a TPP, or on a field device (a Wiegand reader, a Modbus slave, an I/O panel). Terminals
@@ -16,8 +16,10 @@ import { McuPin, Role } from './tibbits';
 //    between two devices is a polarity error: nothing crosses.
 //  - RS232 (tx/rx): bytes a TPP sends reach the UARTs of the TPPs whose RX is on its TX net.
 //  - MCU pins (w0/w1/io): the net is driven by a field device (a reader idles high, a panel channel
-//    switches) or else by a TPP output; the other pins on it follow. Wiegand pulses themselves are made
-//    inside Renode, in virtual time (Instance.wiegand).
+//    switches) or else by a TPP output; the other pins on it follow. An output Tibbit's terminal (a
+//    relay) only drives: its pin is never driven from the net. An input Tibbit's terminal never drives,
+//    and reads high when nothing drives it (no wire, or nothing on its net). Wiegand pulses
+//    themselves are made inside Renode, in virtual time (Instance.wiegand).
 // Wires that cannot be right (A to B, TX to TX, D0 to W1, ...) are reported as warnings.
 
 export interface TermRef {
@@ -53,6 +55,7 @@ interface Node {
     mcu?: McuPin;
     uart?: string;
     socket?: string;
+    dir?: Dir;
 }
 
 type Dest = { kind: 'uart'; instance: string; uart: string } | { kind: 'slave'; id: string };
@@ -212,7 +215,7 @@ export class WiringManager extends EventEmitter {
         const inst = this.instances.get(ref.owner);
         if (inst) {
             const t = inst.terminals.find((x) => x.id === ref.term);
-            return t && { key: keyOf(ref), ref, label: t.label || String(t.n), role: t.role, instance: inst, mcu: t.mcu, uart: t.uart, socket: t.socket };
+            return t && { key: keyOf(ref), ref, label: t.label || String(t.n), role: t.role, instance: inst, mcu: t.mcu, uart: t.uart, socket: t.socket, dir: t.dir };
         }
         const dev = this.fields.get(ref.owner);
         if (dev) {
@@ -484,15 +487,21 @@ export class WiringManager extends EventEmitter {
                 continue;
             }
             let level: boolean | null = null;
+            let driver: Node | undefined;
+            // An output Tibbit (a relay) drives whatever else is on the net.
+            for (const n of tpp) {
+                if (n.dir === 'out' && level === null) {
+                    level = this.pinOutput(n);
+                }
+            }
             for (const n of net) {
                 if (n.device && level === null) {
                     level = this.fieldLevel(n);
                 }
             }
-            let driver: Node | undefined;
             if (level === null) {
                 for (const n of tpp) {
-                    const out = this.pinOutput(n);
+                    const out = n.dir ? null : this.pinOutput(n);
                     if (out !== null) {
                         level = out;
                         driver = n;
@@ -501,8 +510,16 @@ export class WiringManager extends EventEmitter {
                 }
             }
             for (const n of tpp) {
-                if (n !== driver) {
-                    want.set(`${n.instance!.id}/${pinName(n.mcu!)}`, { inst: n.instance!, pin: n.mcu!, level });
+                if (n !== driver && n.dir !== 'out') {
+                    want.set(`${n.instance!.id}/${pinName(n.mcu!)}`, { inst: n.instance!, pin: n.mcu!, level: level === null && n.dir === 'in' ? true : level });
+                }
+            }
+        }
+        // An input with no wire is open: its pull-up holds it high.
+        for (const inst of this.instances.list()) {
+            for (const t of inst.terminals) {
+                if (t.dir === 'in' && t.mcu && !this.netOf.has(`${inst.id}/${t.id}`)) {
+                    want.set(`${inst.id}/${pinName(t.mcu)}`, { inst, pin: t.mcu, level: true });
                 }
             }
         }

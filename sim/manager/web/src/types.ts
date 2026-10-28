@@ -127,6 +127,7 @@ export interface Terminal {
     line?: number;
     mcu?: { port: string; pin: number };
     uart?: string;
+    dir?: 'in' | 'out'; // an output Tibbit (relay, ...) or an input Tibbit
 }
 
 export interface TibbitInfo {
