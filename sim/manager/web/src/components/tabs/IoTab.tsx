@@ -1,11 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { persisted } from '../../local';
-import { sendPin, useInstanceState, usePinConfig } from '../../store';
-import type { Instance, InstState, PinConfig } from '../../types';
+import { sendPin, useCatalog, useInstanceState, usePinConfig } from '../../store';
+import type { Catalog, Instance, InstState, PinConfig } from '../../types';
 
 // Live GPIO state of the open instance. Levels and output masks come with every 'state' message
 // (40 ms stream); the pin configuration (mode, pulls, alternate function, external drivers) comes
-// as 'pinConfig' when it changes. Watched pins are per-viewer.
+// as 'pinConfig' when it changes. Watched pins and the chosen view are per-viewer.
+//
+// Two views: by MCU port (a matrix of every pin), or by Tibbit socket (the four lines of each
+// function socket, named after the Tibbit in it).
 
 const IO_PORTS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'];
 const IO_TRACE_MS = 10000;
@@ -15,6 +18,7 @@ const AF_NAMES = ['SYS', 'TIM1/2', 'TIM3-5', 'TIM8-11', 'I2C1-3', 'SPI1/2', 'SPI
 
 const NO_PINS: string[] = [];
 const watchStore = persisted<Record<string, string[]>>('sim.io.watch', {});
+const viewStore = persisted<'ports' | 'sockets'>('sim.io.view', 'ports');
 
 // Pins the board wires to something, plus the DTS buttons and LEDs: 'PB10' -> label.
 function namedPins(inst: Instance) {
@@ -32,6 +36,48 @@ function namedPins(inst: Instance) {
     }
     for (const [pin, label] of board) if (!names.has(pin)) names.set(pin, label);
     return names;
+}
+
+interface SocketLine {
+    key: string | null; // 'PD5', null when the line is not a GPIO
+    label: string;
+    term?: string; // the wire terminal it comes out on
+}
+
+interface SocketGroup {
+    socket: string;
+    tibbit: string; // '#05 RS485 port', '' when empty
+    covered?: string; // the socket of the wide Tibbit spanning this one
+    uart?: string;
+    lines: SocketLine[];
+}
+
+const isWide = (form: string | undefined) => form === 'M2S' || form === 'M2T' || form === 'H2' || form === 'C2';
+
+// The function sockets of the board and their lines. A line takes the label of its wire terminal,
+// else the one the Tibbit's datasheet gives it.
+function socketGroups(inst: Instance, catalog: Catalog): SocketGroup[] {
+    const byModel = new Map(catalog.tibbits.map((t) => [t.model, t]));
+    const placed = inst.tibbits || {};
+    const groups: SocketGroup[] = [];
+    for (const s of catalog.sockets[inst.board] || []) {
+        if (!s.lines.length) continue; // a connector socket
+        const prev = String(Number(s.socket) - 2);
+        const covered = !placed[s.socket] && isWide(byModel.get(placed[prev])?.form) ? prev : undefined;
+        const model = placed[s.socket] || (covered ? placed[covered] : '');
+        const t = byModel.get(model);
+        groups.push({
+            socket: s.socket,
+            tibbit: t ? `#${t.model} ${t.name}` : model ? `#${model}` : '',
+            covered,
+            uart: s.uart,
+            lines: s.lines.map((p, line) => {
+                const term = inst.terminals.find((x) => x.socket === s.socket && x.line === line && x.label);
+                return { key: p ? `P${p.port}${p.pin}` : null, label: term?.label || (!covered && t?.lines?.[line]) || '', term: term?.id };
+            }),
+        });
+    }
+    return groups;
 }
 
 interface Pin {
@@ -76,7 +122,7 @@ function split(key: string): [string, number] {
     return [m[1], Number(m[2])];
 }
 
-function Trace({ hist, running, now }: { hist: Array<[number, number]> | undefined; running: boolean; now: number }) {
+function Trace({ hist, running, now, width = 180 }: { hist: Array<[number, number]> | undefined; running: boolean; now: number; width?: number }) {
     const ref = useRef<HTMLCanvasElement>(null);
     useEffect(() => {
         const c = ref.current!;
@@ -101,13 +147,15 @@ function Trace({ hist, running, now }: { hist: Array<[number, number]> | undefin
             px = Math.max(px, end);
         }
     });
-    return <canvas ref={ref} className="io-trace" width={180} height={18} />;
+    return <canvas ref={ref} className="io-trace" width={width} height={18} style={{ width }} />;
 }
 
 export function IoTab({ inst }: { inst: Instance }) {
     const state = useInstanceState(inst.id);
     const cfg = usePinConfig(inst.id);
+    const catalog = useCatalog();
     const watch = watchStore.use();
+    const view = viewStore.use();
     const [sel, setSel] = useState<string | null>(null);
     const [, tick] = useState(0);
     const running = inst.status === 'running' && !!(state && state.pins);
@@ -119,6 +167,13 @@ export function IoTab({ inst }: { inst: Instance }) {
         // The LCD data bus is better read in the matrix; list its control lines only.
         return keys.filter((k) => !/^LCD D\d$/.test(names.get(k) || ''));
     }, [names, watched]);
+    const groups = useMemo(() => (catalog ? socketGroups(inst, catalog) : []), [inst, catalog]);
+    // Pins with a trace: the listed ones and the socket lines.
+    const traced = useMemo(() => {
+        const keys = new Set(listed);
+        for (const g of groups) for (const l of g.lines) if (l.key) keys.add(l.key);
+        return [...keys];
+    }, [listed, groups]);
 
     const prev = useRef<Record<string, number>>({});
     const changedAt = useRef<Record<string, number>>({});
@@ -135,14 +190,14 @@ export function IoTab({ inst }: { inst: Instance }) {
             }
             prev.current[port] = lv;
         }
-        for (const key of listed) {
+        for (const key of traced) {
             const [port, pin] = split(key);
             const v = ((state.pins[port] || 0) >> pin) & 1;
             const h = hist.current[key] || (hist.current[key] = []);
             if (!h.length || h[h.length - 1][1] !== v) h.push([now, v]);
             while (h.length > 1 && h[1][0] < now - IO_TRACE_MS) h.shift();
         }
-    }, [state, running, listed]);
+    }, [state, running, traced]);
 
     // Activity highlights and traces move with time even when no state arrives.
     useEffect(() => {
@@ -167,9 +222,90 @@ export function IoTab({ inst }: { inst: Instance }) {
         }
     };
 
+    // A pin of the matrix or a socket line: level, mode letter, activity; click to select it.
+    const pinButton = (key: string) => {
+        const p = pinOf(running, state, cfg, ...split(key));
+        const label = names.get(key);
+        const cls = [
+            'iopin',
+            names.has(key) && 'named',
+            !p && 'off',
+            p && p.level && 'hi',
+            p && p.mode === 'out' && 'm-out',
+            p && p.mode === 'af' && 'm-af',
+            p && p.mode === 'an' && 'm-an',
+            p && p.ext !== null && p.ext !== undefined && 'ext',
+            sel === key && 'sel',
+            now - (changedAt.current[key] || -1e9) < IO_ACTIVE_MS && 'act',
+        ].filter(Boolean).join(' ');
+        return (
+            <button
+                className={cls}
+                title={`${key}${label ? ` · ${label}` : ''}\n${p ? `${p.level ? 'high' : 'low'} · ${modeText(p)}` : 'not running'}`}
+                onClick={(e) => {
+                    e.stopPropagation(); // a socket line row selects too
+                    setSel(sel === key ? null : key);
+                }}
+            >
+                {cellText(p)}
+            </button>
+        );
+    };
+
+    const inspect = (
+        <div className="io-inspect">
+            {!sel ? (
+                <span className="muted">Select a pin to see its configuration and drive it.</span>
+            ) : (
+                <>
+                    <strong className="io-key">{sel}</strong>
+                    {names.get(sel) && <span>{names.get(sel)}</span>}
+                    <span className="muted">
+                        {selPin
+                            ? `${selPin.level ? 'HIGH' : 'LOW'} · ${modeText(selPin)}${selPin.ext === true ? ' · driven high externally' : selPin.ext === false ? ' · driven low externally' : ''}${selPin.mode === 'out' && !selPin.od ? ' · a push-pull output wins over an external drive' : ''}`
+                            : 'not running'}
+                    </span>
+                    <span className="spacer" />
+                    <button className="btn small" title="Drive the line high, as an external circuit would" onClick={() => drive(1)}>Drive high</button>
+                    <button className="btn small" title="Drive the line low" onClick={() => drive(0)}>Drive low</button>
+                    <button className="btn small" title="Stop driving the line (Hi-Z)" onClick={() => drive(null)}>Release</button>
+                    {!names.get(sel) && <button className="btn small" onClick={() => toggleWatch(sel)}>{watched.includes(sel) ? 'Unwatch' : 'Watch'}</button>}
+                </>
+            )}
+        </div>
+    );
+
+    // One line of a socket card: pin, MCU pin, label, mode, trace.
+    const cardRow = (key: string | null, label: string, title?: string) => {
+        if (!key) {
+            return (
+                <div className="io-crow none">
+                    <span />
+                    <span className="io-key">–</span>
+                    <span className="io-label">{label}</span>
+                    <span className="io-mode">not a GPIO</span>
+                </div>
+            );
+        }
+        const p = pinOf(running, state, cfg, ...split(key));
+        return (
+            <div key={key} className={`io-crow${sel === key ? ' sel' : ''}`} title={title} onClick={() => setSel(sel === key ? null : key)}>
+                {pinButton(key)}
+                <span className="io-key">{key}</span>
+                <span className="io-label">{label}</span>
+                <span className="io-mode">{modeText(p)}</span>
+                <Trace hist={hist.current[key]} running={running} now={now} width={96} />
+            </div>
+        );
+    };
+
     return (
         <div className="io-pane">
             <div className="io-legend">
+                <span className="seg" role="group" aria-label="Group pins by">
+                    <button className={view === 'ports' ? 'on' : ''} onClick={() => viewStore.set('ports')} title="Every MCU pin, by port">Ports</button>
+                    <button className={view === 'sockets' ? 'on' : ''} onClick={() => viewStore.set('sockets')} title="The lines of each Tibbit socket">Sockets</button>
+                </span>
                 <span><i className="iopin hi" />high</span>
                 <span><i className="iopin" />low</span>
                 <span><i className="iopin m-out">O</i>output</span>
@@ -179,91 +315,78 @@ export function IoTab({ inst }: { inst: Instance }) {
                 <span><i className="iopin named" />named</span>
                 <span className="io-note">{running ? (cfg ? '' : 'pin modes arrive after a restart of this instance') : 'not running'}</span>
             </div>
-            <div className="io-grid">
-                <div className="io-scroll">
-                    <table className="io-matrix">
-                        <thead>
-                            <tr>
-                                <th />
-                                {Array.from({ length: 16 }, (_, i) => <th key={i}>{i}</th>)}
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {IO_PORTS.map((port) => (
-                                <tr key={port}>
-                                    <th>P{port}</th>
-                                    {Array.from({ length: 16 }, (_, pin) => {
-                                        const key = `P${port}${pin}`;
-                                        const p = pinOf(running, state, cfg, port, pin);
-                                        const label = names.get(key);
-                                        const cls = [
-                                            'iopin',
-                                            names.has(key) && 'named',
-                                            !p && 'off',
-                                            p && p.level && 'hi',
-                                            p && p.mode === 'out' && 'm-out',
-                                            p && p.mode === 'af' && 'm-af',
-                                            p && p.mode === 'an' && 'm-an',
-                                            p && p.ext !== null && p.ext !== undefined && 'ext',
-                                            sel === key && 'sel',
-                                            now - (changedAt.current[key] || -1e9) < IO_ACTIVE_MS && 'act',
-                                        ].filter(Boolean).join(' ');
-                                        return (
-                                            <td key={pin}>
-                                                <button
-                                                    className={cls}
-                                                    title={`${key}${label ? ` · ${label}` : ''}\n${p ? `${p.level ? 'high' : 'low'} · ${modeText(p)}` : 'not running'}`}
-                                                    onClick={() => setSel(sel === key ? null : key)}
-                                                >
-                                                    {cellText(p)}
-                                                </button>
-                                            </td>
-                                        );
-                                    })}
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-
-                <div className="io-side">
-                    <div className="io-inspect">
-                        {!sel ? (
-                            <span className="muted">Select a pin to see its configuration and drive it.</span>
-                        ) : (
-                            <>
-                                <strong className="io-key">{sel}</strong>
-                                {names.get(sel) && <span>{names.get(sel)}</span>}
-                                <span className="muted">
-                                    {selPin
-                                        ? `${selPin.level ? 'HIGH' : 'LOW'} · ${modeText(selPin)}${selPin.ext === true ? ' · driven high externally' : selPin.ext === false ? ' · driven low externally' : ''}${selPin.mode === 'out' && !selPin.od ? ' · a push-pull output wins over an external drive' : ''}`
-                                        : 'not running'}
-                                </span>
-                                <span className="spacer" />
-                                <button className="btn small" title="Drive the line high, as an external circuit would" onClick={() => drive(1)}>Drive high</button>
-                                <button className="btn small" title="Drive the line low" onClick={() => drive(0)}>Drive low</button>
-                                <button className="btn small" title="Stop driving the line (Hi-Z)" onClick={() => drive(null)}>Release</button>
-                                {!names.get(sel) && <button className="btn small" onClick={() => toggleWatch(sel)}>{watched.includes(sel) ? 'Unwatch' : 'Watch'}</button>}
-                            </>
-                        )}
-                    </div>
-                    <div className="io-list">
-                        {listed.map((key) => {
-                            const [port, pin] = split(key);
-                            const p = pinOf(running, state, cfg, port, pin);
-                            return (
-                                <div key={key} className={`io-row${sel === key ? ' sel' : ''}`} onClick={() => setSel(sel === key ? null : key)}>
-                                    <span className="io-key">{key}</span>
-                                    <span className="io-label">{names.get(key) || (watched.includes(key) ? 'watched' : '')}</span>
-                                    <span className="io-mode">{modeText(p)}</span>
-                                    <span className={`io-lvl${p && p.level ? ' hi' : ''}`}>{p ? (p.level ? 'HIGH' : 'LOW') : '–'}</span>
-                                    <Trace hist={hist.current[key]} running={running} now={now} />
+            {view === 'sockets' ? (
+                <>
+                    {inspect}
+                    {!catalog ? (
+                        <p className="empty-note">Loading the Tibbit catalog…</p>
+                    ) : (
+                        <div className="io-cards">
+                            {groups.map((g) => (
+                                <div key={g.socket} className={`io-card${g.tibbit ? '' : ' empty'}`}>
+                                    <div className="io-card-head">
+                                        <strong>S{g.socket}</strong>
+                                        <span className="io-label">{g.covered ? `${g.tibbit} (from S${g.covered})` : g.tibbit || 'empty'}</span>
+                                        {g.uart && <span className="muted io-uart">{g.uart}</span>}
+                                    </div>
+                                    {g.lines.map((l, i) => (
+                                        <Fragment key={i}>{cardRow(l.key, l.label, l.term ? `Terminal ${l.term}` : undefined)}</Fragment>
+                                    ))}
                                 </div>
-                            );
-                        })}
+                            ))}
+                            {listed.length > 0 && (
+                                <div className="io-card">
+                                    <div className="io-card-head">
+                                        <strong>Board</strong>
+                                        <span className="io-label muted">buttons, LEDs, on-board parts, watched pins</span>
+                                    </div>
+                                    {listed.map((key) => <Fragment key={key}>{cardRow(key, names.get(key) || 'watched')}</Fragment>)}
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </>
+            ) : (
+                <div className="io-grid">
+                    <div className="io-scroll">
+                        <table className="io-matrix">
+                            <thead>
+                                <tr>
+                                    <th />
+                                    {Array.from({ length: 16 }, (_, i) => <th key={i}>{i}</th>)}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {IO_PORTS.map((port) => (
+                                    <tr key={port}>
+                                        <th>P{port}</th>
+                                        {Array.from({ length: 16 }, (_, pin) => <td key={pin}>{pinButton(`P${port}${pin}`)}</td>)}
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div className="io-side">
+                        {inspect}
+                        <div className="io-list">
+                            {listed.map((key) => {
+                                const [port, pin] = split(key);
+                                const p = pinOf(running, state, cfg, port, pin);
+                                return (
+                                    <div key={key} className={`io-row${sel === key ? ' sel' : ''}`} onClick={() => setSel(sel === key ? null : key)}>
+                                        <span className="io-key">{key}</span>
+                                        <span className="io-label">{names.get(key) || (watched.includes(key) ? 'watched' : '')}</span>
+                                        <span className="io-mode">{modeText(p)}</span>
+                                        <span className={`io-lvl${p && p.level ? ' hi' : ''}`}>{p ? (p.level ? 'HIGH' : 'LOW') : '–'}</span>
+                                        <Trace hist={hist.current[key]} running={running} now={now} />
+                                    </div>
+                                );
+                            })}
+                        </div>
                     </div>
                 </div>
-            </div>
+            )}
         </div>
     );
 }

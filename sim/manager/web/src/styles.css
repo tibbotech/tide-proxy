@@ -347,6 +347,20 @@ i.iopin { cursor: default; font-style: normal; }
 .io-lvl { font: 600 11px ui-monospace, Consolas, monospace; color: var(--muted); }
 .io-lvl.hi { color: var(--gpio-hi); }
 .io-trace { width: 180px; height: 18px; }
+.io-legend .seg { gap: 0; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; margin-right: 6px; }
+.io-legend .seg button { font: inherit; font-size: 12px; color: var(--muted); background: none; border: 0; padding: 2px 10px; cursor: pointer; }
+.io-legend .seg button + button { border-left: 1px solid var(--border); }
+.io-legend .seg button.on { background: var(--surface-2); color: var(--text); font-weight: 600; }
+.io-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 10px; align-items: start; }
+.io-card { border: 1px solid var(--border); border-radius: 8px; padding: 6px 6px 4px; }
+.io-card.empty { opacity: 0.6; }
+.io-card-head { display: flex; align-items: baseline; gap: 8px; padding: 0 4px 4px; }
+.io-uart { margin-left: auto; font: 11px ui-monospace, Consolas, monospace; }
+.io-crow { display: grid; grid-template-columns: 22px 40px minmax(40px, 0.8fr) minmax(60px, 1fr) 96px; align-items: center; gap: 6px; padding: 1px 4px; border-radius: 5px; cursor: pointer; }
+.io-crow:hover { background: var(--surface-2); }
+.io-crow.sel { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.io-crow.none { cursor: default; color: var(--muted); }
+.io-crow.none:hover { background: none; }
 
 /* ---- wires tab ---- */
 .link-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
