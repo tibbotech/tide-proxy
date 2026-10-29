@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 
 import { readElf } from './elf';
-import { boardProfile, BoardProfile } from './dts';
+import { BoardButton, boardProfile, BoardProfile } from './dts';
 
 export type Generation = 'g2' | 'g3';
 // Device types an instance can be. g2 = STM32F207, g3 = STM32F439; TPP2 and TPP3 share the MCU
@@ -51,6 +51,15 @@ export function defaultProfile(board: Board): BoardProfile {
         ],
         lcd: board.startsWith('tpp2') ? { width: 320, height: 240 } : undefined,
     };
+}
+const TPP2_KEYPAD: BoardButton[] = [12, 13, 14, 15].map((pin, i) => ({ id: `key${i + 1}`, label: `Key ${i + 1}`, port: 'E', pin, activeLow: true }));
+
+export function withKeypad(board: Board, profile: BoardProfile): BoardProfile {
+    if (!board.startsWith('tpp2') || !profile.lcd) {
+        return profile;
+    }
+    const missing = TPP2_KEYPAD.filter((k) => !profile.buttons.some((b) => b.id === k.id || (b.port === k.port && b.pin === k.pin)));
+    return missing.length ? { ...profile, buttons: [...profile.buttons, ...missing] } : profile;
 }
 
 export function generationOf(flashBase: number, board: string): Generation {
