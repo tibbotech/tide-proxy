@@ -208,6 +208,10 @@ export class Instance extends EventEmitter {
         return Buffer.concat(this.consoleHistory.get(name) || []);
     }
 
+    clearConsole(name: string): void {
+        this.consoleHistory.delete(name);
+    }
+
     appendConsole(name: string, data: Buffer): void {
         const hist = this.consoleHistory.get(name) || [];
         hist.push(data);

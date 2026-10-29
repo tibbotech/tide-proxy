@@ -256,6 +256,7 @@ export const sendButton = (id: string, button: string, pressed: boolean) => send
 // level: 1 / 0 drives the line, null releases it.
 export const sendPin = (id: string, port: string, pin: number, level: 0 | 1 | null) => sendRaw({ t: 'input', id, port, pin, level });
 export const sendConsole = (id: string, uart: string, data: string) => sendRaw({ t: 'console', id, uart, data });
+export const clearConsole = (id: string, uart: string) => sendRaw({ t: 'clearConsole', id, uart });
 
 // ---- REST ----
 export async function loadMonitors() {

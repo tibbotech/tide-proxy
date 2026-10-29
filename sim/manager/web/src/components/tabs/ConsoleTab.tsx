@@ -2,7 +2,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { useEffect, useRef, useState } from 'react';
 import { setDebugPrint } from '../../actions';
-import { getConsole, onConsole, sendConsole } from '../../store';
+import { clearConsole, getConsole, onConsole, sendConsole } from '../../store';
 import type { Instance } from '../../types';
 
 function Terminal({ id, uart }: { id: string; uart: string }) {
@@ -82,6 +82,9 @@ export function ConsoleTab({ inst }: { inst: Instance }) {
                         {inst.debugPrintAttached ? 'Detach' : 'Attach'}
                     </button>
                 )}
+                <button className="btn small" title="Clear this console's output, for every viewer" onClick={() => clearConsole(inst.id, uart)}>
+                    Clear
+                </button>
                 <span className="muted small-print">{uart === 'udp' ? 'Output only.' : 'Type here to send to the UART.'}</span>
             </div>
             <Terminal id={inst.id} uart={uart} />

@@ -346,7 +346,7 @@ function applyInput(inst: Instance, body: any): void {
 
 // ---- WebSocket ----
 // Client -> server JSON: {t:'sub', lcd:'*'|[ids], detail:id|null}, {t:'input', id, ...},
-//                        {t:'console', id, uart, data}
+//                        {t:'console', id, uart, data}, {t:'clearConsole', id, uart}
 // Server -> client JSON: {t:'instances', list}, {t:'state', id, state}, {t:'uart', id, uart, data},
 //                        {t:'log', id, line}, {t:'backlog', id, uart, data},
 //                        {t:'links', links, stats}, {t:'linkStats', stats}, {t:'pinConfig', id, pinConfig},
@@ -510,6 +510,13 @@ wss.on('connection', (ws) => {
                 break;
             case 'console':
                 inst?.sendConsole(msg.uart, msg.data);
+                break;
+            case 'clearConsole':
+                // The history is shared: every viewer of the instance gets the (now empty) backlog.
+                if (inst) {
+                    inst.clearConsole(msg.uart);
+                    clients.forEach((c) => c.detail === inst.id && send(c, { t: 'backlog', id: inst.id, uart: msg.uart, data: '' }));
+                }
                 break;
             }
         } catch (e: any) {
