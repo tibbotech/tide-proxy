@@ -72,6 +72,8 @@ export interface Instance {
     profile: BoardProfile;
     tibbits: Record<string, string>; // socket -> Tibbit model
     terminals: Terminal[]; // wire terminals of the terminal blocks among them
+    sdCards: SdCard[]; // #49 slots
+    lcd?: boolean; // TPP2 set up as a TPB2L or not; unset: as the DTS says
     firmware?: { name: string; uploadedAt: string; hasDts: boolean };
     monitor?: unknown;
     bootMonitor?: { name: string; own: boolean } | null;
@@ -149,6 +151,30 @@ export interface SocketInfo {
 export interface Catalog {
     tibbits: TibbitInfo[];
     sockets: Record<string, SocketInfo[]>;
+}
+
+type McuPin = { port: string; pin: number };
+
+// A #49 slot: its bit-banged SPI pins and the card image (size 0 until the first start makes one).
+export interface SdCard {
+    socket: string;
+    clk: McuPin;
+    mosi: McuPin;
+    miso: McuPin;
+    cs: McuPin;
+    size: number;
+    inserted: boolean;
+}
+
+// What a Cody project sets up (POST /api/projects/preview).
+export interface ProjectSetup {
+    board: Board;
+    name?: string;
+    device: string;
+    lcd?: boolean;
+    tibbits: Record<string, string>;
+    skipped: string[];
+    notes: string[];
 }
 
 export type FieldKind = 'wiegand-reader' | 'modbus-slave' | 'io-panel';

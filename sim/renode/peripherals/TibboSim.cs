@@ -10,6 +10,7 @@
 //  - TibboSYSCFG     SYSCFG with the EXTICR port multiplexer feeding EXTI.
 //  - TibboAT45       Atmel/Adesto AT45 DataFlash on SPI, file-backed.
 //  - TibboAT24       AT24Cxx EEPROM on bit-banged (gpio-i2c) SCL/SDA, file-backed.
+//  - TibboSDCard     SD card in SPI mode on bit-banged lines (Tibbit #49), image-file backed.
 //  - TibboSSD1963    SSD1963 LCD controller on a bit-banged 8080 8-bit bus.
 //  - TibboSimBridge  TCP endpoint streaming LCD/pin state and accepting inputs;
 //                    makes Wiegand pulses in virtual time; persists internal flash for
@@ -166,6 +167,15 @@ namespace Antmicro.Renode.Peripherals.GPIOPort
             return (levels & (1 << pin)) != 0;
         }
 
+        // A pull-up resistor that comes with a plugged-in device (an SD card's on MISO).
+        public void SetExternalPullUp(int pin, bool on)
+        {
+            var bit = (ushort)(1 << pin);
+            externalPullUps = on ? (ushort)(externalPullUps | bit) : (ushort)(externalPullUps & ~bit);
+            UpdateMasks();
+            Update();
+        }
+
         private void UpdateMasks()
         {
             ushort outM = 0, afM = 0, inM = 0, pu = 0, pd = 0;
@@ -229,7 +239,8 @@ namespace Antmicro.Renode.Peripherals.GPIOPort
         private ushort outMask, inputMask, openDrainMask, floatHigh;
 
         private readonly uint modeResetValue, pullResetValue, speedResetValue;
-        private readonly ushort externalPullUps, externalPullDowns;
+        private readonly ushort externalPullDowns;
+        private ushort externalPullUps;
 
         private const int NumberOfPins = 16;
     }
@@ -688,6 +699,558 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         private readonly int pageSize, address;
         private readonly TibboGPIOPort sclPort, sdaPort;
         private readonly int sclPin, sdaPin;
+    }
+
+    // SD card (SDHC, SPI mode) on bit-banged lines: Tibbit #49 driven by Cody's tibbo,spi-bitbang-stm32
+    // driver under Zephyr's sdhc-spi. Backed by an image file (ImageFile), whose size in whole 512 KiB
+    // units is the card's capacity.
+    // SPI mode 0, MSB first: MOSI is sampled on the rising edge of CLK, MISO changes on the falling edge
+    // and shows a byte's first bit as soon as CS goes low. The host drops CS between transactions (even
+    // between single-byte polls), so the card keeps its state and the bytes it has yet to send across CS
+    // cycles. A response follows its command after one byte (NCR = 1), a data block its response after
+    // one more (NAC = 1), and the card is never busy. Command CRCs are not checked; data blocks carry a
+    // valid CRC16, which the host checks.
+    public class TibboSDCard : IDoubleWordPeripheral, IKnownSize, IDisposable
+    {
+        public TibboSDCard(TibboGPIOPort clkPort, int clkPin, TibboGPIOPort mosiPort, int mosiPin,
+            TibboGPIOPort misoPort, int misoPin, TibboGPIOPort csPort, int csPin)
+        {
+            this.clkPort = clkPort;
+            this.clkPin = clkPin;
+            this.mosiPort = mosiPort;
+            this.mosiPin = mosiPin;
+            this.misoPort = misoPort;
+            this.misoPin = misoPin;
+            this.csPort = csPort;
+            this.csPin = csPin;
+            // The slot pulls MISO up: an idle (or missing) card reads as 0xFF.
+            misoPort.SetExternalPullUp(misoPin, true);
+            clkPort.LevelsChanged += OnLevels;
+            if(csPort != clkPort)
+            {
+                csPort.LevelsChanged += OnLevels;
+            }
+            Reset();
+        }
+
+        // Monitor handle only: the device sits on a small dummy bus window.
+        public long Size => 0x100;
+
+        public uint ReadDoubleWord(long offset)
+        {
+            return 0;
+        }
+
+        public void WriteDoubleWord(long offset, uint value)
+        {
+        }
+
+        public void Reset()
+        {
+            output.Clear();
+            state = State.Command;
+            cmdLength = 0;
+            idle = true;
+            appCmd = false;
+            streaming = false;
+            bitCount = 0;
+            lastClk = clkPort.GetLevel(clkPin);
+            selected = false;
+            misoPort.Release(misoPin);
+            OnLevels(clkPort, 0, 0);
+        }
+
+        // The card image; opened for reading and writing, not loaded into memory.
+        public string ImageFile
+        {
+            get => imageFile;
+            set
+            {
+                image?.Dispose();
+                image = null;
+                blockCount = 0;
+                imageFile = value;
+                var stream = new FileStream(value, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite);
+                var count = stream.Length / CapacityUnit * (CapacityUnit / BlockSize);
+                if(count == 0)
+                {
+                    stream.Dispose();
+                    throw new ArgumentException($"{value} is smaller than 512 KiB");
+                }
+                image = stream;
+                blockCount = count;
+                this.Log(LogLevel.Info, "card image {0}, {1} MiB", value, blockCount / 2048);
+                Reset();
+            }
+        }
+
+        // A removed card never answers (MISO stays pulled up). Putting it back starts it over at power-up.
+        public bool Inserted
+        {
+            get => inserted;
+            set
+            {
+                if(inserted == value)
+                {
+                    return;
+                }
+                inserted = value;
+                this.Log(LogLevel.Info, value ? "card inserted" : "card removed");
+                Reset();
+            }
+        }
+
+        public long BlockCount => blockCount;
+
+        public long BlocksRead => blocksRead;
+
+        public long BlocksWritten => blocksWritten;
+
+        public void Dispose()
+        {
+            image?.Dispose();
+            image = null;
+        }
+
+        private void OnLevels(TibboGPIOPort port, ushort oldLevels, ushort newLevels)
+        {
+            var select = inserted && image != null && !csPort.GetLevel(csPin);
+            if(select != selected)
+            {
+                selected = select;
+                bitCount = 0;
+                if(selected)
+                {
+                    DriveBit(Peek() >> 7);
+                }
+                else
+                {
+                    misoPort.Release(misoPin);
+                }
+            }
+            var clk = clkPort.GetLevel(clkPin);
+            if(clk == lastClk)
+            {
+                return;
+            }
+            lastClk = clk;
+            if(!selected)
+            {
+                return;
+            }
+            if(clk)
+            {
+                Rising();
+            }
+            else
+            {
+                Falling();
+            }
+        }
+
+        private void Rising()
+        {
+            if(bitCount == 0)
+            {
+                // The byte whose first bit MISO shows is now being clocked out.
+                txByte = Peek();
+                if(output.Count > 0)
+                {
+                    output.Dequeue();
+                }
+                rxByte = 0;
+            }
+            rxByte = (byte)((rxByte << 1) | (mosiPort.GetLevel(mosiPin) ? 1 : 0));
+            bitCount++;
+            if(bitCount == 8)
+            {
+                Receive(rxByte);
+            }
+        }
+
+        private void Falling()
+        {
+            if(bitCount == 8)
+            {
+                bitCount = 0;
+                DriveBit(Peek() >> 7);
+            }
+            else if(bitCount > 0)
+            {
+                DriveBit(txByte >> (7 - bitCount));
+            }
+        }
+
+        private void DriveBit(int bit)
+        {
+            misoPort.Drive(misoPin, (bit & 1) != 0);
+        }
+
+        // The next byte to send: queued output, the next block of a multiple-block read, else 0xFF.
+        private byte Peek()
+        {
+            if(output.Count == 0 && streaming)
+            {
+                if(streamBlock < blockCount)
+                {
+                    QueueBlock(ReadBlock(streamBlock++));
+                }
+                else
+                {
+                    streaming = false;
+                }
+            }
+            return output.Count > 0 ? output.Peek() : (byte)0xFF;
+        }
+
+        private void Receive(byte b)
+        {
+            switch(state)
+            {
+            case State.Command:
+                // A command starts with bits 01; anything else between commands is filler.
+                if(cmdLength == 0 && (b & 0xC0) != 0x40)
+                {
+                    return;
+                }
+                command[cmdLength++] = b;
+                if(cmdLength == 6)
+                {
+                    cmdLength = 0;
+                    Execute(command[0] & 0x3F, (uint)((command[1] << 24) | (command[2] << 16) | (command[3] << 8) | command[4]));
+                }
+                return;
+            case State.WriteToken:
+                if(b == TokenSingle || b == TokenMultiWrite)
+                {
+                    state = State.WriteData;
+                    dataLength = 0;
+                }
+                else if(b == TokenStopTran && multiWrite)
+                {
+                    state = State.Command;
+                }
+                else if((b & 0xC0) == 0x40)
+                {
+                    state = State.Command;
+                    command[0] = b;
+                    cmdLength = 1;
+                }
+                return;
+            case State.WriteData:
+                // The block, then its CRC16 (not checked).
+                writeBuffer[dataLength++] = b;
+                if(dataLength == BlockSize + 2)
+                {
+                    WriteBlock();
+                }
+                return;
+            }
+        }
+
+        private void Execute(int index, uint arg)
+        {
+            var app = appCmd;
+            appCmd = false;
+            // A new command ends whatever the card was sending.
+            output.Clear();
+            streaming = false;
+            state = State.Command;
+            this.Log(LogLevel.Debug, "{0}CMD{1} 0x{2:X8}", app ? "A" : "", index, arg);
+            output.Enqueue(0xFF);
+            if(app && ExecuteApp(index, arg))
+            {
+                return;
+            }
+            switch(index)
+            {
+            case 0: // GO_IDLE_STATE
+                idle = true;
+                output.Enqueue(R1Idle);
+                break;
+            case 8: // SEND_IF_COND: R7 echoes the voltage and check pattern
+                Respond(R1());
+                output.Enqueue(0);
+                output.Enqueue(0);
+                output.Enqueue((byte)((arg >> 8) & 0x0F));
+                output.Enqueue((byte)arg);
+                break;
+            case 9: // SEND_CSD
+                Respond(R1());
+                QueueBlock(Csd());
+                break;
+            case 10: // SEND_CID
+                Respond(R1());
+                QueueBlock(Cid);
+                break;
+            case 12: // STOP_TRANSMISSION (R1b, never busy)
+                Respond(R1());
+                break;
+            case 13: // SEND_STATUS: R2
+                Respond(R1());
+                output.Enqueue(0);
+                break;
+            case 17: // READ_SINGLE_BLOCK
+            case 18: // READ_MULTIPLE_BLOCK
+                if(arg >= blockCount)
+                {
+                    Respond(R1ParameterError);
+                    break;
+                }
+                Respond(R1());
+                if(index == 17)
+                {
+                    QueueBlock(ReadBlock(arg));
+                }
+                else
+                {
+                    streaming = true;
+                    streamBlock = arg;
+                }
+                break;
+            case 24: // WRITE_BLOCK
+            case 25: // WRITE_MULTIPLE_BLOCK
+                if(arg >= blockCount)
+                {
+                    Respond(R1ParameterError);
+                    break;
+                }
+                Respond(R1());
+                state = State.WriteToken;
+                multiWrite = index == 25;
+                writeAddress = arg;
+                lastWritten = 0;
+                break;
+            case 55: // APP_CMD
+                appCmd = true;
+                Respond(R1());
+                break;
+            case 58: // READ_OCR: R3, 3.2-3.4 V; power-up done and SDHC once initialised
+                Respond(R1());
+                output.Enqueue((byte)(idle ? 0x00 : 0xC0));
+                output.Enqueue(0xFF);
+                output.Enqueue(0x80);
+                output.Enqueue(0x00);
+                break;
+            case 6: // SWITCH_FUNC: no switchable functions
+                Respond(R1());
+                QueueBlock(new byte[64]);
+                break;
+            case 16: // SET_BLOCKLEN (fixed at 512 on SDHC)
+            case 32: // ERASE_WR_BLK_START
+            case 33: // ERASE_WR_BLK_END
+            case 38: // ERASE (nothing is cleared)
+            case 59: // CRC_ON_OFF
+                Respond(R1());
+                break;
+            default:
+                Respond((byte)(R1() | R1IllegalCommand));
+                break;
+            }
+        }
+
+        // Application commands (after CMD55). False: not one, run it as a plain command.
+        private bool ExecuteApp(int index, uint arg)
+        {
+            switch(index)
+            {
+            case 41: // SD_SEND_OP_COND: initialisation completes at once
+                if(idle)
+                {
+                    this.Log(LogLevel.Info, "card initialised by the host");
+                }
+                idle = false;
+                Respond(R1());
+                return true;
+            case 13: // SD_STATUS: R2 and a 64-byte status block
+                Respond(R1());
+                output.Enqueue(0);
+                QueueBlock(new byte[64]);
+                return true;
+            case 22: // SEND_NUM_WR_BLOCKS
+                Respond(R1());
+                QueueBlock(new[] { (byte)(lastWritten >> 24), (byte)(lastWritten >> 16), (byte)(lastWritten >> 8), (byte)lastWritten });
+                return true;
+            case 23: // SET_WR_BLK_ERASE_COUNT
+            case 42: // SET_CLR_CARD_DETECT
+                Respond(R1());
+                return true;
+            case 51: // SEND_SCR: SD 3.0, 1- and 4-bit bus, no CMD23
+                Respond(R1());
+                QueueBlock(new byte[] { 0x02, 0x05, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00 });
+                return true;
+            }
+            return false;
+        }
+
+        private byte R1()
+        {
+            return idle ? R1Idle : (byte)0;
+        }
+
+        private void Respond(byte r1)
+        {
+            output.Enqueue(r1);
+        }
+
+        // NAC, start token, data, CRC16.
+        private void QueueBlock(byte[] data)
+        {
+            output.Enqueue(0xFF);
+            output.Enqueue(TokenSingle);
+            foreach(var b in data)
+            {
+                output.Enqueue(b);
+            }
+            var crc = Crc16(data);
+            output.Enqueue((byte)(crc >> 8));
+            output.Enqueue((byte)crc);
+        }
+
+        private byte[] ReadBlock(long block)
+        {
+            var data = new byte[BlockSize];
+            try
+            {
+                image.Seek(block * BlockSize, SeekOrigin.Begin);
+                var done = 0;
+                while(done < BlockSize)
+                {
+                    var n = image.Read(data, done, BlockSize - done);
+                    if(n <= 0)
+                    {
+                        break;
+                    }
+                    done += n;
+                }
+            }
+            catch(Exception e)
+            {
+                this.Log(LogLevel.Warning, "cannot read block {0}: {1}", block, e.Message);
+            }
+            blocksRead++;
+            this.Log(LogLevel.Noisy, "read block {0}", block);
+            return data;
+        }
+
+        private void WriteBlock()
+        {
+            byte token = DataAccepted;
+            if(writeAddress >= blockCount)
+            {
+                token = DataWriteError;
+            }
+            else
+            {
+                try
+                {
+                    image.Seek(writeAddress * BlockSize, SeekOrigin.Begin);
+                    image.Write(writeBuffer, 0, BlockSize);
+                    image.Flush();
+                    blocksWritten++;
+                    lastWritten++;
+                    this.Log(LogLevel.Noisy, "wrote block {0}", writeAddress);
+                }
+                catch(Exception e)
+                {
+                    this.Log(LogLevel.Warning, "cannot write block {0}: {1}", writeAddress, e.Message);
+                    token = DataWriteError;
+                }
+                writeAddress++;
+            }
+            output.Enqueue(token);
+            state = multiWrite && token == DataAccepted ? State.WriteToken : State.Command;
+        }
+
+        // CSD version 2.0 (SDHC): 512-byte blocks, capacity (C_SIZE + 1) * 512 KiB.
+        private byte[] Csd()
+        {
+            var cSize = blockCount / (CapacityUnit / BlockSize) - 1;
+            var csd = new byte[] {
+                0x40, 0x0E, 0x00, 0x32, 0x5B, 0x59, 0x00,
+                (byte)((cSize >> 16) & 0x3F), (byte)(cSize >> 8), (byte)cSize,
+                0x7F, 0x80, 0x0A, 0x40, 0x00, 0x00,
+            };
+            csd[15] = (byte)((Crc7(csd, 15) << 1) | 1);
+            return csd;
+        }
+
+        private static readonly byte[] Cid = MakeCid();
+
+        // Manufacturer 0x54, OEM "TB", product "SIMSD", revision 1.0, made 2026-01.
+        private static byte[] MakeCid()
+        {
+            var cid = new byte[] { 0x54, (byte)'T', (byte)'B', (byte)'S', (byte)'I', (byte)'M', (byte)'S', (byte)'D', 0x10, 0x00, 0x00, 0x00, 0x01, 0x01, 0xA1, 0x00 };
+            cid[15] = (byte)((Crc7(cid, 15) << 1) | 1);
+            return cid;
+        }
+
+        private static byte Crc7(byte[] data, int length)
+        {
+            var crc = 0;
+            for(var i = 0; i < length; i++)
+            {
+                for(var bit = 7; bit >= 0; bit--)
+                {
+                    var top = (crc >> 6) & 1;
+                    crc = (crc << 1) & 0x7F;
+                    if((((data[i] >> bit) & 1) ^ top) != 0)
+                    {
+                        crc ^= 0x09;
+                    }
+                }
+            }
+            return (byte)crc;
+        }
+
+        // CRC16-CCITT (XMODEM), as Zephyr's crc16_itu_t(0, ...).
+        private static ushort Crc16(byte[] data)
+        {
+            var crc = 0;
+            foreach(var b in data)
+            {
+                crc ^= b << 8;
+                for(var i = 0; i < 8; i++)
+                {
+                    crc = (crc & 0x8000) != 0 ? (crc << 1) ^ 0x1021 : crc << 1;
+                }
+            }
+            return (ushort)crc;
+        }
+
+        private enum State
+        {
+            Command,
+            WriteToken,
+            WriteData,
+        }
+
+        private const int BlockSize = 512;
+        private const long CapacityUnit = 512 * 1024;
+        private const byte R1Idle = 0x01;
+        private const byte R1IllegalCommand = 0x04;
+        private const byte R1ParameterError = 0x40;
+        private const byte TokenSingle = 0xFE;
+        private const byte TokenMultiWrite = 0xFC;
+        private const byte TokenStopTran = 0xFD;
+        private const byte DataAccepted = 0xE5;
+        private const byte DataWriteError = 0xED;
+
+        private readonly Queue<byte> output = new Queue<byte>();
+        private readonly byte[] command = new byte[6];
+        private readonly byte[] writeBuffer = new byte[BlockSize + 2];
+        private State state;
+        private int cmdLength, dataLength, bitCount;
+        private byte txByte, rxByte;
+        private bool selected, lastClk, idle, appCmd, streaming, multiWrite;
+        private bool inserted = true;
+        private long streamBlock, writeAddress, blockCount, blocksRead, blocksWritten;
+        private uint lastWritten;
+        private FileStream image;
+        private string imageFile;
+
+        private readonly TibboGPIOPort clkPort, mosiPort, misoPort, csPort;
+        private readonly int clkPin, mosiPin, misoPin, csPin;
     }
 
     // TCP endpoint for the sim-manager. Outbound frames: [type:u8][length:u32 LE][payload]

@@ -479,6 +479,15 @@ dialog menu { display: flex; justify-content: flex-end; gap: 8px; margin: 6px 0 
 .tibbit-table tr.conn td { background: color-mix(in srgb, var(--tgreen) 6%, transparent); }
 .tibbit-table select { max-width: 360px; width: 100%; }
 .tibbit-table .lines { font: 11.5px ui-monospace, Consolas, monospace; white-space: nowrap; }
+.case-select { display: flex; align-items: center; gap: 6px; font-size: 12.5px; white-space: nowrap; }
+a.btn { text-decoration: none; }
+.sd-cards { max-width: 900px; margin-top: 14px; }
+.sd-cards h4 { margin: 0 0 4px; }
+.sd-card { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; padding: 6px 0; border-top: 1px solid var(--border); }
+.sd-card .lines { font: 11.5px ui-monospace, Consolas, monospace; }
+.sd-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.project-summary { margin: 0; padding: 6px 10px; border-radius: 6px; background: var(--surface-2); font-size: 12.5px; }
+.project-summary ul { margin: 4px 0 0; padding-left: 18px; }
 .field-inspector { max-height: 60vh; }
 .name-input { width: 220px; }
 .field-form { display: flex; flex-direction: column; gap: 10px; max-width: 760px; }

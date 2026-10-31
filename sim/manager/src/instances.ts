@@ -13,7 +13,9 @@ import {
     prepareFlash, useDefaultMonitor, writeFlash,
 } from './monitor';
 import { createTap, deleteTap, writeDhcpHosts, TcpForward } from './network';
-import { McuPin, Placements, Terminal, checkPlacements, terminalsOf } from './tibbits';
+import { ProjectSetup } from './project';
+import { SD_DEFAULT_MB, SD_UNIT, checkSdImage, formatSdImage } from './sdcard';
+import { McuPin, Placements, SdCard, Terminal, checkPlacements, sdCardsOf, terminalsOf } from './tibbits';
 
 const UART_INDEX: Record<string, number> = { usart1: 0, usart2: 1, usart3: 2, uart4: 3, uart5: 4, usart6: 5 };
 const CONSOLE_HISTORY_BYTES = 64 * 1024;
@@ -27,6 +29,16 @@ export interface InstanceConfig {
     autoStart: boolean;
     // Tibbits in the TPP's sockets (socket -> model). Terminal blocks among them give the instance wire terminals.
     tibbits?: Placements;
+    // TPP2 in the TPB2L case (LCD and keypad) or not; unset: as the firmware's DTS says.
+    lcd?: boolean;
+    // #49 slots (by socket) whose card is taken out.
+    sdEjected?: string[];
+}
+
+// A #49 slot as shown to clients: its pins, and the card image (size 0 until the first start makes one).
+export interface SdCardInfo extends SdCard {
+    size: number;
+    inserted: boolean;
 }
 
 // Files uploaded to an instance: an app ELF (+ DTS), and/or a .bin written into flash at `address`
@@ -132,10 +144,15 @@ export class Instance extends EventEmitter {
         return this.fw || undefined;
     }
 
-    // Buttons, LEDs and UARTs: from the firmware's DTS, else the TPP defaults for the board. A TPP2
-    // with the LCD always has its keypad.
+    // Buttons, LEDs and UARTs: from the firmware's DTS, else the TPP defaults for the board. The LCD is
+    // there when the instance is set up as a TPB2L, or (unset) as the DTS says. A TPP2 with the LCD
+    // always has its keypad.
     get profile(): BoardProfile {
-        return withKeypad(this.cfg.board, this.firmware?.profile || defaultProfile(this.cfg.board));
+        let profile = this.firmware?.profile || defaultProfile(this.cfg.board);
+        if (this.cfg.lcd !== undefined && this.cfg.board.startsWith('tpp2')) {
+            profile = { ...profile, lcd: this.cfg.lcd ? profile.lcd || { width: 320, height: 240 } : undefined };
+        }
+        return withKeypad(this.cfg.board, profile);
     }
 
     get tibbits(): Placements {
@@ -146,10 +163,88 @@ export class Instance extends EventEmitter {
         return terminalsOf(this.cfg.board, this.tibbits);
     }
 
-    // Replaces the Tibbit placements (socket -> model; null or '' empties a socket).
-    setTibbits(map: Record<string, string | null>): void {
-        this.cfg.tibbits = checkPlacements(this.cfg.board, map);
+    get sdCards(): SdCardInfo[] {
+        return sdCardsOf(this.cfg.board, this.tibbits).map((c) => {
+            const file = this.sdImagePath(c.socket);
+            return { ...c, size: fs.existsSync(file) ? fs.statSync(file).size : 0, inserted: !(this.cfg.sdEjected || []).includes(c.socket) };
+        });
+    }
+
+    sdImagePath(socket: string): string {
+        return path.join(this.dir, `sd${socket}.img`);
+    }
+
+    // Replaces the Tibbit placements (socket -> model; null or '' empties a socket). Adding or removing
+    // an SD slot changes the machine, so a running instance restarts.
+    async setTibbits(map: Record<string, string | null>): Promise<void> {
+        const placed = checkPlacements(this.cfg.board, map);
+        const slots = (p: Placements) => JSON.stringify(sdCardsOf(this.cfg.board, p));
+        const restart = slots(placed) !== slots(this.tibbits);
+        const apply = () => {
+            this.cfg.tibbits = placed;
+            this.save();
+        };
+        if (restart) {
+            await this.whileStopped(apply);
+        } else {
+            apply();
+        }
+    }
+
+    // The hardware a Cody project describes: Tibbits and, on a TPP2, the LCD.
+    async applyProject(setup: ProjectSetup): Promise<void> {
+        if (setup.lcd !== undefined) {
+            this.cfg.lcd = setup.lcd;
+        }
+        await this.setTibbits(setup.tibbits);
+        this.idleButtons();
+    }
+
+    // TPB2L (LCD and keypad) on a TPP2; undefined goes back to what the DTS says.
+    setLcd(lcd: boolean | undefined): void {
+        if (lcd === undefined) {
+            delete this.cfg.lcd;
+        } else {
+            this.cfg.lcd = lcd;
+        }
         this.save();
+        this.idleButtons();
+    }
+
+    // Takes the card out of a #49 slot or puts it back; a running instance sees it at once.
+    setSdInserted(socket: string, inserted: boolean): void {
+        this.mustSdCard(socket);
+        const out = new Set(this.cfg.sdEjected || []);
+        if (inserted) {
+            out.delete(socket);
+        } else {
+            out.add(socket);
+        }
+        this.cfg.sdEjected = Array.from(out);
+        if (!this.cfg.sdEjected.length) {
+            delete this.cfg.sdEjected;
+        }
+        this.save();
+        this.monitorCommand(`sd${socket} Inserted ${inserted}`);
+    }
+
+    // A blank FAT32 card of `mb` MiB in the slot, with the instance stopped for it.
+    async formatSdCard(socket: string, mb: number): Promise<void> {
+        this.mustSdCard(socket);
+        await this.whileStopped(() => formatSdImage(this.sdImagePath(socket), mb));
+    }
+
+    // Puts the image in `file` (moved, not copied) into the slot, with the instance stopped for it.
+    async replaceSdImage(socket: string, file: string): Promise<void> {
+        this.mustSdCard(socket);
+        checkSdImage(fs.statSync(file).size);
+        await this.whileStopped(() => fs.renameSync(file, this.sdImagePath(socket)));
+    }
+
+    private mustSdCard(socket: string): void {
+        if (!sdCardsOf(this.cfg.board, this.tibbits).some((c) => c.socket === socket)) {
+            throw new Error(`no #49 SD slot in socket ${socket}`);
+        }
     }
 
     // The monitor at 0x08000000: one a .bin upload wrote there, else the generation's default.
@@ -188,6 +283,7 @@ export class Instance extends EventEmitter {
             profile: this.profile,
             tibbits: this.tibbits,
             terminals: this.terminals,
+            sdCards: this.sdCards,
             firmware: fw ? { name: fw.name, uploadedAt: fw.uploadedAt, hasDts: fw.hasDts } : undefined,
             monitor: this.monitorBoot,
             // The monitor the next start uses; own = written by a .bin upload (not the default).
@@ -234,6 +330,13 @@ export class Instance extends EventEmitter {
             throw new Error(`no firmware: upload one, or set the ${gen.toUpperCase()} monitor to upload over UDP`);
         }
         fs.mkdirSync(this.dir, { recursive: true });
+        // A #49 slot gets a blank card the first time.
+        for (const c of this.sdCards) {
+            if (!c.size) {
+                formatSdImage(this.sdImagePath(c.socket), SD_DEFAULT_MB);
+                this.addLog(`socket ${c.socket}: blank ${SD_DEFAULT_MB} MB FAT32 card in sd${c.socket}.img`);
+            }
+        }
         const resc = path.join(this.dir, 'instance.resc');
         fs.writeFileSync(resc, this.renderResc(fw));
 
@@ -452,6 +555,33 @@ export class Instance extends EventEmitter {
             `eeprom InitMac "${this.mac}"`,
             `spi1.at45 BackingFile @${path.join(this.dir, 'at45.bin')}`,
         ];
+        // #49 SD cards on the bit-banged SPI lines of the sockets around them, each on its own dummy bus window.
+        const cards = this.sdCards.filter((c) => c.size >= SD_UNIT);
+        if (cards.length) {
+            const port = (p: McuPin) => `gpioPort${p.port}`;
+            const repl = cards.map((c) => [
+                `sd${c.socket}: Miscellaneous.TibboSDCard @ sysbus ${hex(0x5f003000 + Number(c.socket) * 0x100)}`,
+                `    clkPort: ${port(c.clk)}`,
+                `    clkPin: ${c.clk.pin}`,
+                `    mosiPort: ${port(c.mosi)}`,
+                `    mosiPin: ${c.mosi.pin}`,
+                `    misoPort: ${port(c.miso)}`,
+                `    misoPin: ${c.miso.pin}`,
+                `    csPort: ${port(c.cs)}`,
+                `    csPin: ${c.cs.pin}`,
+            ].join('\n')).join('\n\n');
+            const replFile = path.join(this.dir, 'tibbits.repl');
+            fs.writeFileSync(replFile, repl + '\n');
+            // Right after the board, whose GPIO ports the cards use.
+            lines.splice(lines.findIndex((l) => l.startsWith('machine LoadPlatformDescription')) + 1, 0, `machine LoadPlatformDescription @${replFile}`);
+            for (const c of cards) {
+                lines.push(`sd${c.socket} ImageFile @${this.sdImagePath(c.socket)}`);
+                if (!c.inserted) {
+                    lines.push(`sd${c.socket} Inserted false`);
+                }
+                lines.push(`logLevel 1 sysbus.sd${c.socket}`);
+            }
+        }
         for (const uart of this.profile.uarts) {
             if (uart in UART_INDEX) {
                 lines.push(`emulation CreateServerSocketTerminal ${this.uartPort(uart)} "term_${uart}" false`);
@@ -488,10 +618,7 @@ export class Instance extends EventEmitter {
         this.connectWithRetry(this.bridgePort, (sock) => {
             this.bridge = sock;
             sock.setNoDelay(true);
-            // Buttons idle at their inactive level (the board has pull resistors on them).
-            for (const b of this.profile.buttons) {
-                this.setPin(b.port, b.pin, b.activeLow);
-            }
+            this.idleButtons();
             this.setStatus('running');
             let pending: Buffer = Buffer.alloc(0);
             sock.on('data', (chunk) => {
@@ -577,6 +704,18 @@ export class Instance extends EventEmitter {
         this.bridge?.write(cmd + '\n');
     }
 
+    // A Renode monitor command for the running machine.
+    private monitorCommand(cmd: string): void {
+        this.proc?.stdin?.write(cmd + '\n');
+    }
+
+    // Buttons idle at their inactive level (the board has pull resistors on them).
+    private idleButtons(): void {
+        for (const b of this.profile.buttons) {
+            this.setPin(b.port, b.pin, b.activeLow);
+        }
+    }
+
     private disconnect(): void {
         this.bridge?.destroy();
         this.bridge = undefined;
@@ -639,6 +778,8 @@ export class InstanceManager extends EventEmitter {
         start?: boolean;
         // Fixes the instance's number, and so its MAC, IP and ports (for firmware built for known addresses).
         index?: number;
+        // Hardware from a Cody project (setupFor the board): Tibbits and the LCD.
+        project?: ProjectSetup;
     }): Promise<Instance> {
         if (!isBoard(opts.board)) {
             throw new Error('board must be tpp2g2, tpp3g2, tpp2g3 or tpp3g3');
@@ -667,6 +808,12 @@ export class InstanceManager extends EventEmitter {
             board: opts.board,
             autoStart: false,
         });
+        if (opts.project) {
+            inst.cfg.tibbits = checkPlacements(opts.board, opts.project.tibbits);
+            if (opts.project.lcd !== undefined) {
+                inst.cfg.lcd = opts.project.lcd;
+            }
+        }
         // The ELF (and DTS) is checked against the board, and a .bin as a monitor image, before the
         // instance is kept.
         if (opts.upload) {
@@ -698,9 +845,44 @@ export class InstanceManager extends EventEmitter {
         return inst;
     }
 
-    setTibbits(id: string, map: Record<string, string | null>): Instance {
+    async setTibbits(id: string, map: Record<string, string | null>): Promise<Instance> {
         const inst = this.mustGet(id);
-        inst.setTibbits(map);
+        await inst.setTibbits(map);
+        this.emit('changed', inst);
+        return inst;
+    }
+
+    async applyProject(id: string, setup: ProjectSetup): Promise<Instance> {
+        const inst = this.mustGet(id);
+        await inst.applyProject(setup);
+        this.emit('changed', inst);
+        return inst;
+    }
+
+    setLcd(id: string, lcd: boolean | undefined): Instance {
+        const inst = this.mustGet(id);
+        inst.setLcd(lcd);
+        this.emit('changed', inst);
+        return inst;
+    }
+
+    setSdInserted(id: string, socket: string, inserted: boolean): Instance {
+        const inst = this.mustGet(id);
+        inst.setSdInserted(socket, inserted);
+        this.emit('changed', inst);
+        return inst;
+    }
+
+    async formatSdCard(id: string, socket: string, mb: number): Promise<Instance> {
+        const inst = this.mustGet(id);
+        await inst.formatSdCard(socket, mb);
+        this.emit('changed', inst);
+        return inst;
+    }
+
+    async replaceSdImage(id: string, socket: string, file: string): Promise<Instance> {
+        const inst = this.mustGet(id);
+        await inst.replaceSdImage(socket, file);
         this.emit('changed', inst);
         return inst;
     }

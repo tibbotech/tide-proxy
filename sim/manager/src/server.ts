@@ -1,6 +1,8 @@
+import * as fs from 'fs';
 import * as http from 'http';
 import * as path from 'path';
 import * as zlib from 'zlib';
+import { pipeline } from 'stream/promises';
 import express from 'express';
 import { WebSocketServer, WebSocket } from 'ws';
 
@@ -10,7 +12,9 @@ import { FieldDeviceManager } from './fielddevices';
 import { FirmwareUpload, Instance, InstanceManager } from './instances';
 import { LinkManager } from './links';
 import { deleteMonitor, listMonitors, monitorJSON, setMonitor } from './monitor';
-import { allSockets, placementsFromProject, tibbitCatalog } from './tibbits';
+import { projectSetup, setupFor } from './project';
+import { SD_DEFAULT_MB } from './sdcard';
+import { allSockets, tibbitCatalog } from './tibbits';
 import { WiringManager } from './wiring';
 import { UdpRelay } from './udpRelay';
 import { UdpDebugConsole } from './udpConsole';
@@ -147,12 +151,22 @@ function parseAddress(v: any): number | undefined {
     return n;
 }
 
-// Body: { board: 'tpp2g2'|'tpp3g2'|'tpp2g3'|'tpp3g3', name?, count?, start?, index?, ...files (see firmwareUpload) }.
+// Body: { board: 'tpp2g2'|'tpp3g2'|'tpp2g3'|'tpp3g3', name?, count?, start?, index?, project?, ...files (see firmwareUpload) }.
 // Without an elf the instance has no app: it boots into its monitor's Loader for an upload over UDP,
 // or waits for an upload. Without a bin it uses the generation's default monitor, if one is set.
 // index (with count 1) picks the instance number, and so its MAC, IP and ports; it must be free.
+// project, a Cody project (.json), sets the board (board may be left out), the name, the LCD and the Tibbits.
 app.post('/api/instances', api(async (req) => {
-    const { board, name, count, start, index } = req.body || {};
+    const { name, count, start, index, project } = req.body || {};
+    let { board } = req.body || {};
+    const setup = project ? projectSetup(project) : undefined;
+    if (setup) {
+        if (board && board !== setup.board) {
+            throw new Error(`the project is for ${setup.device} (${setup.board}), not ${board}`);
+        }
+        board = setup.board;
+    }
+    const base = name || setup?.name;
     const upload = firmwareUpload(req.body);
     const n = Math.max(1, Math.min(16, parseInt(count, 10) || 1));
     if (index !== undefined && n > 1) {
@@ -161,7 +175,7 @@ app.post('/api/instances', api(async (req) => {
     const created: Instance[] = [];
     try {
         for (let i = 0; i < n; i++) {
-            created.push(await manager.create({ board, upload, name: n > 1 && name ? `${name} ${i + 1}` : name, start, index }));
+            created.push(await manager.create({ board, upload, name: n > 1 && base ? `${base} ${i + 1}` : base, start, index, project: setup }));
         }
     } finally {
         broadcastInstances();
@@ -169,10 +183,23 @@ app.post('/api/instances', api(async (req) => {
     return created;
 }));
 
+// Body: { name?, lcd?: true | false | null }. lcd sets a TPP2 up as a TPB2L (LCD and keypad) or not;
+// null goes back to what the firmware's DTS says.
 app.patch('/api/instances/:id', api(async (req) => {
-    const { name } = req.body || {};
-    return manager.update(instance(req).id, { name });
+    const { name, lcd } = req.body || {};
+    const inst = instance(req);
+    if (lcd !== undefined) {
+        if (!inst.cfg.board.startsWith('tpp2')) {
+            throw new Error('only a TPP2 has the LCD option');
+        }
+        manager.setLcd(inst.id, lcd === null ? undefined : !!lcd);
+    }
+    return manager.update(inst.id, { name });
 }));
+
+// What a Cody project (body: the .json, or { project }) sets up: board, name, LCD, Tibbits, and what
+// was skipped or added. Nothing is created.
+app.post('/api/projects/preview', api((req) => projectSetup(req.body?.project || req.body)));
 
 // Body: files as for POST /api/instances (elf and/or bin, dts with elf). Without a dts the
 // instance keeps its current one; without a bin, its current monitor.
@@ -213,20 +240,74 @@ app.get('/api/tibbits', api(() => ({ tibbits: tibbitCatalog(), sockets: allSocke
 
 // Body: { tibbits: { "<socket>": "<model>" | null } }, replacing the Tibbits in the TPP's sockets.
 // A #20/#21 terminal block in a connector socket gives the Tibbit next to it wire terminals.
-app.put('/api/instances/:id/tibbits', api((req) => {
-    const inst = manager.setTibbits(instance(req).id, (req.body || {}).tibbits || {});
+// Adding or removing a #49 SD slot restarts a running instance.
+app.put('/api/instances/:id/tibbits', api(async (req) => {
+    const inst = await manager.setTibbits(instance(req).id, (req.body || {}).tibbits || {});
     wiring.refresh();
     return inst;
 }));
 
-// Body: a Cody project (its .json export), or { project }. Takes the Tibbits it places in sockets.
-app.post('/api/instances/:id/tibbits/import', api((req) => {
+// Body: a Cody project (its .json export), or { project }. Takes the Tibbits it places in sockets and,
+// on a TPP2, the LCD. A project for another board is applied as far as the sockets allow.
+app.post('/api/instances/:id/tibbits/import', api(async (req) => {
     const inst = instance(req);
     const project = req.body?.project || req.body;
-    const { placements, skipped } = placementsFromProject(inst.cfg.board, project);
-    manager.setTibbits(inst.id, placements);
+    if (!Array.isArray(project?.features)) {
+        throw new Error('not a Cody project (no features list)');
+    }
+    const setup = setupFor(inst.cfg.board, project);
+    await manager.applyProject(inst.id, setup);
     wiring.refresh();
-    return { instance: inst, projectDevice: project?.device, skipped };
+    return { instance: inst, projectDevice: setup.device, skipped: setup.skipped, notes: setup.notes };
+}));
+
+// ---- #49 SD cards (by the slot's socket) ----
+
+function sdSocket(req: express.Request): { inst: Instance; socket: string } {
+    const inst = instance(req);
+    const socket = req.params.socket;
+    if (!inst.sdCards.some((c) => c.socket === socket)) {
+        throw Object.assign(new Error(`no #49 SD slot in socket ${socket}`), { status: 404 });
+    }
+    return { inst, socket };
+}
+
+// Body: { inserted: bool }. Takes the card out or puts it back, also while running.
+app.put('/api/instances/:id/sd/:socket', api((req) => {
+    const { inst, socket } = sdSocket(req);
+    return manager.setSdInserted(inst.id, socket, !!req.body?.inserted);
+}));
+
+// Body: { sizeMB? } (64-4096, default 64). A blank FAT32 card; a running instance restarts.
+app.post('/api/instances/:id/sd/:socket/format', api(async (req) => {
+    const { inst, socket } = sdSocket(req);
+    return manager.formatSdCard(inst.id, socket, Number(req.body?.sizeMB ?? SD_DEFAULT_MB));
+}));
+
+// The card image. Written to while the instance runs, so take it from a stopped one for a clean copy.
+app.get('/api/instances/:id/sd/:socket/image', (req, res) => {
+    try {
+        const { inst, socket } = sdSocket(req);
+        const file = inst.sdImagePath(socket);
+        if (!fs.existsSync(file)) {
+            throw Object.assign(new Error('no card image yet: it is made at the first start'), { status: 404 });
+        }
+        res.download(file, `${inst.cfg.name.replace(/[^\w.-]+/g, '_')}-sd${socket}.img`);
+    } catch (e: any) {
+        res.status(e.status || 400).json({ error: e.message });
+    }
+});
+
+// Body: the raw image (application/octet-stream). Replaces the card; a running instance restarts.
+app.put('/api/instances/:id/sd/:socket/image', api(async (req) => {
+    const { inst, socket } = sdSocket(req);
+    const tmp = `${inst.sdImagePath(socket)}.upload`;
+    try {
+        await pipeline(req, fs.createWriteStream(tmp));
+        return await manager.replaceSdImage(inst.id, socket, tmp);
+    } finally {
+        fs.rmSync(tmp, { force: true });
+    }
 }));
 
 app.get('/api/devices', api(() => fields.toJSON()));

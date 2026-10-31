@@ -106,9 +106,24 @@ export const renameLink = (id: string, name: string) => guard(api('PATCH', `/api
 export const setTibbits = (id: string, tibbits: Record<string, string | null>) => guard(api('PUT', `/api/instances/${id}/tibbits`, { tibbits }));
 
 export async function importTibbits(id: string, project: unknown) {
-    const res = await guard(api<{ skipped: string[]; projectDevice?: string }>('POST', `/api/instances/${id}/tibbits/import`, { project }));
-    if (res && res.skipped.length) notify(`Imported, but skipped: ${res.skipped.join('; ')}`, 'info');
+    const res = await guard(api<{ skipped: string[]; notes: string[]; projectDevice?: string }>('POST', `/api/instances/${id}/tibbits/import`, { project }));
+    if (res && (res.skipped.length || res.notes.length)) {
+        notify(['Imported', ...res.notes, ...(res.skipped.length ? [`skipped: ${res.skipped.join('; ')}`] : [])].join('. '), 'info');
+    }
     return res;
+}
+
+// TPB2L (LCD and keypad) on a TPP2; null: as the firmware's DTS says.
+export const setLcd = (id: string, lcd: boolean | null) => guard(api('PATCH', `/api/instances/${id}`, { lcd }));
+
+// ---- #49 SD cards ----
+export const sdImageUrl = (id: string, socket: string) => `/api/instances/${id}/sd/${socket}/image`;
+export const setSdInserted = (id: string, socket: string, inserted: boolean) => guard(api('PUT', `/api/instances/${id}/sd/${socket}`, { inserted }));
+export const formatSdCard = (id: string, socket: string, sizeMB: number) => guard(api('POST', `/api/instances/${id}/sd/${socket}/format`, { sizeMB }));
+
+export async function uploadSdImage(id: string, socket: string, file: File) {
+    const res = await fetch(sdImageUrl(id, socket), { method: 'PUT', headers: { 'Content-Type': 'application/octet-stream' }, body: file });
+    if (!res.ok) notify((await res.json().catch(() => ({}))).error || res.statusText);
 }
 
 export const addFieldDevice = (kind: FieldKind, place?: { rail: string; x: number }) =>

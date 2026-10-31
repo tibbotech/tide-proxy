@@ -82,8 +82,11 @@ const SIM: Record<string, SimLine[]> = {
 
 export const TERMINAL_BLOCKS = ['20', '21'];
 
+// #49 microSD slot: a connector Tibbit with no terminals; the card itself is simulated (see sdCardsOf).
+export const SD_SLOT = '49';
+
 const sockets = SOCKETS as Record<string, SocketInfo[]>;
-const catalog: TibbitInfo[] = (TIBBITS as TibbitInfo[]).map((t) => ({ ...t, sim: t.model in SIM }));
+const catalog: TibbitInfo[] = (TIBBITS as TibbitInfo[]).map((t) => ({ ...t, sim: t.model in SIM || t.model === SD_SLOT }));
 const byModel = new Map(catalog.map((t) => [t.model, t]));
 
 export const tibbitCatalog = (): TibbitInfo[] => catalog;
@@ -199,6 +202,44 @@ export function terminalsOf(board: Board, placed: Placements): Terminal[] {
 
 export { isFunctionSocket };
 
+export interface SdCard {
+    socket: string; // the connector socket #49 is in
+    clk: McuPin;
+    mosi: McuPin;
+    miso: McuPin;
+    cs: McuPin;
+}
+
+// The #49 SD slots and the MCU pins of their bit-banged SPI bus, as Cody's Tibbit_49 assigns them: CLK
+// and MOSI are lines 1 and 2 of the function socket before the slot, MISO and CS lines 1 and 4 of the
+// one after it. A slot whose sockets lack those lines is left out.
+export function sdCardsOf(board: Board, placed: Placements): SdCard[] {
+    const list = socketsOf(board);
+    const lines = (socket: number) => list.find((s) => s.socket === String(socket))?.lines || [];
+    const out: SdCard[] = [];
+    for (const [socket, model] of Object.entries(placed)) {
+        if (model !== SD_SLOT) {
+            continue;
+        }
+        const before = lines(Number(socket) - 1);
+        const after = lines(Number(socket) + 1);
+        const [clk, mosi, miso, cs] = [before[0], before[1], after[0], after[3]];
+        if (clk && mosi && miso && cs) {
+            out.push({ socket, clk, mosi, miso, cs });
+        }
+    }
+    return out.sort((a, b) => Number(a.socket) - Number(b.socket));
+}
+
+// A Cody feature's settings: an object in current projects, a list of { id, value } in older ones.
+export function featureSettings(feature: any): Record<string, any> {
+    const s = feature?.settings;
+    if (Array.isArray(s)) {
+        return Object.fromEntries(s.filter((x) => x && x.id !== undefined).map((x) => [String(x.id), x.value]));
+    }
+    return s && typeof s === 'object' ? s : {};
+}
+
 // Placements from a Cody project (its features list names each Tibbit's socket). Only Tibbits the board
 // takes are kept; the rest are reported.
 export function placementsFromProject(board: Board, project: any): { placements: Placements; skipped: string[] } {
@@ -207,11 +248,12 @@ export function placementsFromProject(board: Board, project: any): { placements:
     const skipped: string[] = [];
     for (const f of features) {
         const id = String(f?.id || '');
-        if (!id.startsWith('tibbit_') || !f.settings?.SOCKET) {
+        const settings = featureSettings(f);
+        if (!id.startsWith('tibbit_') || !settings.SOCKET || settings.ENABLED === '0') {
             continue;
         }
-        const model = String(f.settings.TIBBIT || id.slice('tibbit_'.length));
-        wanted[String(f.settings.SOCKET)] = model;
+        const model = String(settings.TIBBIT || id.slice('tibbit_'.length));
+        wanted[String(settings.SOCKET)] = model;
     }
     const placements: Placements = {};
     for (const [socket, model] of Object.entries(wanted)) {

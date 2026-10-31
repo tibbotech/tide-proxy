@@ -3,7 +3,29 @@ import { createInstances } from '../actions';
 import { api } from '../api';
 import { bootHint, describeFiles, firmwareFields, FLASH_ADDRESSES, hexAddr, pickedFiles } from '../firmware';
 import { useMonitors } from '../store';
-import type { Board, Generation, Instance } from '../types';
+import type { Board, Generation, Instance, ProjectSetup } from '../types';
+
+// What the picked Cody project puts on the device.
+function ProjectSummary({ setup }: { setup: ProjectSetup }) {
+    const tibbits = Object.entries(setup.tibbits).sort(([a], [b]) => Number(a) - Number(b));
+    const lcd = setup.lcd === undefined ? '' : setup.lcd ? ' · TPB2L (LCD and keypad)' : ' · TPB2 (no LCD)';
+    return (
+        <div className="project-summary">
+            <strong>{setup.board.toUpperCase()}</strong>
+            {lcd} · {tibbits.length ? tibbits.map(([s, m]) => `#${m} in ${s}`).join(', ') : 'no Tibbits'}
+            {setup.notes.length || setup.skipped.length ? (
+                <ul className="muted">
+                    {setup.notes.map((n) => (
+                        <li key={n}>{n}</li>
+                    ))}
+                    {setup.skipped.map((n) => (
+                        <li key={n}>skipped {n}</li>
+                    ))}
+                </ul>
+            ) : null}
+        </div>
+    );
+}
 
 // Native <dialog>, opened as a modal on mount.
 function Modal({ title, sub, onClose, children }: { title: string; sub?: string; onClose: () => void; children: ReactNode }) {
@@ -74,16 +96,32 @@ export function NewDeviceDialog({ board: initial, onClose }: { board: Board; onC
     const [binAddress, setBinAddress] = useState('0x08000000');
     const [error, setError] = useState('');
     const [busy, setBusy] = useState(false);
+    const [project, setProject] = useState<{ json: unknown; setup: ProjectSetup } | null>(null);
     const monitors = useMonitors();
     const gen = board.slice(-2) as Generation;
     const hint = bootHint(files, binAddress, gen, monitors);
+
+    // A Cody project decides the board and the hardware; the name defaults to the project's.
+    const pickProject = async (f: File | undefined) => {
+        setError('');
+        setProject(null);
+        if (!f) return;
+        try {
+            const json = JSON.parse(await f.text());
+            const setup = await api<ProjectSetup>('POST', '/api/projects/preview', { project: json });
+            setProject({ json, setup });
+            setBoard(setup.board);
+        } catch (err: any) {
+            setError(`${f.name}: ${err.message}`);
+        }
+    };
 
     const submit = async (e: FormEvent) => {
         e.preventDefault();
         setBusy(true);
         setError('');
         try {
-            await createInstances({ board, name: name || undefined, count, ...(await firmwareFields(files, binAddress)) });
+            await createInstances({ board, name: name || undefined, count, project: project?.json, ...(await firmwareFields(files, binAddress)) });
             onClose();
         } catch (err: any) {
             setError(err.message);
@@ -96,8 +134,13 @@ export function NewDeviceDialog({ board: initial, onClose }: { board: Board; onC
         <Modal title="New device" onClose={onClose}>
             <form onSubmit={submit}>
                 <label>
+                    Cody project (optional: sets the device, case and Tibbits)
+                    <input type="file" accept=".json,application/json" onChange={(e) => pickProject(e.target.files?.[0])} />
+                </label>
+                {project && <ProjectSummary setup={project.setup} />}
+                <label>
                     Device
-                    <select value={board} onChange={(e) => setBoard(e.target.value as Board)}>
+                    <select value={board} disabled={!!project} onChange={(e) => setBoard(e.target.value as Board)}>
                         <optgroup label="G2 · STM32F207">
                             <option value="tpp2g2">TPP2G2</option>
                             <option value="tpp3g2">TPP3G2</option>
@@ -110,7 +153,7 @@ export function NewDeviceDialog({ board: initial, onClose }: { board: Board; onC
                 </label>
                 <label>
                     Name
-                    <input value={name} placeholder="TPP sim" onChange={(e) => setName(e.target.value)} />
+                    <input value={name} placeholder={project?.setup.name || 'TPP sim'} onChange={(e) => setName(e.target.value)} />
                 </label>
                 <label>
                     Count
